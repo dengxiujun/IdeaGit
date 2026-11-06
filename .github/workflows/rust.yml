@@ -1,0 +1,155 @@
+name: Rust CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust 1.99.1
+        run: >-
+          rustup toolchain install 1.99.1
+          --profile minimal
+          --component rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  verify:
+    name: Verify / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - windows-2025
+          - macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux native dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc \
+            g++ \
+            clang \
+            cmake \
+            pkg-config \
+            libfontconfig-dev \
+            libwayland-dev \
+            libwebkit2gtk-4.1-dev \
+            libxkbcommon-x11-dev \
+            libx11-xcb-dev \
+            libssl-dev \
+            libzstd-dev \
+            vulkan-validationlayers \
+            libvulkan1
+
+      - name: Install Rust 1.99.1
+        run: >-
+          rustup toolchain install 1.99.1
+          --profile minimal
+          --component rustfmt
+          --component clippy
+
+      - name: Show runner environment
+        shell: bash
+        run: |
+          echo "runner.os=${{ runner.os }}"
+          echo "ImageOS=${ImageOS:-unknown}"
+          echo "ImageVersion=${ImageVersion:-unknown}"
+          rustc --version --verbose
+          cargo --version
+          rustup show active-toolchain
+          cmake --version
+          git --version
+
+      - name: Verify Windows native toolchain
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} `
+            "Microsoft Visual Studio\Installer\vswhere.exe"
+          $visualStudio = & $vswhere `
+            -latest `
+            -version "[17.0,18.0)" `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
+          if (-not $visualStudio) {
+            throw "Visual Studio C++ build tools were not found"
+          }
+
+          $windowsSdk = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\Lib"
+          if (-not (Test-Path $windowsSdk)) {
+            throw "Windows SDK libraries were not found"
+          }
+
+          Write-Host "Visual Studio: $visualStudio"
+          Write-Host "Windows SDK libraries: $windowsSdk"
+
+          $rustVersion = rustc --version --verbose | Out-String
+          if ($rustVersion -notmatch "host: x86_64-pc-windows-msvc") {
+            throw "Expected the x86_64-pc-windows-msvc Rust host"
+          }
+
+      - name: Show Linux native toolchain
+        if: runner.os == 'Linux'
+        run: |
+          cc --version
+          pkg-config --version
+
+      - name: Show macOS native toolchain
+        if: runner.os == 'macOS'
+        run: xcodebuild -version
+
+      - name: Verify locked metadata
+        run: cargo metadata --locked --format-version 1 --no-deps
+
+      - name: Check workspace
+        run: cargo check --workspace --all-targets --locked
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Run tests
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --workspace --locked 2>&1 \
+            | tee "cargo-test-${{ runner.os }}.log"
+
+      - name: Upload failed test log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-test-${{ matrix.os }}
+          path: cargo-test-${{ runner.os }}.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Ensure Cargo.lock is unchanged
+        run: git diff --exit-code -- Cargo.lock

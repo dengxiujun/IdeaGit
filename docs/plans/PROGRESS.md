@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-INFRA-001 最小 Cargo Workspace 已建立并完成本机检查，待评审；M0 整体未完成。下文架构修订记录保留为历史，最新工程状态见末节。
+INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 三平台 CI Workflow 已建立，等待 GitHub 托管 Runner 首次实际运行。M0 整体未完成。
 
 ## 已完成的文档工作
 
@@ -14,7 +14,7 @@ INFRA-001 最小 Cargo Workspace 已建立并完成本机检查，待评审；M0
 - 根据 ADR 修订六份设计/基线/主计划：共享契约集中 Core §18；Index 写后恢复捷径移除；状态/恢复统一；任务前置和发布门禁补齐。
 - M0 清单保留首轮发现，并补充设计修订与待验证事项的区分。
 
-## 验证与限制
+## 架构修订阶段验证记录（历史）
 
 本次检查结果：
 
@@ -23,14 +23,14 @@ INFRA-001 最小 Cargo Workspace 已建立并完成本机检查，待评审；M0
 - git diff --check 通过；旧 docs/adr 目录已不存在，新目录包含正式 ADR。
 - 已清理旧 SnapshotVersion、冲突共享 DTO 定义、真实 Index 写后恢复捷径及仅按 RepositoryId 定位的 UI 执行上下文。
 
-未执行 Cargo 构建、Rust 测试、依赖安装、三平台窗口或真实 Git 故障注入，因为没有工程且本次批准范围为文档修订。
+以下限制描述的是 Workspace 建立前的架构修订阶段：当时未执行 Cargo 构建、Rust 测试、依赖安装、三平台窗口或真实 Git 故障注入。后续工程验证结果见 INFRA-001/002/003 各节。
 
 ## 未关闭的工程门禁
 
 | 范围 | 状态 / 放行条件 |
 |---|---|
-| Rust/GPUI/其他依赖 | 候选保持；INFRA-002 实际解析/锁定，MSRV 和 Git 最低版本/能力矩阵待验证 |
-| Workspace | 设计依赖已统一；实际 Cargo 图尚不存在，不能宣称已编译无环 |
+| Rust/GPUI/其他依赖 | Rust 1.99.1 与依赖已在 macOS 锁定；MSRV、Windows/Linux 和 Git 最低版本/能力矩阵待验证 |
+| Workspace | 25 个包已在当前 macOS 编译，Cargo 依赖无环；三平台 CI 实际结果待验证 |
 | 标准写操作 | Lock/Journal/RECOVERY-000/真实 Git fixture 完成后才能开放 |
 | Partial Commit / Index 编辑 | capability 默认关闭；锁内比较/发布、剩余 staged 转移、Hook/HEAD 竞争及 TEST-004 未验证 |
 | UI | 多 worktree、分组键、草稿/订阅语义已写入设计；窗口/线程调度/IME/渲染未验证 |
@@ -38,7 +38,7 @@ INFRA-001 最小 Cargo Workspace 已建立并完成本机检查，待评审；M0
 
 ## 下一步
 
-后续单独领取 INFRA-003 建立三平台 CI，并由 UI-001 验证真实窗口。本次未提前实施；核心版本或边界变更仍需 ADR。
+先推送 INFRA-003 Workflow 并取得 Ubuntu、Windows、macOS 三个平台的实际运行结果；全部通过后再由 UI-001 验证真实窗口。核心版本或边界变更仍需 ADR。
 
 ## INFRA-001 本机验证（2026-11-06）
 
@@ -58,3 +58,12 @@ INFRA-001 最小 Cargo Workspace 已建立并完成本机检查，待评审；M0
 - GPUI-Kit 实际解析到 gpui-pre 0.3.11、gpui-base/component/assets 0.9.0；编译探针核对了应用、Dock、Editor、虚拟列表和组件入口。
 - git2 0.20 默认 features 因本机缺少 OpenSSL/pkg-config 失败；按本地只读适配器边界关闭默认远程 features 后，git2 0.20.4 编译通过。
 - Windows、Linux、真实窗口、MSRV、Git 能力矩阵和 libgit2 远程 features 仍未验证，不能标记 M0 完成。
+
+## INFRA-003 三平台 CI（2026-11-06）
+
+- 新增 GitHub Actions Workflow：独立格式检查以及 Ubuntu 24.04、Windows Server 2025、macOS 15 验证矩阵。
+- 固定 Rust 1.99.1；metadata、check、Clippy 和 test 均使用 `--locked`，并检查 Cargo.lock 未变化。
+- CI 记录 Runner、Rust、Git、CMake 及平台原生工具链；测试失败日志作为 Artifact 保留 7 天。
+- 当前只完成 Workflow 与本机检查。三个 GitHub 托管 Runner 尚未实际运行，因此 INFRA-003 尚不能标记完成。
+- 配置、当前结果和待补证据见 [CI-VERIFICATION-001](../reviews/CI-VERIFICATION-001.md)。
+- GPUI 真实窗口与 Git Fixture 未执行，分别留给 UI-001 和 TEST-001。
