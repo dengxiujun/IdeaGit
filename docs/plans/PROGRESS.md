@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 已由 Rust CI #3 完成 Ubuntu 24.04、Windows Server 2022、macOS 15 和格式检查验证。M0 整体仍未完成，下一门禁为 UI-001 真实窗口和 TEST-001 Git Fixture。
+INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 已完成三平台 CI。UI-001 最小 GPUI-Kit 窗口已在当前 macOS 实际创建、绘制和关闭，Windows/Linux 烟雾测试等待更新后的 CI 复验。M0 整体仍未完成，另一个门禁为 TEST-001 Git Fixture。
 
 ## 已完成的文档工作
 
@@ -33,12 +33,12 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 已由 Rust CI #3 
 | Workspace | 25 个包依赖无环；Rust CI #3 已在 Ubuntu 24.04、Windows Server 2022 和 macOS 15 通过 locked check、Clippy 与测试 |
 | 标准写操作 | Lock/Journal/RECOVERY-000/真实 Git fixture 完成后才能开放 |
 | Partial Commit / Index 编辑 | capability 默认关闭；锁内比较/发布、剩余 staged 转移、Hook/HEAD 竞争及 TEST-004 未验证 |
-| UI | 多 worktree、分组键、草稿/订阅语义已写入设计；窗口/线程调度/IME/渲染未验证 |
+| UI | 当前 macOS 最小窗口启动与基础渲染已验证；Windows/Linux 窗口及 Dock、输入、焦点、IME、DPI 仍未验证 |
 | 发布 | M0–M6 均不能因文档完成而标记交付；最终仍需 QA、安全、迁移与阻断项清零 |
 
 ## 下一步
 
-执行 UI-001 验证 GPUI-Kit 最小原生窗口，再执行 TEST-001 建立隔离用户 Git 配置的真实 Git Fixture。核心版本或边界变更仍需 ADR。
+推送 UI-001 并取得 Windows、macOS、Linux 窗口烟雾测试全部通过的实际结果；随后执行 TEST-001 建立隔离用户 Git 配置的真实 Git Fixture。核心版本或边界变更仍需 ADR。
 
 ## INFRA-001 本机验证（2026-11-06）
 
@@ -69,3 +69,12 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 已由 Rust CI #3 
 - 官方 checkout 与 artifact Action 已升级到 Node.js 24 版本，消除首次运行的 Node.js 20 弃用警告。
 - INFRA-003 已完成；成功证据见 [Rust CI #3](https://github.com/dengxiujun/IdeaGit/actions/runs/42235774214) 和 [CI-VERIFICATION-001](../reviews/CI-VERIFICATION-001.md)。
 - GPUI 真实窗口与 Git Fixture 未执行，分别留给 UI-001 和 TEST-001。
+
+## UI-001 GPUI-Kit 启动 Spike（2026-11-06）
+
+- `idea-shell` 使用锁定的 GPUI-Kit 0.9.0 创建 900×600 最小原生窗口；desktop composition root 负责初始化、窗口生命周期和错误退出。
+- 新增 `IDEAGIT_UI_SMOKE_DURATION_MS` 自动验证入口，在指定时间后显式绘制、关闭窗口并退出；无该环境变量时应用保持正常运行。
+- 当前 macOS 15.8 / Apple Silicon 实际启动通过，窗口成功创建、绘制并正常关闭。
+- Rust CI Workflow 已为 Windows/macOS 添加直接窗口烟雾步骤，为 Ubuntu 添加 Xvfb/X11 烟雾步骤；推送前尚无 Runner 结果，UI-001 不能标记完成。
+- 通过 locked check、Clippy 和 Workspace tests；新增 2 个烟雾时限解析测试。
+- 未实现 Design Tokens、Dock、Workbench、Git 功能、输入/焦点/IME 或视觉回归；详细结果见 [UI-VERIFICATION-001](../reviews/UI-VERIFICATION-001.md)。

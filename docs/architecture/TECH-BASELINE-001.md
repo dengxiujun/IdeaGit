@@ -196,7 +196,8 @@ Linux 还需在明确的发行版基线上安装所需开发库并验证 Wayland
 | GPUI-Kit 0.9.0 作为建议 UI 版本 | 已在当前 macOS 平台解析并完成编译/API 探针验证 |
 | gpui-pre 0.3.11 的实际解析版本 | 已由 `Cargo.lock` 核对 |
 | `tokio` / `git2` / `notify` 等依赖 | 已锁定实际 Patch；见 DEPENDENCY-VERIFICATION-001 |
-| Windows / Linux 构建及三平台真实窗口 | **未验证** |
+| Windows / Linux 构建 | 已由 INFRA-003 的 Rust CI #3 验证 |
+| GPUI-Kit 最小窗口 | 当前 macOS 实际运行通过；Windows/Linux CI 烟雾测试待复验 |
 | IDEA 2026.x 与 UI API 的行为对齐 | 待真实样本与回归测试 |
 
 **正式冻结基线的步骤：** 建立可编译 Workspace → 生成并提交 Cargo.lock → 三平台 CI 构建 → 启动 GPUI 窗口和 Dock → 运行真实 Git 仓库测试 → 记录测试环境与最终版本清单 → 将本文状态更新为“已验证”。
@@ -217,4 +218,4 @@ Linux 还需在明确的发行版基线上安装所需开发库并验证 Wayland
 - Tokio/tokio-util/Serde/UUID 等保留已有范围；所有实际 patch、feature、MSRV、原生依赖记录在后续依赖验证报告与 Cargo.lock。arc-swap/parking_lot/sha2/secrecy/SQLite 等未冻结需求必须明确归属及审批，不因示例引用就隐式引入。
 - GPUI 使用 Kit 匹配的重导出；Dock/Panel/renderer、Editor、VirtualList、test-support 的存在不等于应用接入通过。
 - Windows 记录 MSVC/SDK/CMake；macOS 记录 OS/Xcode；Linux 记录发行版、原生库、X11/Wayland/Vulkan 图形环境。cargo check 与原生窗口/IME/焦点/截图分别记录结果。
-- INFRA-002 已在 macOS Apple Silicon 使用 Rust 1.99.1 完成依赖解析、API 探针和 Workspace 检查；详见 [DEPENDENCY-VERIFICATION-001](../reviews/DEPENDENCY-VERIFICATION-001.md)。Windows、Linux、真实窗口和 MSRV 仍未验证。
+- INFRA-002 已在 macOS Apple Silicon 使用 Rust 1.99.1 完成依赖解析、API 探针和 Workspace 检查；INFRA-003 已完成 Windows、Linux、macOS 三平台 CI 构建。UI-001 已在当前 macOS 实际启动最小窗口，Windows/Linux 窗口运行和 MSRV 仍未验证。详见 [DEPENDENCY-VERIFICATION-001](../reviews/DEPENDENCY-VERIFICATION-001.md) 与 [UI-VERIFICATION-001](../reviews/UI-VERIFICATION-001.md)。

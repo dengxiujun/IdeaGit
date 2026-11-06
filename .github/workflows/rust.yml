@@ -58,6 +58,8 @@ jobs:
             g++ \
             clang \
             cmake \
+            xvfb \
+            xauth \
             pkg-config \
             libfontconfig-dev \
             libwayland-dev \
@@ -141,6 +143,19 @@ jobs:
           set -o pipefail
           cargo test --workspace --locked 2>&1 \
             | tee "cargo-test-${{ runner.os }}.log"
+
+      - name: Run native window smoke test on Linux
+        if: runner.os == 'Linux'
+        run: >-
+          xvfb-run -a env IDEAGIT_UI_SMOKE_DURATION_MS=1500
+          cargo run --locked -p desktop
+
+      - name: Run native window smoke test
+        if: runner.os != 'Linux'
+        shell: bash
+        env:
+          IDEAGIT_UI_SMOKE_DURATION_MS: "1500"
+        run: cargo run --locked -p desktop
 
       - name: Upload failed test log
         if: failure()

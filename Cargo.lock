@@ -3257,6 +3257,7 @@ name = "idea-shell"
 version = "0.1.0"
 dependencies = [
  "git-ui-model",
+ "gpui-kit",
  "idea-ui-primitives",
 ]
 
