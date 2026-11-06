@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003/004、UI-001/002 和 TEST-001 已完成。Rust CI #8 已在 Windows Server 2022、macOS 15、Ubuntu 24.04 验证真实 Git Fixture；M0 已满足当前计划的工程验收门禁，未执行的高级 Git、UI 和平台场景继续明确保留。
+M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001 已在当前 macOS 完成领域 ID、OID、Path 与结构化错误实现及 Workspace 全量检查，等待本提交三平台 CI；未执行的高级 Git、UI 和平台场景继续明确保留。
 
 ## 已完成的文档工作
 
@@ -39,7 +39,7 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003/004、UI-001/002 �
 
 ## 下一步
 
-按 IP-001 顺序进入 CORE-001，建立领域 ID、OID、路径与结构化错误类型。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+CORE-001 三平台 CI 通过后，按依赖 DAG 进入 CORE-003 ProcessRunner / GitCliExecutor，再实施依赖它的 CORE-002 Repository Discovery。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
 
 ## INFRA-004 架构与开发约束（2026-11-07）
 
@@ -107,3 +107,11 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003/004、UI-001/002 �
 - 当前平台已通过 fmt、locked check、Clippy（`-D warnings`）和 Workspace tests；详细结果及尚未验证范围见 [TEST-FIXTURE-VERIFICATION-001](../reviews/TEST-FIXTURE-VERIFICATION-001.md)。
 - [Rust CI #8](https://github.com/dengxiujun/IdeaGit/actions/runs/42266728887) 已在 Windows Server 2022、macOS 15 和 Ubuntu 24.04 通过 Format、locked check、Clippy、Workspace tests 和既有窗口烟雾测试；TEST-001 已完成三平台验收。
 - 真实 GPG/SSH 签名代理、凭据程序、网络远端、非 UTF-8 文件名及后续写操作故障注入仍属后续任务，不能据此开放标准写操作或高级 Index 功能。
+
+## CORE-001 领域基础类型（2026-11-07）
+
+- `git-domain` 新增强类型 `RepositoryId`、`WorktreeId`、`OperationId`、`SessionTarget` 和 `SnapshotRevision`，避免不同身份在 API 中混用；bare session 以 `worktree: None` 明确表达。
+- `ObjectId` 显式保留 SHA-1/SHA-256 算法与完整摘要，拒绝缩写、非法长度、算法长度不匹配和非法十六进制；序列化使用规范小写全长形式。
+- `RepoPath` 私有保存 Git 原始字节，构造和反序列化均拒绝空路径、NUL、绝对路径、空组件、`.` 与 `..`；特殊字符和非 UTF-8 字节无损。`LocalPath` 独立包装 OS 原生 `PathBuf`，两者不提供隐式转换。
+- `GitErrorKind` 与 Core §18.6 完全对齐；`GitError` 保留脱敏消息/诊断、Session/Operation 上下文和结构化恢复动作，不用单一 retry 布尔值表达安全性。
+- 当前 macOS / Rust 1.99.1 已通过 fmt、locked check、Clippy 与 Workspace tests；`git-domain` 新增 12 个正常/失败路径测试。三平台结果待本提交 CI，详见 [CORE-001-VERIFICATION-001](../reviews/CORE-001-VERIFICATION-001.md)。
