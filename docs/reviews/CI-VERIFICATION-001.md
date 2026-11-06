@@ -2,7 +2,7 @@
 
 - 日期：2026-11-06
 - 任务：INFRA-003
-- 状态：首次运行的 Ubuntu、macOS 和格式检查通过；Windows Runner 配置已修正，等待复验
+- 状态：已完成；Rust CI #3 的格式检查及 Ubuntu、Windows、macOS 验证全部通过
 
 ## 1. 范围
 
@@ -54,11 +54,11 @@ git diff --exit-code -- Cargo.lock
 | Workspace check | 已通过 | 当前 macOS 本机执行，含 all-targets 与 locked |
 | Clippy | 已通过 | 当前 macOS 本机执行，`-D warnings` |
 | Workspace tests | 已通过 | 当前 macOS 本机执行；骨架实际测试用例为 0 |
-| Ubuntu 24.04 Runner | 已通过 | 首次运行完成 metadata、check、Clippy、test 与锁文件检查 |
-| Windows Server 2022 Runner | 待复验 | 首次使用 `windows-2025` 时原生工具链验证失败；已固定 VS 2022 Runner |
-| macOS 15 Runner | 已通过 | 首次运行完成 metadata、check、Clippy、test 与锁文件检查 |
+| Ubuntu 24.04 Runner | 已通过 | Rust CI #3 完成 metadata、check、Clippy、test 与锁文件检查 |
+| Windows Server 2022 Runner | 已通过 | Rust CI #3 完成原生工具链检查、metadata、check、Clippy、test 与锁文件检查 |
+| macOS 15 Runner | 已通过 | Rust CI #3 完成 metadata、check、Clippy、test 与锁文件检查 |
 
-本地命令不能代替 GitHub 托管 Runner 结果。在修正后的三个矩阵 Job 实际为绿色之前，INFRA-003 不标记完成，不声称三平台构建已经通过。
+GitHub 托管 Runner 的 Rust CI #3 已提供三平台实际构建证据，因此 INFRA-003 标记完成。该结果只证明当前最小工程在固定 Runner 镜像和 Rust 1.99.1 下通过本 Workflow 的构建与测试命令，不等同于真实图形窗口运行验证。
 
 ### 首次运行发现
 
@@ -69,17 +69,22 @@ git diff --exit-code -- Cargo.lock
 - 原因是 GitHub 已将 `windows-2025` 标签迁移到 Visual Studio 2026 镜像，而 Workflow 按 GPUI-Kit 当前基线要求筛选 VS 2022（`[17.0,18.0)`）。
 - 最小修正是使用 GitHub 官方仍提供 VS 2022 的 `windows-2022`，不放宽工具链检查，也不改变 Rust 或项目依赖版本。
 
-## 5. 完成证据
+### 修正后运行结果
 
-首次 GitHub Actions 运行后，应在本节补充：
+- Rust CI #2 中，Windows Server 2022、Ubuntu 24.04 和格式检查通过；macOS Job 在分配 Runner 前被取消，未执行项目命令，因此该次运行不能作为完整三平台通过证据。
+- 手动触发的 [Rust CI #3](https://github.com/dengxiujun/IdeaGit/actions/runs/42235774214) 使用同一提交 `3839006`，四个 Job 均成功完成。
+- 三个平台均完成 locked metadata、Workspace check、Clippy、测试和 Cargo.lock 未变化检查；Format Job 也成功完成。
+
+## 5. 完成证据
 
 | Runner | Actions 运行链接 | ImageVersion | 结果 |
 | --- | --- | --- | --- |
-| ubuntu-24.04 | [首次运行](https://github.com/dengxiujun/IdeaGit/actions/runs/42230805543/job/127935881124) | 见 Job 日志 | 通过 |
-| windows-2022 | 待复验 | 待补充 | 未执行 |
-| macos-15 | [首次运行](https://github.com/dengxiujun/IdeaGit/actions/runs/42230805543/job/127935880887) | 见 Job 日志 | 通过 |
+| Format / ubuntu-24.04 | [Rust CI #3 Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42235774214/job/127952861670) | 见 Job 日志的 `Set up job` | 通过 |
+| ubuntu-24.04 | [Rust CI #3 Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42235774214/job/127952861193) | 见 `Show runner environment` 日志 | 通过 |
+| windows-2022 | [Rust CI #3 Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42235774214/job/127952861766) | 见 `Show runner environment` 日志 | 通过 |
+| macos-15 | [Rust CI #3 Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42235774214/job/127952861685) | 见 `Show runner environment` 日志 | 通过 |
 
-只有三个平台均通过，Cargo.lock 无变化，失败日志策略实际可用，才能将 INFRA-003 标记为完成。
+Rust CI #3 于 2026-11-06 完成，结论为 `success`。三个验证 Job 均通过且 Cargo.lock 无变化，INFRA-003 的三平台 CI 验收条件已满足。失败日志上传步骤由 `if: failure()` 控制；本次成功运行未产生失败 Artifact，这是预期行为。
 
 ## 6. 明确未验证
 

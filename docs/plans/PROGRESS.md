@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 首次运行的 Ubuntu、macOS 和格式检查通过，Windows Runner 配置已修正并等待复验。M0 整体未完成。
+INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 已由 Rust CI #3 完成 Ubuntu 24.04、Windows Server 2022、macOS 15 和格式检查验证。M0 整体仍未完成，下一门禁为 UI-001 真实窗口和 TEST-001 Git Fixture。
 
 ## 已完成的文档工作
 
@@ -29,8 +29,8 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 首次运行的 Ub
 
 | 范围 | 状态 / 放行条件 |
 |---|---|
-| Rust/GPUI/其他依赖 | Rust 1.99.1 与依赖已在 macOS 锁定；MSRV、Windows/Linux 和 Git 最低版本/能力矩阵待验证 |
-| Workspace | 25 个包已在当前 macOS 编译，Cargo 依赖无环；三平台 CI 实际结果待验证 |
+| Rust/GPUI/其他依赖 | Rust 1.99.1 与锁定依赖已在三平台 CI 编译；MSRV、真实窗口和 Git 最低版本/能力矩阵待验证 |
+| Workspace | 25 个包依赖无环；Rust CI #3 已在 Ubuntu 24.04、Windows Server 2022 和 macOS 15 通过 locked check、Clippy 与测试 |
 | 标准写操作 | Lock/Journal/RECOVERY-000/真实 Git fixture 完成后才能开放 |
 | Partial Commit / Index 编辑 | capability 默认关闭；锁内比较/发布、剩余 staged 转移、Hook/HEAD 竞争及 TEST-004 未验证 |
 | UI | 多 worktree、分组键、草稿/订阅语义已写入设计；窗口/线程调度/IME/渲染未验证 |
@@ -38,7 +38,7 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 首次运行的 Ub
 
 ## 下一步
 
-推送 Windows Runner 修正并取得三平台全部通过的实际结果；之后再由 UI-001 验证真实窗口。核心版本或边界变更仍需 ADR。
+执行 UI-001 验证 GPUI-Kit 最小原生窗口，再执行 TEST-001 建立隔离用户 Git 配置的真实 Git Fixture。核心版本或边界变更仍需 ADR。
 
 ## INFRA-001 本机验证（2026-11-06）
 
@@ -57,16 +57,15 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 首次运行的 Ub
 - 根清单统一核心依赖，Cargo.lock 锁定 819 个包；确切版本和命令见 [DEPENDENCY-VERIFICATION-001](../reviews/DEPENDENCY-VERIFICATION-001.md)。
 - GPUI-Kit 实际解析到 gpui-pre 0.3.11、gpui-base/component/assets 0.9.0；编译探针核对了应用、Dock、Editor、虚拟列表和组件入口。
 - git2 0.20 默认 features 因本机缺少 OpenSSL/pkg-config 失败；按本地只读适配器边界关闭默认远程 features 后，git2 0.20.4 编译通过。
-- Windows、Linux、真实窗口、MSRV、Git 能力矩阵和 libgit2 远程 features 仍未验证，不能标记 M0 完成。
+- INFRA-002 完成时尚未验证 Windows/Linux；后续 INFRA-003 已补充三平台 CI 编译验证。真实窗口、MSRV、Git 能力矩阵和 libgit2 远程 features 仍未验证，不能标记 M0 完成。
 
 ## INFRA-003 三平台 CI（2026-11-06）
 
 - 新增 GitHub Actions Workflow：独立格式检查以及 Ubuntu 24.04、Windows Server 2022、macOS 15 验证矩阵。
 - 固定 Rust 1.99.1；metadata、check、Clippy 和 test 均使用 `--locked`，并检查 Cargo.lock 未变化。
 - CI 记录 Runner、Rust、Git、CMake 及平台原生工具链；测试失败日志作为 Artifact 保留 7 天。
-- 首次 GitHub Actions 运行中，Ubuntu 24.04、macOS 15 和格式检查通过；Windows 在原生工具链验证阶段失败，尚未进入 Cargo 构建。
-- GitHub 已将 `windows-2025` 迁移到 VS 2026；Workflow 已按 VS 2022 基线改用 `windows-2022`，等待推送后复验。
+- 首次 GitHub Actions 运行中，Ubuntu 24.04、macOS 15 和格式检查通过；Windows 因 `windows-2025` 已迁移至 VS 2026，在原生工具链验证阶段失败。
+- Workflow 按 VS 2022 基线改用 `windows-2022`；Rust CI #3 已完成修正后的三平台复验，Format 与三个验证 Job 全部通过。
 - 官方 checkout 与 artifact Action 已升级到 Node.js 24 版本，消除首次运行的 Node.js 20 弃用警告。
-- Windows 复验通过前，INFRA-003 仍不能标记完成。
-- 配置、当前结果和待补证据见 [CI-VERIFICATION-001](../reviews/CI-VERIFICATION-001.md)。
+- INFRA-003 已完成；成功证据见 [Rust CI #3](https://github.com/dengxiujun/IdeaGit/actions/runs/42235774214) 和 [CI-VERIFICATION-001](../reviews/CI-VERIFICATION-001.md)。
 - GPUI 真实窗口与 Git Fixture 未执行，分别留给 UI-001 和 TEST-001。
