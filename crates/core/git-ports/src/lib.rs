@@ -1,3 +1,8 @@
-//! Replaceable Git, storage, credential, journal, and watcher contracts.
-//!
-//! INFRA-001 skeleton only; behavior is implemented by subsequent tracked tasks.
+//! Replaceable Git, storage, credential, journal, watcher, and process contracts.
+
+mod process;
+
+pub use process::{
+    DEFAULT_OUTPUT_LIMIT, EnvironmentVariable, ExecutionContext, ProcessOutput, ProcessProgress,
+    ProcessRunner, ProcessSpec, ProcessStdin, ProcessStream, Sensitivity,
+};

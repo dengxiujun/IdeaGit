@@ -30,6 +30,7 @@ tracing-subscriber = "0.3"
 git2 = { version = "0.20", default-features = false }
 tempfile = "3"
 proptest = "1"
+process-wrap = { version = "=10.0.1", default-features = false, features = ["tokio1", "job-object", "kill-on-drop", "process-group"] }
 
 # Internal architecture boundaries.
 credential-broker = { path = "crates/adapters/credential-broker" }

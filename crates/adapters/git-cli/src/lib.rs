@@ -1,3 +1,7 @@
-//! Git CLI process execution and output parsing.
-//!
-//! INFRA-001 skeleton only; behavior is implemented by subsequent tracked tasks.
+//! Git CLI process execution and machine-output adapters.
+
+mod executor;
+mod runner;
+
+pub use executor::{GitCliCommand, GitCliExecutor, GitVersionCommand};
+pub use runner::TokioProcessRunner;

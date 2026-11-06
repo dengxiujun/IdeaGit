@@ -2,7 +2,7 @@
 
 - 日期：2026-11-07
 - 任务：CORE-001
-- 当前状态：当前 macOS 实现及检查通过；本提交三平台 CI 待执行
+- 当前状态：已完成；当前 macOS 检查及 Rust CI #9 三平台验证全部通过
 
 ## 1. 范围与依赖
 
@@ -53,9 +53,20 @@
 
 新增测试覆盖：ID 类型隔离/Serde、bare/worktree target、revision 溢出、SHA-1/SHA-256、大小写 hex、非法长度/算法/hex、特殊与非 UTF-8 RepoPath、NUL/绝对/穿越路径、反序列化防绕过、Unix 原生 LocalPath，以及结构化错误上下文和无默认恢复承诺。
 
-## 4. 设计差异与遗留事项
+## 4. 三平台验证
+
+[Rust CI #9](https://github.com/dengxiujun/IdeaGit/actions/runs/42275839590) 对提交 `4841400` 执行固定 Rust 1.99.1 的 locked metadata、check、Clippy、Workspace tests 和窗口烟雾测试，结果全部成功：
+
+| Job | 结果 | 证据 |
+| --- | --- | --- |
+| Format | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42275839590/job/128091818420) |
+| Windows Server 2022 | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42275839590/job/128091818745) |
+| macOS 15 | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42275839590/job/128091818961) |
+| Ubuntu 24.04 | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42275839590/job/128091819048) |
+
+## 5. 设计差异与遗留事项
 
 - 文档未规定 ObjectId 的内存布局；实现使用带显式算法的固定 32 字节存储，外部语义仍严格遵守完整 SHA-1/SHA-256 契约，不需要 ADR。
 - `RecoveryAction` 本轮只作为 Core §18.6 错误 DTO，并采用 IP-001 RECOVERY-001 已列出的稳定动作；不实现恢复扫描、授权或执行。
 - RepositoryId 与规范化 common Git dir 的绑定、WorktreeId 分配和 session generation 生命周期由 CORE-002/CORE-007 负责，本轮不伪造发现逻辑。
-- Unix 非 UTF-8 RepoPath 已作字节级单测；Windows 原生路径可表示性和三平台行为仍需 CI 及后续 adapter 测试。
+- Unix 非 UTF-8 RepoPath 已作字节级单测；Windows 原生路径可表示性仍需后续 adapter 测试。纯领域类型与 Workspace 已由 CI #9 完成三平台复验。
