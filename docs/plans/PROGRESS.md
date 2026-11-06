@@ -38,7 +38,7 @@ INFRA-001 最小 Cargo Workspace 已建立并完成本机检查，待评审；M0
 
 ## 下一步
 
-后续单独领取 INFRA-002，验证并固定候选工具链及依赖，然后执行 INFRA-003 三平台 CI。本次未提前实施；核心版本或边界变更仍需 ADR。
+后续单独领取 INFRA-003 建立三平台 CI，并由 UI-001 验证真实窗口。本次未提前实施；核心版本或边界变更仍需 ADR。
 
 ## INFRA-001 本机验证（2026-11-06）
 
@@ -50,3 +50,11 @@ INFRA-001 最小 Cargo Workspace 已建立并完成本机检查，待评审；M0
 - 测试目标及文档测试成功，实际用例为 0。空骨架无业务行为或失败分支，未添加占位断言，不能视为业务验证。
 - 测试链接时 Xcode 输出缓存路径与 FSEvents 环境警告，命令成功退出。
 - 未验证 Rust 1.99.1、Windows/Linux、真实 UI、Git 功能或第三方依赖兼容性；本次没有公共业务 API。
+
+## INFRA-002 当前平台验证（2026-11-06）
+
+- Rust 1.99.1、Edition 2024、Resolver 3 和 GPUI-Kit 0.9.0 已在 macOS Apple Silicon 安装、解析并通过 Workspace 检查。
+- 根清单统一核心依赖，Cargo.lock 锁定 819 个包；确切版本和命令见 [DEPENDENCY-VERIFICATION-001](../reviews/DEPENDENCY-VERIFICATION-001.md)。
+- GPUI-Kit 实际解析到 gpui-pre 0.3.11、gpui-base/component/assets 0.9.0；编译探针核对了应用、Dock、Editor、虚拟列表和组件入口。
+- git2 0.20 默认 features 因本机缺少 OpenSSL/pkg-config 失败；按本地只读适配器边界关闭默认远程 features 后，git2 0.20.4 编译通过。
+- Windows、Linux、真实窗口、MSRV、Git 能力矩阵和 libgit2 远程 features 仍未验证，不能标记 M0 完成。

@@ -5,6 +5,10 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+gpui-kit.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
 git-application.workspace = true
 git-cli.workspace = true
 repository-watcher.workspace = true
@@ -18,3 +22,7 @@ git-log-ui.workspace = true
 git-branch-ui.workspace = true
 git-diff-ui.workspace = true
 git-merge-ui.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+proptest.workspace = true
