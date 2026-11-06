@@ -1,8 +1,8 @@
 # UI-VERIFICATION-001：GPUI-Kit 最小窗口验证记录
 
-- 日期：2026-11-06
+- 日期：2026-11-07
 - 任务：UI-001
-- 状态：当前 macOS 实际运行通过；Windows、Linux 原生窗口烟雾测试等待 CI 复验
+- 状态：已完成；当前 macOS 实际运行及 Rust CI #4 三平台窗口烟雾测试全部通过
 
 ## 1. 范围
 
@@ -54,10 +54,13 @@ Cargo.lock 只新增 `idea-shell` 对既有 `gpui-kit 0.9.0` 的直接依赖记�
 | 平台 | 状态 | 限制 |
 | --- | --- | --- |
 | macOS 15 / Apple Silicon | 已通过 | 当前开发机实际创建、绘制并关闭原生窗口 |
-| Windows Server 2022 | 待复验 | Workflow 已加入可见原生窗口烟雾命令，尚未取得 Runner 结果 |
-| Ubuntu 24.04 / X11 | 待复验 | Workflow 已加入 Xvfb 原生窗口烟雾命令，尚未取得 Runner 结果；Wayland 未覆盖 |
+| Windows Server 2022 | 已通过 | [Rust CI #4 Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42251903525/job/128008904636) 完成原生窗口创建、绘制和关闭 |
+| macOS 15 Runner | 已通过 | [Rust CI #4 Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42251903525/job/128008904750) 完成原生窗口创建、绘制和关闭 |
+| Ubuntu 24.04 / X11 | 已通过 | [Rust CI #4 Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42251903525/job/128008904783) 在 Xvfb 下完成窗口创建、绘制和关闭；Wayland 未覆盖 |
 
-只有推送后 Windows、macOS、Linux 三个 Runner 的窗口烟雾步骤全部成功，UI-001 才能标记完成。GitHub 托管 Runner 结果也不替代 Windows 10/11、真实 Linux 桌面、IME、DPI 和 GPU 兼容性验证。
+[Rust CI #4](https://github.com/dengxiujun/IdeaGit/actions/runs/42251903525) 于 2026-11-07 完成，Format 与三个验证 Job 全部成功，运行时长 8 分 22 秒。三个 Runner 均在完成 locked metadata、check、Clippy 和测试后执行窗口烟雾步骤；UI-001 的三平台启动验收条件已满足。
+
+GitHub 托管 Runner 结果不替代 Windows 10/11、真实 Linux 桌面、IME、DPI 和 GPU 兼容性验证。
 
 ## 6. 明确未实现
 
@@ -65,4 +68,4 @@ Cargo.lock 只新增 `idea-shell` 对既有 `gpui-kit 0.9.0` 的直接依赖记�
 - DockArea、Workbench、Repository Tabs、StatusBar、Overlay 和布局恢复。
 - GitApplication 注入、仓库打开、Git 状态或任何 Git 写操作。
 - 键盘、鼠标、焦点、输入法、辅助功能、截图 Golden 和多显示器验证。
-- Windows/Linux 真实桌面设备运行；需在 CI 复验之后继续保留该限制。
+- Windows 10/11 与 Linux Wayland/真实桌面设备运行；当前证据分别来自 Windows Server 2022 Runner 和 Ubuntu Xvfb/X11。

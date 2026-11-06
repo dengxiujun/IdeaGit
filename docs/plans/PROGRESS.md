@@ -1,10 +1,10 @@
 # IdeaGit 开发进度
 
-更新日期：2026-11-06。
+更新日期：2026-11-07。
 
 ## 当前状态
 
-INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 已完成三平台 CI。UI-001 最小 GPUI-Kit 窗口已在当前 macOS 实际创建、绘制和关闭，Windows/Linux 烟雾测试等待更新后的 CI 复验。M0 整体仍未完成，另一个门禁为 TEST-001 Git Fixture。
+INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 已完成三平台 CI；UI-001 已由当前 macOS 实际运行和 Rust CI #4 三平台窗口烟雾测试完成验收。M0 整体仍未完成，下一门禁为 TEST-001 Git Fixture。
 
 ## 已完成的文档工作
 
@@ -33,12 +33,12 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 已完成三平台
 | Workspace | 25 个包依赖无环；Rust CI #3 已在 Ubuntu 24.04、Windows Server 2022 和 macOS 15 通过 locked check、Clippy 与测试 |
 | 标准写操作 | Lock/Journal/RECOVERY-000/真实 Git fixture 完成后才能开放 |
 | Partial Commit / Index 编辑 | capability 默认关闭；锁内比较/发布、剩余 staged 转移、Hook/HEAD 竞争及 TEST-004 未验证 |
-| UI | 当前 macOS 最小窗口启动与基础渲染已验证；Windows/Linux 窗口及 Dock、输入、焦点、IME、DPI 仍未验证 |
+| UI | GPUI-Kit 最小窗口已在三平台 Runner 启动；Dock、输入、焦点、IME、DPI 和真实桌面兼容性仍未验证 |
 | 发布 | M0–M6 均不能因文档完成而标记交付；最终仍需 QA、安全、迁移与阻断项清零 |
 
 ## 下一步
 
-推送 UI-001 并取得 Windows、macOS、Linux 窗口烟雾测试全部通过的实际结果；随后执行 TEST-001 建立隔离用户 Git 配置的真实 Git Fixture。核心版本或边界变更仍需 ADR。
+执行 TEST-001，建立隔离用户 Git 配置的真实 Git Fixture。核心版本或边界变更仍需 ADR。
 
 ## INFRA-001 本机验证（2026-11-06）
 
@@ -75,6 +75,7 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 已完成三平台
 - `idea-shell` 使用锁定的 GPUI-Kit 0.9.0 创建 900×600 最小原生窗口；desktop composition root 负责初始化、窗口生命周期和错误退出。
 - 新增 `IDEAGIT_UI_SMOKE_DURATION_MS` 自动验证入口，在指定时间后显式绘制、关闭窗口并退出；无该环境变量时应用保持正常运行。
 - 当前 macOS 15.8 / Apple Silicon 实际启动通过，窗口成功创建、绘制并正常关闭。
-- Rust CI Workflow 已为 Windows/macOS 添加直接窗口烟雾步骤，为 Ubuntu 添加 Xvfb/X11 烟雾步骤；推送前尚无 Runner 结果，UI-001 不能标记完成。
+- [Rust CI #4](https://github.com/dengxiujun/IdeaGit/actions/runs/42251903525) 已在 Windows Server 2022、macOS 15 和 Ubuntu 24.04/Xvfb 完成窗口创建、绘制和关闭，Format 与三个验证 Job 全部通过。
 - 通过 locked check、Clippy 和 Workspace tests；新增 2 个烟雾时限解析测试。
+- UI-001 已完成；Windows 10/11、Linux Wayland/真实桌面以及输入、焦点、IME、DPI 仍属于后续平台与 UI 验证范围。
 - 未实现 Design Tokens、Dock、Workbench、Git 功能、输入/焦点/IME 或视觉回归；详细结果见 [UI-VERIFICATION-001](../reviews/UI-VERIFICATION-001.md)。
