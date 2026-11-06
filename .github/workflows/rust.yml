@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust 1.99.1
         run: >-
@@ -42,12 +42,12 @@ jobs:
       matrix:
         os:
           - ubuntu-24.04
-          - windows-2025
+          - windows-2022
           - macos-15
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Linux native dependencies
         if: runner.os == 'Linux'
@@ -144,7 +144,7 @@ jobs:
 
       - name: Upload failed test log
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cargo-test-${{ matrix.os }}
           path: cargo-test-${{ runner.os }}.log

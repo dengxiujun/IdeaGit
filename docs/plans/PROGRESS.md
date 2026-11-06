@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 三平台 CI Workflow 已建立，等待 GitHub 托管 Runner 首次实际运行。M0 整体未完成。
+INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 首次运行的 Ubuntu、macOS 和格式检查通过，Windows Runner 配置已修正并等待复验。M0 整体未完成。
 
 ## 已完成的文档工作
 
@@ -38,7 +38,7 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 三平台 CI Workf
 
 ## 下一步
 
-先推送 INFRA-003 Workflow 并取得 Ubuntu、Windows、macOS 三个平台的实际运行结果；全部通过后再由 UI-001 验证真实窗口。核心版本或边界变更仍需 ADR。
+推送 Windows Runner 修正并取得三平台全部通过的实际结果；之后再由 UI-001 验证真实窗口。核心版本或边界变更仍需 ADR。
 
 ## INFRA-001 本机验证（2026-11-06）
 
@@ -61,9 +61,12 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 三平台 CI Workf
 
 ## INFRA-003 三平台 CI（2026-11-06）
 
-- 新增 GitHub Actions Workflow：独立格式检查以及 Ubuntu 24.04、Windows Server 2025、macOS 15 验证矩阵。
+- 新增 GitHub Actions Workflow：独立格式检查以及 Ubuntu 24.04、Windows Server 2022、macOS 15 验证矩阵。
 - 固定 Rust 1.99.1；metadata、check、Clippy 和 test 均使用 `--locked`，并检查 Cargo.lock 未变化。
 - CI 记录 Runner、Rust、Git、CMake 及平台原生工具链；测试失败日志作为 Artifact 保留 7 天。
-- 当前只完成 Workflow 与本机检查。三个 GitHub 托管 Runner 尚未实际运行，因此 INFRA-003 尚不能标记完成。
+- 首次 GitHub Actions 运行中，Ubuntu 24.04、macOS 15 和格式检查通过；Windows 在原生工具链验证阶段失败，尚未进入 Cargo 构建。
+- GitHub 已将 `windows-2025` 迁移到 VS 2026；Workflow 已按 VS 2022 基线改用 `windows-2022`，等待推送后复验。
+- 官方 checkout 与 artifact Action 已升级到 Node.js 24 版本，消除首次运行的 Node.js 20 弃用警告。
+- Windows 复验通过前，INFRA-003 仍不能标记完成。
 - 配置、当前结果和待补证据见 [CI-VERIFICATION-001](../reviews/CI-VERIFICATION-001.md)。
 - GPUI 真实窗口与 Git Fixture 未执行，分别留给 UI-001 和 TEST-001。
