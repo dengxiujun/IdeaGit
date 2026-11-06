@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003/004 已完成；UI-001 已完成三平台窗口启动验收；UI-002 Design Tokens 已由 Rust CI #5 完成三平台验证。TEST-001 Git Fixture 已完成当前 macOS 的真实 Git 验证，等待该提交的三平台 CI；M0 尚未据此整体关闭。
+INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003/004、UI-001/002 和 TEST-001 已完成。Rust CI #8 已在 Windows Server 2022、macOS 15、Ubuntu 24.04 验证真实 Git Fixture；M0 已满足当前计划的工程验收门禁，未执行的高级 Git、UI 和平台场景继续明确保留。
 
 ## 已完成的文档工作
 
@@ -39,7 +39,7 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003/004 已完成；UI
 
 ## 下一步
 
-等待 TEST-001 提交的 Windows、macOS、Linux CI 验证。该验证完成前不得宣称 Fixture 已完成三平台验收；后续任务仍一次只实施一个，核心版本或边界变更仍需 ADR。
+按 IP-001 顺序进入 CORE-001，建立领域 ID、OID、路径与结构化错误类型。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
 
 ## INFRA-004 架构与开发约束（2026-11-07）
 
@@ -103,6 +103,7 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003/004 已完成；UI
 
 - 新增独立的 `tests/fixtures` workspace crate `git-fixture`，不被任何生产 crate 依赖；以 `TempDir` 创建真实 Git worktree，并在删除夹具时清理所有测试资料。
 - 每个 `TestRepository` 为 Git 进程显式设置临时 HOME、USERPROFILE、GIT_CONFIG_GLOBAL、GIT_CONFIG_NOSYSTEM 和 GIT_TERMINAL_PROMPT；临时全局配置固定测试身份、空 Credential Helper、禁用 GPG 签名及专用 Hooks 目录。
-- 当前 macOS 15.8 / Apple Silicon、Rust 1.99.1、Apple Git 2.39.5 已验证：Unborn HEAD、特殊路径、本地 bare remote 的 Push/Pull 往返、真实三方冲突、linked worktree 与 pre-commit Hook 拒绝，共 5 个真实 Git 测试。Windows 首次 CI 证实 Win32 API 不支持换行文件名，已改为 Windows 合法的特殊路径并等待复验。
+- 当前 macOS 15.8 / Apple Silicon、Rust 1.99.1、Apple Git 2.39.5 已验证：Unborn HEAD、特殊路径、本地 bare remote 的 Push/Pull 往返、真实三方冲突、linked worktree 与 pre-commit Hook 拒绝，共 5 个真实 Git 测试。Windows 首次 CI 证实 Win32 API 不支持换行文件名，改用 Windows 合法的特殊路径后已由 Rust CI #8 复验通过。
 - 当前平台已通过 fmt、locked check、Clippy（`-D warnings`）和 Workspace tests；详细结果及尚未验证范围见 [TEST-FIXTURE-VERIFICATION-001](../reviews/TEST-FIXTURE-VERIFICATION-001.md)。
-- Windows 和 Linux 仍未由本轮提交的 CI 实测；真实 GPG/SSH 签名代理、凭据程序、网络远端、非 UTF-8 文件名及后续写操作故障注入也仍属后续任务，不能据此开放标准写操作或高级 Index 功能。
+- [Rust CI #8](https://github.com/dengxiujun/IdeaGit/actions/runs/42266728887) 已在 Windows Server 2022、macOS 15 和 Ubuntu 24.04 通过 Format、locked check、Clippy、Workspace tests 和既有窗口烟雾测试；TEST-001 已完成三平台验收。
+- 真实 GPG/SSH 签名代理、凭据程序、网络远端、非 UTF-8 文件名及后续写操作故障注入仍属后续任务，不能据此开放标准写操作或高级 Index 功能。

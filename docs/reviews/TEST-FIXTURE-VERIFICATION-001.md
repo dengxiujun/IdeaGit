@@ -2,7 +2,7 @@
 
 - 日期：2026-11-07
 - 任务：TEST-001 Git Fixture Harness
-- 当前状态：当前 macOS 平台验证通过；Windows、macOS、Linux 的本轮 CI 验证尚未执行
+- 当前状态：已完成；当前 macOS 检查及 Rust CI #8 三平台验证全部通过
 
 ## 1. 范围
 
@@ -49,7 +49,21 @@ Cargo.lock 已随新 workspace 成员更新；没有新增第三方版本或传�
 
 ## 4. 尚未验证与边界
 
-- Windows 首次 CI 已证实 Win32 文件 API 拒绝换行文件名（错误 123）；夹具测试已按平台使用可创建的特殊路径。修正提交尚待 Windows、macOS、Linux CI 复验，当前结果不能替代三平台验收。
 - 夹具隔离了签名和凭据的默认配置，但没有调用真实 GPG/SSH 签名代理或 credential helper；这些平台差异及失败注入留给相关后续写操作任务。
 - 未覆盖非 UTF-8 路径、SHA-256 仓库、Index.lock、网络中断、外部 Git 竞争、rebase conflict 或恢复流程。
 - 本任务不开放任何生产写操作，也不证明 OperationCoordinator、Lock、Journal、Index 安全协议或高级 Partial Commit 的正确性。
+
+## 5. 三平台验证
+
+[Rust CI #8](https://github.com/dengxiujun/IdeaGit/actions/runs/42266728887) 对修正提交 `04d4f87` 执行固定 Rust 1.99.1 的 locked metadata、check、Clippy、Workspace tests 和既有窗口烟雾测试，结果全部成功：
+
+首次运行已证实 Win32 文件 API 拒绝换行文件名（错误 123）；夹具随后按平台使用可创建的特殊路径，并由本次运行完成复验。
+
+| Job | 结果 | 证据 |
+| --- | --- | --- |
+| Format | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42266728887/job/128060482710) |
+| Windows Server 2022 | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42266728887/job/128060483447) |
+| macOS 15 | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42266728887/job/128060483347) |
+| Ubuntu 24.04 | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42266728887/job/128060483116) |
+
+TEST-001 的初始化、隔离配置、提交、特殊路径、本地 bare remote Push/Pull、冲突、linked worktree 和 Hook 拒绝已获得三平台运行证据。上述尚未验证的高级场景仍留给对应后续任务。
