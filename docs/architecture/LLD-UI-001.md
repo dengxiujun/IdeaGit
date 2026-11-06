@@ -1,5 +1,7 @@
 # IdeaGit — GPUI-Kit UI 生产级详细设计
 
+> 修订：2026-11-06，执行已批准的 [ADR-ARCH-REMEDIATION-001](adr/ADR-ARCH-REMEDIATION-001.md) D1–D7。共享契约见 [Git Core §18](LLD-GIT-CORE-001.md)；主里程碑以 IP-001 为准。代码片段仍为设计草案，未做编译或三平台验证。
+
 > **文档编号**：LLD-UI-001  
 > **版本**：v1.0  
 > **日期**：2026-11-06  
@@ -261,7 +263,7 @@ WorkbenchEntity
 use std::sync::Arc;
 
 pub struct WorkbenchModel {
-    pub active_repository: Option<RepositoryId>,
+    pub active_target: Option<SessionTarget>,
     pub active_panel: PanelKind,
     pub open_diff_tabs: Vec<DiffTabId>,
     pub overlays: OverlayState,
@@ -273,6 +275,8 @@ pub struct WorkbenchDependencies {
     pub actions: Arc<ActionRegistry>,
 }
 ```
+
+SessionTarget/ChangeGroupId/ContentSource 须满足节点键所需 Eq/Hash；此处仅为接口草案，不是完整 Render 实现。
 
 真实 GPUI Entity 可持有 `Entity<...>`、Subscription、FocusHandle 等，但不持有整个历史数据集。多个窗口可以共享 Git Core Session，但独立保存 selection、focus、scroll、Dock、Popup。
 
@@ -313,10 +317,10 @@ sequenceDiagram
     participant Core as Git Core
     User->>UI: 点击 Stage
     UI->>Action: UiIntent
-    Action->>App: GitCommand::Stage
+    Action->>App: GitCommand::StageFiles
     App->>Core: 调度并执行
     Core-->>App: Operation / Snapshot
-    App-->>UI: SnapshotUpdated + OperationFinished
+    App-->>UI: SnapshotUpdated + OperationChanged（查询终态）
     UI->>UI: ViewModel Projection + Render
 ```
 
@@ -333,7 +337,7 @@ pub enum LoadState<T> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RequestToken {
-    pub repository: RepositoryId,
+    pub target: SessionTarget,
     pub sequence: u64,
     pub snapshot_revision: SnapshotRevision,
 }
@@ -403,7 +407,7 @@ pub enum ActionId {
 
 ```rust
 pub struct ActionContext {
-    pub repository: Option<RepositoryId>,
+    pub target: Option<SessionTarget>,
     pub selected_files: Vec<RepoPath>,
     pub selected_commits: Vec<ObjectId>,
     pub selected_branch: Option<BranchRef>,
@@ -434,7 +438,7 @@ pub enum UiIntent {
     OpenDiff(DiffRequest),
     ShowContextMenu(ContextMenuRequest),
     CloseOverlay,
-    SetActiveRepository(RepositoryId),
+    SetActiveSession(SessionTarget),
 }
 ```
 
@@ -483,7 +487,7 @@ GitLogPanel
 
 ```rust
 pub struct GitLogViewModel {
-    pub repository: RepositoryId,
+    pub target: SessionTarget,
     pub filter: LogFilterViewModel,
     pub rows: Vec<CommitRowViewModel>,
     pub selected_oid: Option<ObjectId>,
@@ -543,38 +547,16 @@ CommitPanel
 
 ### 9.2 ViewModel
 
-```rust
-pub enum CommitMode { Changelists, StagingArea }
-
-pub enum CommitSubmissionState {
-    Idle,
-    Validating,
-    Submitting,
-    Running(OperationId),
-    Failed(String),
-}
-
-pub struct CommitPanelViewModel {
-    pub repository: RepositoryId,
-    pub snapshot_revision: SnapshotRevision,
-    pub mode: CommitMode,
-    pub groups: Vec<ChangeGroupViewModel>,
-    pub selected_changes: std::collections::HashSet<ChangeSelectionId>,
-    pub message: String,
-    pub amend: bool,
-    pub validation: CommitValidation,
-    pub submission: CommitSubmissionState,
-}
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 ### 9.3 Changes Tree
 
 ```rust
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ChangeTreeNodeId {
-    Group(String),
-    Directory(RepoPath),
-    File(RepoPath),
+    Group { target: SessionTarget, group: ChangeGroupId },
+    Directory { target: SessionTarget, group: ChangeGroupId, path: RepoPath },
+    File { target: SessionTarget, group: ChangeGroupId, source: ContentSource, path: RepoPath },
 }
 
 pub enum ChangeTreeNodeKind { Group, Directory, File }
@@ -599,7 +581,9 @@ pub struct ChangeTreeNode {
 
 ```rust
 pub struct CommitDraft {
-    pub repository: RepositoryId,
+    pub target: SessionTarget,
+    pub mode: CommitMode,
+    pub draft_revision: u64,
     pub message: String,
     pub amend: bool,
     pub signoff: bool,
@@ -608,7 +592,7 @@ pub struct CommitDraft {
 }
 ```
 
-切换仓库、Status 刷新和 Commit 失败均不得丢失 Draft。Commit 成功后的 Draft 清理由产品策略统一配置。
+切换仓库、Status 刷新和 Commit 失败均不得丢失 Draft。仅 CommittedAndReconciled 且草稿版本仍等于提交时版本时按策略清理；已提交待恢复/未知结果保留草稿并禁止自动重提。多窗口保存采用 draft_revision 比较，防止清除新输入。
 
 ### 9.5 Commit 关键流程
 
@@ -634,7 +618,7 @@ BranchPopup
 
 ```rust
 pub struct BranchPopupViewModel {
-    pub repository: RepositoryId,
+    pub target: SessionTarget,
     pub search_query: String,
     pub selected_branch: Option<BranchRef>,
     pub sections: Vec<BranchSectionViewModel>,
@@ -684,7 +668,7 @@ pub enum DiffSide { Left, Center, Right }
 
 pub struct DiffViewerState {
     pub tab_id: DiffTabId,
-    pub repository: RepositoryId,
+    pub target: SessionTarget,
     pub mode: DiffViewMode,
     pub document: LoadState<DiffDocumentViewModel>,
     pub selected_hunk: Option<HunkId>,
@@ -721,7 +705,7 @@ pub enum AlignedRowKind {
 
 ### 11.5 Hunk 操作流程
 
-`User Select Hunk → Capture Selection+Fingerprint → GitApplication StageHunk → Git Core Validate Current Index → Apply Patch → Snapshot Updated → UI Confirmed State`
+`User Select Hunk → Capture Selection+Fingerprint → GitApplication.submit(StageSelection + Fingerprint) → Git Core Validate Current Index → Apply Patch → Snapshot Updated → UI Confirmed State`
 
 用户点击后可以显示 Pending，但不能提前把它标为真实已 Stage。
 
@@ -746,7 +730,7 @@ ConflictResolverWindow
 
 ```rust
 pub struct MergeResolverViewModel {
-    pub repository: RepositoryId,
+    pub target: SessionTarget,
     pub conflict_files: Vec<ConflictFileViewModel>,
     pub selected_file: Option<RepoPath>,
     pub active_conflict: Option<ConflictBlockId>,
@@ -776,7 +760,7 @@ pub struct MergeDocumentViewModel {
 
 支持 Accept Ours、Accept Theirs、Accept Both、手动编辑 Result、Next/Previous Conflict、Mark Resolved。Git Rebase 下 Ours/Theirs 不可简单写成“我的/远程”。Add/Add、Modify/Delete、Rename/Delete、Binary、Submodule 等需要不同 UI 状态。
 
-**重要：** Save Result 与 Apply Resolution 分离。关闭编辑器不意味着冲突解决。Apply 时由 Git Core 验证写入、Stage，然后根据 Merge/Rebase/Cherry-pick 真实状态决定 Continue/Abort 入口。
+**重要：** Save Result 与 Apply Resolution 分离。关闭编辑器不意味着冲突解决。Apply 时携带冲突 stage OID、工作区强指纹、mode 与候选内容，由 Git Core 验证写入、Stage，然后根据 Merge/Rebase/Cherry-pick 真实状态决定 Continue/Abort 入口。
 
 ---
 
@@ -834,7 +818,7 @@ pub enum OverlayKind {
 
 pub struct OverlayRequest {
     pub kind: OverlayKind,
-    pub repository: Option<RepositoryId>,
+    pub target: Option<SessionTarget>,
     pub return_focus: Option<FocusTarget>,
 }
 ```
@@ -914,7 +898,7 @@ GPUI-Kit 测试 API、离屏截图能力须以锁定版本核验，不能假定�
 
 ---
 
-## 16. UI-M0～UI-M6 分阶段计划
+## 16. UI 子阶段计划（映射主 IP，不独立决定发布）
 
 | 阶段 | 预计周期 | 交付内容 | 验收门槛 |
 |---|---:|---|---|
@@ -925,6 +909,8 @@ GPUI-Kit 测试 API、离屏截图能力须以锁定版本核验，不能假定�
 | UI-M4 Diff Viewer | 4～6 周 | Unified、Side-by-side、ThreeVersion、Gutter、Hunk Actions | 对齐/导航/暂存与 Core 一致 |
 | UI-M5 Merge 与高级 UI | 3～5 周 | Conflict、Rebase、Stash、Shelf、Remote Dialog | 冲突/异常/确认流程完整 |
 | UI-M6 三平台生产加固 | 3～5 周 | 截图、键盘、无障碍、DPI、性能、打包适配 | 发布阻断项全部通过 |
+
+UI-M0/M1 对应主 M0/M1；UI-M2/M3 的 Log/Commit/Branch 对应主 M2；UI-M4 的最小只读 Diff 前移主 M1/M2，高级写操作仍对应主 M4；UI-M5 的 Merge/Remote 对应主 M3、Rebase/Shelf 对应主 M5；UI-M6 对应主 M6。原 UI 子阶段序号不表示主里程碑时间。
 
 预计 **19～29 周 UI 工作量粗估**，与 Git Core 可并行，不应简单相加为项目总日历时间。
 
@@ -952,7 +938,7 @@ flowchart TD
   D --> E[User Stage Action]
   E --> F[Action Dispatcher]
   F --> G[GitApplication.submit]
-  G --> H[Operation Completed + SnapshotUpdated]
+  G --> H[OperationChanged + SnapshotUpdated]
   H --> I[Refresh Commit Panel]
   I --> J[User Commit]
   J --> K[Refresh Git Log]

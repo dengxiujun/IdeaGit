@@ -1,5 +1,7 @@
 # IdeaGit — 可执行开发任务拆解与工程实施计划
 
+> 2026-11-06 修订：执行已批准的 [ADR](../architecture/adr/ADR-ARCH-REMEDIATION-001.md) D1–D7。主任务依赖表是执行依据；共享契约统一引用 [Git Core §18](../architecture/LLD-GIT-CORE-001.md)。本计划未执行，文档修订不代表 M0 或安全验证完成。
+
 > **文档编号**：IP-001  
 > **版本**：v1.0  
 > **日期**：2026-11-06  
@@ -115,15 +117,17 @@ acceptance:
 
 | ID | 任务 | 前置 | 预计工作量 | 交付与验收 |
 |---|---|---|---|---|
-| INFRA-001 | Rust Workspace | 无 | 1–2 人日 | 成员目录、依赖方向、cargo metadata/check 成功 |
+| INFRA-001 | Rust Workspace | INFRA-004 | 1–2 人日 | 成员目录、依赖方向、cargo metadata/check 成功 |
 | INFRA-002 | 固定 Rust/GPUI-Kit/依赖 | INFRA-001 | 1–2 人日 | Cargo.lock、rust-toolchain.toml、版本兼容性记录 |
 | INFRA-003 | 三平台 CI | INFRA-002 | 2–3 人日 | Windows/macOS/Linux 基础检查与测试 |
-| INFRA-004 | 工程约束/ADR | INFRA-001 | 1–2 人日 | 开发规范、模块依赖图、PR 模板 |
-| UI-001 | GPUI-Kit 启动 Spike | INFRA-002 | 2–4 人日 | 原生窗口在三平台启动 |
+| INFRA-004 | 架构决策/约束前置；PR 模板后补 | 无 | 1–2 人日 | 开发规范、模块依赖图、PR 模板 |
+| UI-001 | GPUI-Kit 启动 Spike | INFRA-002/INFRA-003 | 2–4 人日 | 原生窗口在三平台启动 |
 | UI-002 | IDEA Design Tokens | UI-001 | 2–3 人日 | 暗/亮色、Typography、Metrics |
-| TEST-001 | Git Fixture Harness | INFRA-001 | 2–3 人日 | 独立 Git 初始化、提交、冲突测试工具 |
+| TEST-001 | Git Fixture Harness | INFRA-001/INFRA-002 | 2–3 人日 | 独立 Git 初始化、提交、冲突测试工具 |
 
 ### 3.2 INFRA-001：Workspace
+
+先完成 INFRA-004 的 D1–D7 决策与候选工具链输入，再建立骨架；INFRA-002 生成实际锁文件并验证版本，不由 INFRA-001 猜测或改变核心版本。
 
 ```text
 ideagit/
@@ -132,13 +136,13 @@ ideagit/
 ├── rust-toolchain.toml
 ├── apps/desktop/
 ├── crates/
-│   ├── core/{git-domain,git-ports,git-application,git-operations,git-diff,git-graph,git-changelist}/
+│   ├── core/{git-domain,git-ports,git-application,git-operations,git-diff,git-graph,git-changelist,git-commit}/
 │   ├── adapters/{git-cli,git-libgit2,repository-watcher,credential-broker,persistence}/
 │   ├── ui/{idea-theme,idea-ui-primitives,idea-shell,git-ui-model,git-workbench,git-commit-ui,git-log-ui,git-branch-ui,git-diff-ui,git-merge-ui}/
 │   └── platform/desktop-platform/
 ├── tests/{fixtures,contracts,integration,recovery,ui}/
 ├── packaging/{windows,macos,linux}/
-└── docs/{architecture,adr,ui-spec}/
+└── docs/{architecture/adr,ui-spec}/
 ```
 
 ```toml
@@ -187,7 +191,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.1
         with:
           components: rustfmt, clippy
       # Linux: 依锁定 GPUI-Kit 版本安装系统依赖
@@ -226,12 +230,12 @@ impl TestRepository {
 | ID | 任务 | 依赖 | 人日 | 验收要点 |
 |---|---|---|---|---|
 | CORE-001 | 领域 ID/OID/Path/Errors | INFRA-001 | 3 | 类型无损、无 UI 依赖 |
-| CORE-002 | Repository Discovery | CORE-001 | 3–4 | Ordinary/Worktree/Bare/Submodule |
-| CORE-003 | ProcessRunner / GitCliExecutor | CORE-001 | 4–6 | 取消、超时、有界输出、脱敏 |
+| CORE-002 | Repository Discovery | CORE-001/CORE-003 | 3–4 | Ordinary/Worktree/Bare/Submodule |
+| CORE-003 | ProcessRunner / GitCliExecutor | CORE-001/INFRA-002/TEST-001 | 4–6 | 取消、超时、有界输出、脱敏 |
 | CORE-004 | Porcelain v2 Status Parser | CORE-003 | 5–7 | 各记录、复杂路径、冲突 |
 | CORE-005 | HEAD / Branch Reader | CORE-003 | 3–5 | Unborn/Detached/Upstream |
 | CORE-006 | Snapshot Builder | CORE-004/005 | 4–5 | 同代版本、过期校验 |
-| CORE-007 | Repository Session / Registry | CORE-006 | 5–7 | 共享 Session、多仓库隔离 |
+| CORE-007 | Repository Session / Registry | CORE-002/CORE-006 | 5–7 | 共享 Session、多仓库隔离 |
 | CORE-008 | Watcher + Refresh Scheduler | CORE-007 | 4–6 | 外部变化、合并事件、补刷新 |
 | UI-003 | Workbench Shell / DockArea | UI-002 | 5–7 | 拖拽、持久化、恢复 |
 | UI-004 | Repository Tabs / StatusBar | UI-003/CORE-007 | 3–4 | 当前仓库/分支状态 |
@@ -239,16 +243,7 @@ impl TestRepository {
 
 ### 4.2 CORE-001：Rust 类型接口
 
-```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct RepositoryId(pub uuid::Uuid);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct WorktreeId(pub uuid::Uuid);
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ObjectId { Sha1([u8; 20]), Sha256([u8; 32]) }
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RepoPath { raw: Vec<u8> }
-```
+共享接口和 DTO 统一见 [Git Core §18](../architecture/LLD-GIT-CORE-001.md)，实现不得复制另一套同名定义。
 
 **实现**：`RepoPath` 仅经验证构造；Git 原始路径与 OS 原生 `PathBuf` 分离；支持 SHA-256 仓库；Unix 非 UTF-8、Windows 原生路径转换由适配器负责。
 
@@ -256,31 +251,7 @@ pub struct RepoPath { raw: Vec<u8> }
 
 ### 4.3 CORE-003：进程执行器
 
-```rust
-#[async_trait::async_trait]
-pub trait ProcessRunner: Send + Sync {
-    async fn run(
-        &self,
-        spec: ProcessSpec,
-        cancel: tokio_util::sync::CancellationToken,
-    ) -> Result<ProcessOutput, ProcessError>;
-}
-
-pub struct ProcessSpec {
-    pub executable: std::path::PathBuf,
-    pub cwd: std::path::PathBuf,
-    pub args: Vec<std::ffi::OsString>,
-    pub timeout: std::time::Duration,
-    pub stdout_limit: usize,
-    pub stderr_limit: usize,
-}
-
-pub struct ProcessOutput {
-    pub exit_code: Option<i32>,
-    pub stdout: Vec<u8>,
-    pub stderr: Vec<u8>,
-}
-```
+共享接口和 DTO 统一见 [Git Core §18](../architecture/LLD-GIT-CORE-001.md)，实现不得复制另一套同名定义。
 
 **步骤**：`tokio::process::Command`；无 Shell；工作目录与参数独立；并发消费 stdout/stderr；强制输出限额；超时与进程树终止；可取消；匿名化诊断；流式进度扩展口。
 
@@ -310,22 +281,7 @@ pub enum StatusEntry {
 
 ### 4.5 CORE-007：Repository Session
 
-```rust
-pub struct RepositorySessionHandle {
-    pub repository: RepositoryId,
-    pub worktree: WorktreeId,
-    pub commands: tokio::sync::mpsc::Sender<RepositoryCommand>,
-    pub snapshots: tokio::sync::watch::Receiver<std::sync::Arc<RepositorySnapshot>>,
-}
-
-#[async_trait::async_trait]
-pub trait RepositoryRegistry: Send + Sync {
-    async fn open(&self, path: std::path::PathBuf) -> GitResult<RepositoryId>;
-    async fn close(&self, repository: RepositoryId) -> GitResult<()>;
-    async fn snapshot(&self, repository: RepositoryId)
-        -> GitResult<std::sync::Arc<RepositorySnapshot>>;
-}
-```
+共享接口和 DTO 统一见 [Git Core §18](../architecture/LLD-GIT-CORE-001.md)，实现不得复制另一套同名定义。
 
 **实现**：路径规范化、Session 复用、Worktree 共享 common dir、Watcher、读刷新调度、生命周期、Degraded 状态、后台任务取消；`watch` 只传当前 Snapshot，事件日志另存。
 
@@ -335,7 +291,7 @@ pub trait RepositoryRegistry: Send + Sync {
 
 ```rust
 pub struct WorkbenchState {
-    pub active_repository: Option<RepositoryId>,
+    pub active_target: Option<SessionTarget>,
     pub active_panel: PanelKind,
     pub layout_id: String,
     pub overlays: Vec<OverlayId>,
@@ -365,42 +321,45 @@ App Start → Open Repository → Discover → Session
 | ID | 任务 | 依赖 | 人日 |
 |---|---|---|---|
 | CORE-009 | 强类型 GitCommand | CORE-001 | 2–3 |
-| CORE-010 | Operation Coordinator | CORE-007/009 | 6–8 |
+| CORE-010 | Operation Coordinator 接口/队列（写入验收另有门禁） | CORE-007/009 | 6–8 |
 | CORE-011 | Resource Lock Manager | CORE-010 | 4–5 |
 | CORE-012 | Operation Journal | CORE-010 | 3–5 |
-| GIT-001 | Stage / Unstage | CORE-010 | 3–4 |
-| GIT-002 | Standard Commit | GIT-001 | 4–6 |
-| GIT-003 | Create/Checkout Branch | CORE-010 | 4–6 |
+| GIT-001 | Stage / Unstage | CORE-010/CORE-011/CORE-012/RECOVERY-000 | 3–4 |
+| GIT-002 | Standard Commit | GIT-001/RECOVERY-000 | 4–6 |
+| GIT-003 | Create/Checkout Branch | CORE-010/CORE-011/CORE-012/RECOVERY-000 | 4–6 |
 | GIT-004 | Commit Log Reader | CORE-003 | 4–5 |
 | GRAPH-001 | Commit Graph 基础 | GIT-004 | 5–7 |
 | UI-006 | Action Registry/Dispatcher | UI-003/CORE-009 | 4–6 |
-| UI-007 | Commit Panel MVP | UI-005/GIT-002 | 5–7 |
+| UI-007 | Commit Panel MVP | UI-005/UI-006/GIT-002 | 5–7 |
 | UI-008 | Branch Popup | UI-006/GIT-003 | 4–6 |
-| UI-009 | Git Log Table | GIT-004/GRAPH-001 | 5–7 |
-| TEST-002 | Stage→Commit→Log E2E | 相关任务 | 3–4 |
+| UI-009 | Git Log Table | UI-003/GIT-004/GRAPH-001 | 5–7 |
+| TEST-002 | Stage→Commit→Log E2E | TEST-001/CORE-008/UI-004/UI-007/UI-008/UI-009/DIFF-002 | 3–4 |
+| DIFF-001 | 最小只读 Diff AST / Parser | CORE-003 | 5–8 |
+| DIFF-002 | Unified Diff Viewer | DIFF-001/UI-003 | 5–7 |
+| RECOVERY-000 | Commit/Index 最小启动恢复 | CORE-011/CORE-012/CORE-003 | 待估 |
+
+最小 Diff 在 M1 可并行开发，M2 首切片验收前完成；M3 不再重复交付。
 
 ### 5.2 CORE-010：Operation Coordinator
 
-```rust
-#[async_trait::async_trait]
-pub trait GitCommandDispatcher: Send + Sync {
-    async fn submit(&self, command: GitCommand) -> GitResult<OperationId>;
-    async fn cancel(&self, id: OperationId) -> GitResult<CancelOutcome>;
-    async fn state(&self, id: OperationId) -> GitResult<OperationSnapshot>;
-}
-```
+共享接口和 DTO 统一见 [Git Core §18](../architecture/LLD-GIT-CORE-001.md)，实现不得复制另一套同名定义。
 
-生命周期：`Queued → ResourceWait → Preflight → Running → Reconcile → Completed/Failed/RecoveryRequired`。凭据与冲突为显式等待状态。
+生命周期见 Core §18：Queued → ResourceWait → Preflight → Running → Reconciling → Finished。冲突结束单次命令，Sequencer 保持待解决；Continue/Skip/Abort 创建关联命令。CORE-010 先交付接口/调度，不以 stub 宣告安全写入完成；全部写功能验收依赖 CORE-011/012 和 RECOVERY-000。
 
 **实现**：写操作队列、资源选择、前置条件、Journal、CLI 执行、异常分类、仓库重读、通知；成功不等于 UI 先行乐观确认。网络操作避免无关的长期本地资源锁。
 
 **验收**：同 Worktree 写操作一致有序，不同独立仓库可并发，异常取消不会被报告为无副作用。
+
+### 5.2.1 RECOVERY-000：最小写操作恢复
+
+在 M2 写功能开放前，按 Journal 和真实 HEAD/Index 区分未执行、已提交、已提交待恢复和未知结果。该任务不依赖 GIT-002 的完成，使用受控 Git fixture 模拟副作用，避免 GIT-002→Recovery→GIT-002 环。CORE-010/011/012 可分层构建，但写命令的最终验收必须包含完整协调器、锁、Journal 和恢复。
 
 ### 5.3 CORE-011：资源锁
 
 ```rust
 pub struct ResourceKey { pub scope: ResourceScope, pub kind: ResourceKind }
 pub enum ResourceScope { CommonGitDir(RepositoryId), Worktree(WorktreeId) }
+// RepositoryId 是规范化 common-dir 身份，不是每个 worktree 的随机别名。
 pub enum ResourceKind { Refs, Index, WorktreeFiles, Sequencer }
 ```
 
@@ -415,21 +374,13 @@ pub enum IndexCommand {
 }
 ```
 
-**流程**：Action → Command → Index Lock → 预校验 → Git Add/Restore --staged（版本兼容时）→ Snapshot Rebuild → UI Update。Pathspec 使用安全分隔协议；不能在 UI 直接拼路径。
+**流程**：Action → Command → 应用资源锁 → 预校验 → Git Add/Restore --staged（版本兼容时，由 Git 自行获取真实 Index 锁）→ Snapshot Rebuild → UI Update。Pathspec 必须使用 literal 策略；-- 与 NUL 不能关闭通配/magic。不得预占同一真实锁导致子进程失败。
 
 **测试**：多文件、删除、重命名、Index 锁、外部操作、特殊文件名、已暂存/未暂存共存。
 
 ### 5.5 GIT-002：标准 Commit
 
-```rust
-pub struct CommitRequest {
-    pub message: Vec<u8>,
-    pub amend: bool,
-    pub allow_empty: bool,
-    pub signoff: bool,
-    pub signing: SigningPolicy,
-}
-```
+共享接口和 DTO 统一见 [Git Core §18](../architecture/LLD-GIT-CORE-001.md)，实现不得复制另一套同名定义。
 
 **实现**：真实 Index 提交；遵循 Git Hooks、Commit Template、签名配置；使用安全消息传递；处理 Unborn、Detached、Merge 状态；失败后 Commit Draft 保留。
 
@@ -439,7 +390,7 @@ pub struct CommitRequest {
 
 ```rust
 pub struct ActionContext {
-    pub repository: Option<RepositoryId>,
+    pub target: Option<SessionTarget>,
     pub selected_files: Vec<RepoPath>,
     pub selected_commits: Vec<ObjectId>,
     pub selected_branch: Option<BranchRef>,
@@ -460,7 +411,7 @@ pub trait ActionPolicy {
 
 ```rust
 pub struct CommitPanelViewModel {
-    pub repository: RepositoryId,
+    pub target: SessionTarget,
     pub revision: SnapshotRevision,
     pub changes: Vec<ChangeRowViewModel>,
     pub selected: Vec<ChangeSelectionId>,
@@ -490,21 +441,24 @@ pub struct CommitPanelViewModel {
 
 | ID | 任务 | 依赖 | 人日 |
 |---|---|---|---|
-| REMOTE-001 | Remote Config / Fetch | CORE-010 | 4–5 |
+| REMOTE-001 | Remote Config / Fetch | CORE-010/CORE-011/CORE-012/REMOTE-002 | 4–5 |
 | REMOTE-002 | Credential Broker / AskPass | CORE-003 | 5–8 |
 | REMOTE-003 | Push / Push Preview | REMOTE-001/002 | 5–7 |
-| REMOTE-004 | Pull / Update Project | REMOTE-001 | 4–6 |
-| GIT-005 | Merge Executor | CORE-010 | 4–6 |
-| GIT-006 | Cherry-pick / Revert | CORE-010 | 4–6 |
-| GIT-007 | Stash / Reset | CORE-010 | 4–6 |
+| REMOTE-004 | Pull MVP（fetch+merge；rebase 待执行器） | REMOTE-001/GIT-005/RECOVERY-001 | 4–6 |
+| REMOTE-005 | Clone（目标路径/凭据/取消/残留诊断） | CORE-003/REMOTE-002/CORE-010/CORE-012 | 待估 |
+| GIT-005 | Merge Executor | CORE-010/CORE-011/CORE-012/RECOVERY-000 | 4–6 |
+| GIT-006 | Cherry-pick / Revert | CORE-010/CORE-011/CORE-012/RECOVERY-000 | 4–6 |
+| GIT-007 | Stash / Reset | CORE-010/CORE-011/CORE-012/RECOVERY-000 | 4–6 |
 | GIT-008 | Sequencer Inspector | GIT-005/006 | 4–5 |
-| RECOVERY-001 | Startup Recovery | CORE-012/GIT-008 | 6–8 |
-| DIFF-001 | Diff AST / Parser | CORE-003 | 5–8 |
-| DIFF-002 | Unified Diff Viewer | DIFF-001/UI-003 | 5–7 |
+| RECOVERY-001 | Startup Recovery | RECOVERY-000/GIT-008 | 6–8 |
 | MERGE-001 | Conflict Stage Reader | GIT-008 | 3–5 |
-| MERGE-002 | Three-way Resolver | MERGE-001/DIFF-002 | 8–12 |
+| MERGE-002 | Three-way Resolver | MERGE-001/DIFF-002/CORE-011/CORE-012 | 8–12 |
 | UI-010 | Remote Dialog / Operation UI | UI-006/REMOTE-003 | 5–7 |
-| TEST-003 | Network/Conflict/Recovery E2E | 相关任务 | 6–9 |
+| TEST-003 | Network/Conflict/Recovery E2E | TEST-002/REMOTE-003/REMOTE-004/REMOTE-005/GIT-006/GIT-007/MERGE-002/RECOVERY-001/UI-010 | 6–9 |
+
+### 6.1.1 REMOTE-005：Clone 与 Pull 范围
+
+Clone 仅写入明确授权的新目标目录；校验存在/非空、路径及凭据，取消后保留可诊断状态，不递归删除用户已有目录。使用本地 bare remote 验证成功、失败、重试及残留策略。Pull MVP 为 fetch+merge；rebase 选项在对应执行器/恢复能力通过前禁用。
 
 ### 6.2 REMOTE-002：Credential Broker
 
@@ -565,9 +519,12 @@ pub struct SequencerSnapshot {
 
 ```rust
 pub struct ApplyResolutionRequest {
-    pub repository: RepositoryId,
+    pub target: SessionTarget,
     pub path: RepoPath,
     pub expected_conflict_revision: SnapshotRevision,
+    pub expected_stage_oids: ConflictStages,
+    pub expected_worktree_digest: [u8; 32],
+    pub mode: u32,
     pub result: Vec<u8>,
 }
 ```
@@ -610,20 +567,28 @@ pub enum RecoveryAction {
 | CCD-001 | Changelist Domain | CORE-001 | 4–6 |
 | CCD-002 | Selection Fingerprints | CCD-001/DIFF-003 | 5–8 |
 | CCD-003 | Changelist Persistence | CCD-001 | 4–6 |
-| CCD-004 | Temporary Index Manager | CCD-002/CORE-010 | 6–9 |
-| CCD-005 | Candidate Tree Builder | CCD-004 | 6–9 |
-| CCD-006 | Partial Commit Transaction | CCD-005/CORE-012 | 10–15 |
-| CCD-007 | Real Index Reconciliation | CCD-006 | 8–12 |
+| CCD-004 | Temporary Index Manager | CCD-002/CORE-010/CORE-011/CORE-012 | 6–9 |
+| CCD-005 | Candidate Tree Builder | CCD-004/DIFF-007 | 6–9 |
+| CCD-006 | Partial Commit Transaction | CCD-005/CCD-009/GIT-002/CORE-012/RECOVERY-001 | 10–15 |
+| CCD-007 | Real Index Reconciliation | CCD-006/CORE-011 | 8–12 |
+| CCD-008 | EditableIndexSession / Apply | CCD-004/DIFF-005/DIFF-006/RECOVERY-001 | 待估 |
+| CCD-009 | Preview 生命周期与确认身份 | CCD-005/CCD-003 | 待估 |
 | UI-011 | Side-by-side Viewer | DIFF-004 | 6–9 |
-| UI-012 | Three-version Stage Viewer | DIFF-005/006 | 6–9 |
-| UI-013 | Changelist Commit Mode | CCD-003/006 | 6–9 |
-| TEST-004 | Partial Commit Safety Tests | CCD-006/007 | 8–12 |
+| UI-012 | Three-version Stage Viewer | DIFF-005/DIFF-006/CCD-008 | 6–9 |
+| UI-013 | Changelist Commit Mode | CCD-003/CCD-006/CCD-007/TEST-004 | 6–9 |
+| TEST-004 | Partial Commit Safety Tests | CCD-006/CCD-007/CCD-008/CCD-009/DIFF-007/RECOVERY-001 | 8–12 |
+
+### 7.1.1 高级能力开放条件
+
+CCD-006/007 为内部引擎/协调实现；TEST-004 使用 Core fixture，不依赖 UI-013，从而 UI-013 → TEST-004 不产生循环。Mock UI 可并行，真实入口只在所有前置完成后开放。
+
+CCD-008 管理原始 Index/HEAD 指纹、编辑候选、过滤/编码/mode 及 Apply 后 Blob 校验；Apply 走协调器和已验证的发布协议。CCD-009 为 Preview 绑定 target、候选 Tree、选择/Index/HEAD 指纹、失效身份；过期预览重新确认，不无限期复用。两任务未完成时相应能力关闭。
 
 ### 7.2 DIFF-006：Hunk Stage
 
 ```rust
 pub struct StageHunksRequest {
-    pub repository: RepositoryId,
+    pub target: SessionTarget,
     pub path: RepoPath,
     pub expected_index_oid: Option<ObjectId>,
     pub expected_worktree_fingerprint: [u8; 32],
@@ -631,26 +596,13 @@ pub struct StageHunksRequest {
 }
 ```
 
-**流程**：选择 Hunk → 捕获 Blob/Index 身份 → 构建候选 Patch → 获取 Index Lock → 校验 → 应用 → 重新读取 Index/Worktree → 发布 Snapshot。Patch 过期必须拒绝或重新确认，不得静默重定位到错误内容。
+**流程**：选择 Hunk → 捕获 Blob/Index 身份 → 构建候选 Patch → 获取应用资源锁 → 对候选 Index 校验/应用 → 已验证的真实 Index 锁内比较/发布 → 重新读取 Index/Worktree → 发布 Snapshot。Patch 过期必须拒绝或重新确认，不得静默重定位到错误内容。
 
 **验收**：只 Stage 所选 Hunk，其他修改完好；特殊路径、换行符、二进制、Rename、外部并发都有防护。
 
 ### 7.3 CCD-001：Changelist Domain
 
-```rust
-pub struct Changelist {
-    pub id: ChangelistId,
-    pub name: String,
-    pub is_default: bool,
-    pub selections: Vec<ChangeSelection>,
-}
-
-pub enum ChangeSelection {
-    WholeFile { path: RepoPath },
-    Hunks { path: RepoPath, ids: Vec<HunkId> },
-    Lines { path: RepoPath, lines: Vec<LineSelection> },
-}
-```
+共享接口和 DTO 统一见 [Git Core §18](../architecture/LLD-GIT-CORE-001.md)，实现不得复制另一套同名定义。
 
 Changelist 是应用逻辑模型，不能直接等同 Git Index；Change/Hunk/Line 归属带 Blob 基线与内容指纹，修改后需检测陈旧归属；Changelist 数据需要备份和迁移，不是可随意丢弃的缓存。
 
@@ -673,18 +625,7 @@ pub trait TemporaryIndexManager: Send + Sync {
 
 ### 7.5 CCD-006：Partial Commit
 
-```rust
-pub enum CommitTransactionPhase {
-    Captured,
-    CandidateIndexCreated,
-    CandidateTreeValidated,
-    CommitExecuting,
-    HeadUpdated,
-    RealIndexReconciling,
-    Completed,
-    RecoveryRequired,
-}
-```
+共享接口和 DTO 统一见 [Git Core §18](../architecture/LLD-GIT-CORE-001.md)，实现不得复制另一套同名定义。
 
 **事务协议**：
 
@@ -732,20 +673,20 @@ pub enum CommitTransactionPhase {
 | REBASE-001 | Rebase Sequencer Commands | GIT-008 | 5–7 |
 | REBASE-002 | Interactive Rebase Plan | REBASE-001 | 5–7 |
 | REBASE-003 | Todo Validation/Execution | REBASE-002 | 7–10 |
-| REBASE-004 | Rebase Recovery | RECOVERY-001 | 5–8 |
+| REBASE-004 | Rebase Recovery | RECOVERY-001/REBASE-001/REBASE-003 | 5–8 |
 | SHELF-001 | Shelf Domain/Persistence | CCD-003 | 5–7 |
-| SHELF-002 | Shelve/Unshelve | SHELF-001/DIFF-003 | 6–9 |
+| SHELF-002 | Shelve/Unshelve | SHELF-001/DIFF-003/CORE-010/CORE-011/CORE-012/RECOVERY-001 | 6–9 |
 | HISTORY-001 | File History / Blame | GIT-004 | 5–7 |
 | GRAPH-002 | DAG Filters / Multi Refs | GRAPH-001 | 6–9 |
 | UI-014 | Interactive Rebase Dialog | REBASE-003 | 6–9 |
-| UI-015 | Shelf/Stash Views | SHELF-002 | 4–6 |
-| TEST-005 | Recovery E2E | 相关任务 | 5–8 |
+| UI-015 | Shelf/Stash Views | SHELF-002/GIT-007 | 4–6 |
+| TEST-005 | Recovery E2E | TEST-003/TEST-004/REBASE-004/UI-013/UI-014/UI-015/HISTORY-001/GRAPH-002 | 5–8 |
 
 ### 8.2 REBASE-002：Plan
 
 ```rust
 pub struct InteractiveRebasePlan {
-    pub repository: RepositoryId,
+    pub target: SessionTarget,
     pub upstream: ObjectId,
     pub entries: Vec<RebaseTodoEntry>,
 }
@@ -766,7 +707,7 @@ pub enum RebaseAction { Pick, Reword, Edit, Squash, Fixup, Drop }
 ```rust
 pub struct ShelfEntry {
     pub id: ShelfId,
-    pub repository: RepositoryId,
+    pub target: SessionTarget,
     pub name: String,
     pub created_at: i64,
     pub base_head: Option<ObjectId>,
@@ -786,18 +727,24 @@ Shelf 与 Git Stash 不等价，应管理自有 Patch Bundle、元数据、备�
 
 | ID | 任务 | 依赖 | 人日 |
 |---|---|---|---|
-| PERF-001 | 大仓库 Benchmark | M2 | 5–7 |
+| PERF-001 | 大仓库 Benchmark | TEST-002 | 5–7 |
 | PERF-002 | Graph 虚拟化优化 | GRAPH-002 | 4–6 |
 | PERF-003 | 大 Diff 内存优化 | DIFF-004 | 5–7 |
 | SECURITY-001 | Git 命令/路径安全审查 | CORE-003 | 4–6 |
-| SECURITY-002 | Credential/Hook 安全审查 | REMOTE-002 | 4–6 |
-| QA-001 | 三平台完整 E2E | M5 | 8–12 |
-| QA-002 | 故障注入 | RECOVERY-001 | 6–9 |
-| QA-003 | IDEA UI Golden/交互对照 | UI-M5 | 6–10 |
-| RELEASE-001 | Windows 签名/安装 | M5 | 3–5 |
-| RELEASE-002 | macOS 签名/公证 | M5 | 3–5 |
-| RELEASE-003 | Linux DEB/RPM/AppImage | M5 | 4–6 |
+| SECURITY-002 | Credential/Hook 安全审查 | REMOTE-002/GIT-002 | 4–6 |
+| QA-001 | 三平台完整 E2E | TEST-005 | 8–12 |
+| QA-002 | 故障注入 | RECOVERY-001/REBASE-004/TEST-004 | 6–9 |
+| QA-003 | IDEA UI Golden/交互对照 | UI-010/UI-011/UI-012/UI-013/UI-014/UI-015 | 6–10 |
+| RELEASE-001 | Windows 签名/安装 | TEST-005 | 3–5 |
+| RELEASE-002 | macOS 签名/公证 | TEST-005 | 3–5 |
+| RELEASE-003 | Linux DEB/RPM/AppImage | TEST-005 | 4–6 |
 | RELEASE-004 | 更新与迁移验证 | RELEASE-001/002/003 | 5–8 |
+
+### 9.1.1 前置安全与最终发布
+
+命令/pathspec/进程安全测试随 M1/M2 Executor 和写功能完成；Credential/Hook 测试随 M2/M3；Index/Partial Commit 故障矩阵为 M4 开放前置。SECURITY/QA 在 M6 是全量复核，不是首次验证。
+
+RELEASE-001/002/003 表示打包产物准备，可并行；对用户发布必须同时通过 QA-001/002/003、SECURITY-001/002、PERF-001/002/003、RELEASE-004、TEST-005 以及未关闭阻断项检查。打包任务不反向依赖 RELEASE-004，避免迁移验证形成环。
 
 ### 9.2 性能基准（拟验收目标）
 
@@ -834,41 +781,13 @@ Shelf 与 Git Stash 不等价，应管理自有 Patch Bundle、元数据、备�
 
 ## 10. 跨模块接口与代码契约
 
-### 10.1 第一批稳定类型
+### 10.1 唯一类型所有权
 
-| 类型 | Crate | 消费方 |
-|---|---|---|
-| RepositoryId/WorktreeId/ObjectId/RepoPath | git-domain | 全部模块 |
-| RepositorySnapshot | git-domain | Application、UI |
-| GitError | git-domain | Core/Adapter/Application |
-| GitCommand | git-application（或独立 contract） | UI/Operations |
-| OperationId/OperationSnapshot | Domain/Operations | UI/Application |
-| DiffQuery/DiffDocument | Domain/Diff | UI/Commit |
-| CommitRequest | git-domain | Commit/UI |
-| ChangeSelection | git-changelist | Commit/Diff |
+[Git Core §18](../architecture/LLD-GIT-CORE-001.md) 是共享字段/方法/结果的权威定义：domain 拥有 GitCommand/Commit/Selection/Diff DTO，ports 拥有执行上下文与端口，Application 实现 Facade 并可重导出。UI 引用公共契约，不依赖 git-cli。所有示例仍需工程编译验证。
 
-### 10.2 GitApplication Facade
+### 10.2 集成门禁
 
-```rust
-use std::{path::PathBuf, sync::Arc};
-
-#[async_trait::async_trait]
-pub trait GitApplication: Send + Sync {
-    async fn open_repository(&self, path: PathBuf) -> GitResult<RepositoryId>;
-    async fn close_repository(&self, repo: RepositoryId) -> GitResult<()>;
-    async fn snapshot(&self, repo: RepositoryId) -> GitResult<Arc<RepositorySnapshot>>;
-    async fn log(&self, repo: RepositoryId, query: LogQuery) -> GitResult<CommitPage>;
-    async fn diff(&self, repo: RepositoryId, query: DiffQuery) -> GitResult<DiffDocument>;
-    async fn submit(&self, command: GitCommand) -> GitResult<OperationId>;
-    async fn operation(&self, id: OperationId) -> GitResult<OperationSnapshot>;
-}
-
-pub trait GitEventSource: Send + Sync {
-    fn subscribe(&self) -> tokio::sync::broadcast::Receiver<GitEvent>;
-}
-```
-
-> 这些代码是目标接口草案；领域 DTO、构造器、错误实现需在真正 Workspace 中补齐后编译验证。UI 只依赖 Facade，不应导入 `git-cli`。
+SessionTarget 必须区分 common-dir RepositoryId、可选 WorktreeId 和会话世代。Facade 的 snapshot 返回 Arc；订阅 lag 重新同步；标准提交与选择提交分型。首切片先统一 contract，后续高级能力未验证返回 UnsupportedFeature。
 
 ### 10.3 冻结节奏
 
@@ -1014,7 +933,9 @@ Then 不覆盖远端变化、显示拒绝/诊断、Force-with-lease 按指定预
 | 大仓库/大 Diff 性能 | 中高 | 分页、虚拟列表、限流 |
 | IDEA 2026.x 交互版本差异 | 中 | 固定 2026.2 实测基线，版本化 UI Spec |
 
-### 13.2 ADR 最小清单
+### 13.2 ADR 历史主题索引
+
+下列旧编号是主题摘要，不是独立批准记录。正式决定见 docs/architecture/adr/ADR-ARCH-REMEDIATION-001.md；发生冲突按正式已批准 ADR 修订，不能复用旧编号新增含义。
 
 - ADR-001：Git CLI 作为写操作权威引擎。
 - ADR-002：Domain、Ports、Application、Adapters 依赖单向。

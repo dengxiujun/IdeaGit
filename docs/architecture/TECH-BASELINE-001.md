@@ -1,5 +1,7 @@
 # IdeaGit — 核心技术与依赖版本基线
 
+> 2026-11-06：执行已批准 [ADR D6](adr/ADR-ARCH-REMEDIATION-001.md)。保留候选版本，未安装/编译验证；日常工具链不等于已测 MSRV。实际依赖变更仍按 ADR 流程处理。
+
 > 文档编号：TECH-BASELINE-001  
 > 版本：v1.0  
 > 日期：2026-11-06  
@@ -78,7 +80,7 @@ members = [
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.99.1"
+# rust-version 在独立 MSRV 验证后填写；不能把日常工具链自动当作已验证下限。
 version = "0.1.0"
 publish = false
 
@@ -206,3 +208,13 @@ Linux 还需在明确的发行版基线上安装所需开发库并验证 Wayland
 第一版建议使用 **Rust 1.99.1 + Edition 2024 + Cargo Resolver 3 + GPUI-Kit 0.9.0**，后端以 **系统 Git CLI** 为权威执行路径，`git2 0.20.x` 只作为可选只读加速；异步与文件监控基于 Tokio 1.x、notify 8.x。
 
 这一组合是**待三平台 CI 验证的开发基线**。最终生产发布时，应以真实 `Cargo.lock`、Git 兼容矩阵、GPUI UI 回归和 Windows/macOS/Linux 完整验收记录为准。
+
+## 11. ADR 修订后的验证清单
+
+- 日常开发与 CI 固定 Rust 1.99.1；禁止使用滚动 stable 替代。候选不兼容需另提 ADR，不自动升降核心版本。
+- MSRV 未验证；Edition/Resolver 选择不证明所有传递依赖的最低编译器要求。
+- Git 最低版本/能力矩阵尚待 INFRA-002 提案：逐项验证 restore、pathspec-from-file、SHA-256、worktree、过滤器、签名等；版本/能力不足时拒绝对应功能，不拼凑不安全降级。
+- Tokio/tokio-util/Serde/UUID 等保留已有范围；所有实际 patch、feature、MSRV、原生依赖记录在后续依赖验证报告与 Cargo.lock。arc-swap/parking_lot/sha2/secrecy/SQLite 等未冻结需求必须明确归属及审批，不因示例引用就隐式引入。
+- GPUI 使用 Kit 匹配的重导出；Dock/Panel/renderer、Editor、VirtualList、test-support 的存在不等于应用接入通过。
+- Windows 记录 MSVC/SDK/CMake；macOS 记录 OS/Xcode；Linux 记录发行版、原生库、X11/Wayland/Vulkan 图形环境。cargo check 与原生窗口/IME/焦点/截图分别记录结果。
+- 当前没有 Cargo Workspace，不能执行 cargo metadata、依赖图、编译与三平台测试；本次文档修订不改变“待验证”状态。

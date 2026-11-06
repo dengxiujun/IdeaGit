@@ -57,13 +57,13 @@ IdeaGit/
 │   │   ├── LLD-GIT-CORE-001.md
 │   │   ├── LLD-UI-001.md
 │   │   ├── LLD-CCD-001.md
-│   │   └── TECH-BASELINE-001.md
+│   │   ├── TECH-BASELINE-001.md
+│   │   └── adr/
 │   ├── plans/
 │   │   ├── IP-001-development-plan.md
 │   │   └── PROGRESS.md
 │   ├── reviews/
-│   ├── specs/
-│   └── adr/
+│   └── specs/
 ├── apps/
 ├── crates/
 ├── tests/
@@ -401,7 +401,7 @@ git commit -m "feat(git): implement porcelain v2 status parser"
 建议维护：
 
 - `docs/plans/PROGRESS.md`：当前里程碑、已完成任务、测试状态、阻塞项、下一任务。
-- `docs/adr/`：每次重大架构改动的背景、选择与影响。
+- `docs/architecture/adr/`：每次重大架构改动的背景、选择与影响。
 - `docs/reviews/`：架构审查、依赖兼容验证、关键安全审查结果。
 
 ## 13. 第一周行动计划

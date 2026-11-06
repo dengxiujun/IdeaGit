@@ -1,6 +1,8 @@
 # IdeaGit — Git Core 生产级详细设计
 
-**文档编号**：LLD-GIT-CORE-001　　**版本**：v1.0　　**状态**：可直接指导编码
+> 修订：2026-11-06，执行已批准的 [ADR-ARCH-REMEDIATION-001](adr/ADR-ARCH-REMEDIATION-001.md) D1–D7。共享契约见 [Git Core §18](LLD-GIT-CORE-001.md)；主里程碑以 IP-001 为准。代码片段仍为设计草案，未做编译或三平台验证。
+
+**文档编号**：LLD-GIT-CORE-001　　**版本**：v1.0　　**状态**：已按 ADR 收敛的设计规范，待工程验证
 
 > 适用范围：IntelliJ IDEA 2026.x Git 交互基准；独立 Rust + GPUI-Kit 桌面客户端；Windows、macOS、Linux。
 
@@ -31,11 +33,11 @@ flowchart TB
   APP --> OPS[git-operations\nCoordinator / Recovery / Journal]
   APP --> PORTS[git-ports + git-domain]
   OPS --> PORTS
-  PORTS --> CLI[git-cli\nGitCliExecutor + Parsers]
-  PORTS -. optional .-> LIB[git-libgit2\nread acceleration]
-  CLI --> GIT[System Git]
-  OPS --> WATCH[Watcher + Snapshot Builder]
-  OPS --> STORE[Persistence / Journal]
+  CLI[git-cli Adapter] --> PORTS
+  LIB[git-libgit2 Adapter] -. optional .-> PORTS
+  CLI -. runtime process .-> GIT[System Git]
+  WATCH[Watcher Adapter] --> PORTS
+  STORE[Persistence / Journal Adapter] --> PORTS
 ```
 
 ### 2.1 Crate 与模块
@@ -52,6 +54,7 @@ crates/
 │   │                     executor, state_machine, journal, recovery
 │   ├── git-diff/         diff model, hunks, intraline and virtual paging
 │   ├── git-graph/        commit graph lanes and refs projection
+│   ├── git-commit/       candidate preview and commit transaction
 │   └── git-changelist/   IDEA changelist and staging projection
 └── adapters/
     ├── git-cli/          executor, environment, discovery, parsers,
@@ -62,138 +65,21 @@ crates/
     └── persistence/
 ```
 
-依赖必须单向：`git-domain <- git-ports <- (git-operations, git-application) <- adapters`。Domain 不能依赖 GPUI、CLI 或文件系统；CLI 不能反向依赖 Application；出现循环依赖即为架构错误。
+编译依赖：Application → Operations → Ports → Domain；Adapters → Ports/Domain；git-commit → Ports/Diff，Operations → git-commit。具体实现由 Desktop 注入，Ports 不依赖 Adapters。完整允许边见 §18.1。
 
 ## 3. 领域类型
 
-```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct RepositoryId(pub Uuid);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct WorktreeId(pub Uuid);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct OperationId(pub Uuid);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct SnapshotRevision(pub u64);
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ObjectId { Sha1([u8; 20]), Sha256([u8; 32]) }
-
-#[derive(Debug, Clone)]
-pub struct RepositoryLocation {
-    pub worktree_root: Option<PathBuf>,
-    pub git_dir: PathBuf,
-    pub common_dir: PathBuf,
-    pub is_bare: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HeadState {
-    Unborn { branch: String },
-    Attached { branch: String, oid: ObjectId },
-    Detached { oid: ObjectId },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ChangeKind { Unmodified, Added, Modified, Deleted, Renamed,
-    Copied, TypeChanged, Unmerged }
-
-#[derive(Debug, Clone)]
-pub struct FileChange {
-    pub path: RepoPath,
-    pub original_path: Option<RepoPath>,
-    pub index_status: ChangeKind,
-    pub worktree_status: ChangeKind,
-    pub head_oid: Option<ObjectId>,
-    pub index_oid: Option<ObjectId>,
-    pub conflict: Option<ConflictEntry>,
-}
-
-#[derive(Debug, Clone)]
-pub struct RepositorySnapshot {
-    pub repository: RepositoryId,
-    pub worktree: WorktreeId,
-    pub revision: SnapshotRevision,
-    pub head: HeadState,
-    pub operation: RepositoryOperation,
-    pub changes: Vec<FileChange>,
-    pub untracked: Vec<RepoPath>,
-    pub ahead: Option<u64>, pub behind: Option<u64>,
-}
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 `RepoPath` 保存 Git 原始字节，`LocalPath` 保存 OS 原生路径，严禁将 UI 展示字符串用于实际文件操作。必须支持普通仓库、linked worktree、bare、submodule、nested repository，并通过规范化 `common_dir`、符号链接和文件系统身份确定共享协调域。Snapshot 不包含 Log、完整 Branch、Diff 或 Blob，避免大仓库刷新时复制海量数据。
 
 ## 4. Ports 与错误模型
 
-```rust
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum GitErrorKind {
-    RepositoryNotFound, InvalidRepository, GitUnavailable, UnsupportedGitVersion,
-    DirtyWorktree, IndexLocked, ReferenceChanged, InvalidPath, ObjectNotFound,
-    AuthenticationRequired, AuthenticationFailed, NetworkFailure,
-    MergeConflict, OperationAlreadyInProgress, HookRejected, SigningFailed,
-    PermissionDenied, TimedOut, Cancelled, UnsupportedFeature, OutputTooLarge, Internal,
-}
-#[derive(Debug, Clone)]
-pub struct GitError { pub kind: GitErrorKind, pub message: String,
-    pub diagnostic: Option<String>, pub recoverable: bool }
-pub type GitResult<T> = Result<T, GitError>;
-
-#[async_trait]
-pub trait RepositoryReader: Send + Sync {
-    async fn discover(&self, path: &Path) -> GitResult<RepositoryLocation>;
-    async fn read_head(&self, repo: &RepositoryLocation) -> GitResult<HeadState>;
-}
-#[async_trait]
-pub trait StatusReader: Send + Sync {
-    async fn status(&self, repo: &RepositoryLocation, options: StatusOptions)
-        -> GitResult<StatusData>;
-}
-#[async_trait]
-pub trait HistoryReader: Send + Sync {
-    async fn log(&self, repo: &RepositoryLocation, q: LogQuery) -> GitResult<CommitPage>;
-    async fn commit_details(&self, repo: &RepositoryLocation, oid: ObjectId)
-        -> GitResult<CommitDetails>;
-}
-#[async_trait]
-pub trait DiffReader: Send + Sync {
-    async fn diff(&self, repo: &RepositoryLocation, q: DiffQuery)
-        -> GitResult<DiffDocument>;
-}
-#[async_trait]
-pub trait IndexWriter: Send + Sync {
-    async fn stage(&self, repo: &RepositoryLocation, paths: Vec<RepoPath>) -> GitResult<()>;
-    async fn unstage(&self, repo: &RepositoryLocation, paths: Vec<RepoPath>) -> GitResult<()>;
-}
-#[async_trait]
-pub trait CommitWriter: Send + Sync {
-    async fn commit(&self, repo: &RepositoryLocation, req: CommitRequest)
-        -> GitResult<CommitOutcome>;
-}
-#[async_trait]
-pub trait BranchWriter: Send + Sync {
-    async fn create_branch(&self, repo: &RepositoryLocation, req: CreateBranchRequest)
-        -> GitResult<BranchInfo>;
-    async fn checkout(&self, repo: &RepositoryLocation, req: CheckoutRequest) -> GitResult<()>;
-}
-#[async_trait]
-pub trait RemoteOperator: Send + Sync {
-    async fn fetch(&self, repo: &RepositoryLocation, req: FetchRequest) -> GitResult<()>;
-    async fn push(&self, repo: &RepositoryLocation, req: PushRequest) -> GitResult<()>;
-}
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 长操作统一携带：
 
-```rust
-pub struct ExecutionContext {
-    pub operation_id: OperationId,
-    pub cancellation: CancellationToken,
-    pub progress: mpsc::Sender<OperationProgress>,
-    pub deadline: Option<Instant>,
-}
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 诊断必须脱敏，不得写入密码、Token 或完整敏感环境变量。
 
@@ -203,27 +89,9 @@ pub struct ExecutionContext {
 
 `GitCliExecutor` 只负责参数、环境、stdin/stdout/stderr、退出码、超时和取消；`GitOperationCoordinator` 负责排队和生命周期；Application Service 负责业务语义。命令参数必须由强类型 Command 构造，禁止 UI 传入任意 Git 字符串。
 
-```rust
-pub struct GitCliExecutor { git_path: PathBuf, limits: ProcessLimits }
-pub struct CommandSpec { pub args: Vec<OsString>, pub env: Vec<(OsString, OsString)>,
-    pub cwd: PathBuf, pub stdin: StdinMode, pub output_limit: usize }
-pub struct CommandOutput { pub status: ExitStatus, pub stdout: Vec<u8>, pub stderr: Vec<u8> }
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
-pub enum GitCommand {
-    Stage { repo: RepositoryId, paths: Vec<RepoPath> },
-    Unstage { repo: RepositoryId, paths: Vec<RepoPath> },
-    Commit { repo: RepositoryId, request: CommitRequest },
-    Checkout { repo: RepositoryId, target: BranchTarget },
-    Fetch { repo: RepositoryId, remote: String },
-    Push { repo: RepositoryId, request: PushRequest },
-    Merge { repo: RepositoryId, request: MergeRequest },
-    Rebase { repo: RepositoryId, request: RebaseRequest },
-    ContinueOperation { repo: RepositoryId, kind: SequencerKind },
-    AbortOperation { repo: RepositoryId, kind: SequencerKind },
-}
-```
-
-默认使用 `git -C <worktree> -c core.quotepath=false`，机器接口优先：
+普通工作区使用 git -C <worktree> -c core.quotepath=false；bare 查询按 RepositoryLocation 使用正确 git_dir，不拼空 worktree 路径。机器接口优先：
 
 ```text
 status --porcelain=v2 -z --branch
@@ -242,74 +110,29 @@ cat-file --batch
 
 ## 6. Repository Session、Snapshot 与 Watcher
 
-每个 Worktree 一个 `RepositorySession`，由 Registry 以 `RepositoryId` 管理；同一 `common_dir` 的 Session 共享写资源锁，但各自拥有 worktree 状态。
+每个 Worktree 一个 RepositorySession；Registry 以 repository/worktree 组合和会话世代定位，返回引用计数句柄。同一 common_dir 共享 RepositoryId 及公共资源锁。bare 会话无 WorktreeId，仅暴露可用读取能力。
 
-```rust
-pub struct RepositorySession {
-    pub id: RepositoryId,
-    pub location: RepositoryLocation,
-    pub snapshot: ArcSwap<RepositorySnapshot>,
-    pub revision: AtomicU64,
-    pub coordinator: Arc<OperationCoordinator>,
-    pub refresh: RefreshController,
-}
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 Watcher 只产生“可能变化”信号，不直接修改领域状态。事件经过 100–300ms debounce、路径过滤和刷新合并后执行 `read_head + status + sequencer_probe`。Watcher 丢事件、外部编辑器写入、分支切换和恢复后必须由定时校验兜底。Snapshot 以不可变对象发布；UI 只能观察版本，不可原地修改。
 
 ## 7. Operation Coordinator、Journal 与 Recovery
 
-```rust
-pub enum OperationPhase { Queued, Preflight, Running, AwaitingCredentials,
-    AwaitingConfirmation, AwaitingConflictResolution, Reconciling }
-pub enum OperationOutcome { Success, Failed(GitError), Cancelled(CancelOutcome),
-    Conflict(ConflictSummary), RecoveryRequired(RecoveryInfo) }
-pub enum OperationState { Active(OperationPhase), Finished(OperationOutcome) }
-
-#[async_trait]
-pub trait GitCommandDispatcher: Send + Sync {
-    async fn submit(&self, command: GitCommand) -> GitResult<OperationId>;
-    async fn cancel(&self, id: OperationId) -> GitResult<CancelOutcome>;
-    async fn state(&self, id: OperationId) -> GitResult<OperationSnapshot>;
-}
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 资源键至少包括 `common_dir`、`worktree`、`index`、`refs`、`network(remote)`。同一 Index 的写操作互斥；只读 Status 可并行但必须在写操作结束后重新校验。Preflight 检查 Git 版本、仓库位置、Index lock、当前 sequencer、目标 ref 和路径合法性。
 
-Journal 记录 `operation_id、command_kind、repository、before_head、before_index_stat、phase、argv_digest、started_at、finished_at、outcome`，不记录凭据。状态采用追加写、长度/校验和校验、原子替换和崩溃恢复。启动时扫描未完成记录，然后以 Git 实际状态为权威：若 Rebase/Merge/Cherry-pick 目录仍在，恢复为 AwaitingConflictResolution；若 Git 已完成，标记 Reconciled；无法判断则 RecoveryRequired 并要求用户确认。
+Journal 的字段、耐久化和恢复协议统一见 §18.5。mtime/size 只能辅助诊断，不能替代强指纹或内容备份。重启依据实际 Git 状态恢复；已提交但待恢复须保留 OID，未知结果不得自动重试。
 
-```mermaid
-stateDiagram-v2
-  [*] --> Queued
-  Queued --> Preflight
-  Preflight --> Running
-  Running --> Reconciling
-  Running --> AwaitingConflictResolution
-  Running --> Failed
-  Reconciling --> Completed
-  Reconciling --> RecoveryRequired
-  AwaitingConflictResolution --> Running: continue/skip
-  AwaitingConflictResolution --> Reconciling: abort
-```
+命令转移表和持久 Sequencer 状态见 §18.5；所有可能已有副作用的失败均先 Reconciling，不使用 Running → Failed 的捷径。
 
 取消只停止子进程并重新读取仓库，不能把“进程退出”当成“仓库回滚”。Hook 拒绝、认证等待、冲突和网络失败均返回结构化恢复动作。
 
 ## 8. Commit、Changelist 与 Index
 
-Changelist 是 Application/UI 分组，不是 Git Index；必须持久化为路径集合和排除规则。Git Staging 模式直接映射 Index，IDEA Changelist 模式则在提交前由 `stage_selected` 将所选路径写入 Index，并在提交完成或取消后按策略恢复原 Index。任何恢复都要以 Index lock、外部变更和用户确认作为前置条件。
+Changelist 是独立持久化的逻辑选择及指纹，不是 Git Index。M2 仅实现标准 Index Commit。禁止先将逻辑选择写入真实 Index 再恢复；高级选择提交只允许在临时 Index 生成候选并经过安全门禁后开放，详见 CCD §9 和本文件 §18.5。恢复不得自动覆盖当前 Index。
 
-```rust
-pub struct CommitRequest {
-    pub message: String,
-    pub author: Option<Signature>,
-    pub committer: Option<Signature>,
-    pub amend: bool,
-    pub sign: SignMode,
-    pub hooks: HookPolicy,
-    pub selected_paths: Vec<RepoPath>,
-}
-pub struct CommitOutcome { pub oid: ObjectId, pub changed_paths: Vec<RepoPath> }
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 提交前校验空消息、无 staged 变更、冲突项、作者信息、签名可用性和 hooks。Commit 后刷新 HEAD、Index、Status、ahead/behind 和 Log 缓存。
 
@@ -331,12 +154,7 @@ pub struct SequencerStatus { pub kind: SequencerKind, pub active: bool,
 
 ## 10. Diff 与 Graph
 
-```rust
-pub enum DiffEndpoint { Head, Index, WorkingTree, Commit(ObjectId), Tree(ObjectId),
-    ConflictBase, ConflictOurs, ConflictTheirs }
-pub struct DiffQuery { pub left: DiffEndpoint, pub right: DiffEndpoint,
-    pub paths: Vec<RepoPath>, pub context_lines: u32, pub ignore_whitespace: bool }
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 Diff 解析为文件、hunk、line、line kind、old/new line number、binary、rename、mode 和 encoding 元数据；大文件采用分段读取和虚拟列表，禁止一次性加载无上限内容。冲突三方 Diff 根据 Index stage 1/2/3 解析。
 
@@ -344,24 +162,7 @@ Graph 使用 commit parent 关系计算 lane：第一遍读取 commit/parents，
 
 ## 11. Application Facade 与事件
 
-```rust
-#[async_trait]
-pub trait GitApplication: Send + Sync {
-    async fn open_repository(&self, path: PathBuf) -> GitResult<RepositoryId>;
-    async fn close_repository(&self, id: RepositoryId) -> GitResult<()>;
-    async fn snapshot(&self, id: RepositoryId) -> GitResult<RepositorySnapshot>;
-    async fn submit(&self, command: GitCommand) -> GitResult<OperationId>;
-    async fn diff(&self, id: RepositoryId, q: DiffQuery) -> GitResult<DiffDocument>;
-}
-
-pub enum GitDomainEvent {
-    RepositoryOpened(RepositoryId),
-    SnapshotUpdated { repository: RepositoryId, revision: SnapshotRevision },
-    HeadChanged { repository: RepositoryId, head: HeadState },
-    OperationChanged { repository: RepositoryId, operation: OperationId },
-    RepositoryClosed(RepositoryId),
-}
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 UI 单向流为：`User Action -> Application Command -> Operation -> Domain Event -> Snapshot -> ViewModel -> GPUI Entity`。每个异步请求携带 `repository、request_seq、snapshot_revision`；只接受当前序号和版本允许的结果，防止旧 Diff 覆盖新选择。
 
@@ -384,19 +185,11 @@ Windows：使用 `OsString`/宽字符路径、处理 `.exe` 查找、进程树�
 
 必备用例：空仓库 Unborn HEAD；staged + unstaged 同一路径；重命名含换行文件名；三方冲突；Index.lock；hook 拒绝；认证等待；网络中断；外部 checkout；watcher 丢事件；应用在 rebase conflict 时重启；SHA-256 仓库；linked worktree；bare repository；超大 diff 与超长 stderr。
 
-## 14. Core-M0～M6 落地计划
+## 14. Core 子阶段与主计划映射
 
-| 阶段 | 交付内容 | 完成门槛 |
-|---|---|---|
-| M0 基础 | Workspace、Domain IDs/OID/Path、错误、CLI 进程封装、CI | 三平台编译；无 UI 依赖 |
-| M1 只读 | Discovery、HEAD、Status porcelain v2、Snapshot、Watcher | 临时仓库测试稳定；状态刷新正确 |
-| M2 写入 | Index、Commit、Branch/Checkout、Coordinator、锁、取消 | 写操作串行安全；进程可回收 |
-| M3 Diff/Log | Diff parser、Log/Graph、分页、缓存 | 大仓库不阻塞 UI；二进制与重命名正确 |
-| M4 远程 | Fetch/Push/Pull、CredentialBroker、进度 | 凭据不泄漏；网络错误可恢复 |
-| M5 Sequencer | Merge/Rebase/Cherry-pick、冲突、Continue/Abort、Journal | 重启后可识别并继续/终止 |
-| M6 生产化 | 跨平台 CI、Fuzz、性能、诊断、SQLite 可选持久化、验收 | 质量门禁全部通过，发布包可重复构建 |
+主排期以 [IP-001](../plans/IP-001-development-plan.md) 为准。Core-M0 基础映射主 M0/M1；Core-M1 只读映射 M1；Core-M2 写入映射 M2（包括 Lock/Journal/基础恢复门禁）；原 Core-M3 Diff/Log 拆至主 M1/M2；Core-M4 远程和 Core-M5 Sequencer 映射主 M3，交互 Rebase 扩展为 M5；Core-M6 加固映射 M6。子阶段名不是主里程碑承诺。
 
-每阶段都必须先保留上一阶段 API 与测试，不以 UI 进度代替 Core 验收。M2 之后禁止任何 UI 直接调用 Git CLI。
+每阶段保留前阶段契约与测试。所有阶段均禁止 UI 直接调用 Git CLI。
 
 ## 15. 验收标准
 
@@ -429,3 +222,103 @@ tracing = "0.1"
 ## 17. 最终实现原则
 
 Git 仓库是真实状态来源，Journal 只记录意图和生命周期；CLI 是兼容性边界，libgit2 是可替换优化；Snapshot 是 UI 的读取契约，Operation Coordinator 是所有写入的唯一入口。先保证状态正确、可恢复、可诊断，再优化速度和视觉一致性。
+
+## 18. 统一业务契约（ADR 修订后的权威定义）
+
+依据 [ADR-ARCH-REMEDIATION-001](adr/ADR-ARCH-REMEDIATION-001.md) D1–D5，本节是六份设计中共享契约的唯一权威定义。以下为字段/语义规格，尚非完整可编译 Rust；实现须补齐构造器、导入、序列化、错误实现及契约测试。其他章节的流程例子不得自行新增另一套同名 DTO。
+
+### 18.1 类型所有权和依赖
+
+| 模块 | 所有权 / 允许的编译依赖 |
+|---|---|
+| git-domain | ID、RepoPath、HEAD、Snapshot、GitCommand、Commit/Diff/Selection DTO、错误；纯类型，不依赖 Tokio/GPUI/IO 实现 |
+| git-ports | → domain；读写/存储/凭据/Journal/监控接口和 ExecutionContext |
+| git-diff / git-changelist / git-graph | → domain；算法，需外部持久化时通过 ports 注入 |
+| git-commit | → ports/diff；候选预览与事务引擎，不依赖 operations |
+| git-operations | → ports/commit；队列、锁、Journal 编排、恢复 |
+| git-application | → operations/ports；会话、Facade、事件、投影，可重导出领域命令 |
+| adapters | → ports/domain；实现端口，不依赖 application/UI |
+| UI / desktop | UI → application/共享 UI model；desktop 装配实现；Shell/Feature 不互相导入具体类型 |
+
+### 18.2 身份、快照和选择
+
+| 类型 | 统一定义 |
+|---|---|
+| RepositoryId | 规范化 common Git dir 对应的逻辑仓库身份，同一仓库 linked worktree 共享 |
+| WorktreeId | 具体工作区身份；不以显示路径大小写归一化替代文件系统身份 |
+| SessionTarget | repository: RepositoryId、worktree: Option<WorktreeId>、session_generation: u64；bare 的 worktree 为 None；已关闭世代不得执行新请求 |
+| RepositorySessionHandle | target: SessionTarget；每个打开方持有引用；close 仅释放该使用方，最后引用关闭会话并停止任务 |
+| RepositoryLocation | worktree_root: Option<PathBuf>、git_dir、common_dir、is_bare；位于适配边界，不能用空路径冒充 bare 工作区 |
+| RepoPath | 私有原始字节，验证构造器拒绝非法 NUL/越界；实现所需 Eq/Hash；反序列化同样验证；不能由展示文本还原 |
+| HeadState | Unborn { branch } / Attached { branch, oid } / Detached { oid } |
+| SnapshotRevision | u64 世代，作用域为 SessionTarget；不是 Git 原子快照 |
+| RepositorySnapshot | repository、worktree: Option<WorktreeId>、revision、head、operation、changes: Vec<FileChange>、untracked、ahead/behind: Option<u64>；附读取一致性/陈旧标记 |
+| FileChange | path/original_path、index_status/worktree_status、head_oid/index_oid、mode/submodule/conflict 元数据；Staged/Unstaged 为 UI 投影 |
+| ChangeKind | Unmodified/Added/Modified/Deleted/Renamed/Copied/TypeChanged/Unmerged；untracked 由独立集合表达 |
+| FileIdentity | repository、worktree、path、previous_path、file_kind；必须与执行目标一致 |
+| ChangeSelection | WholeFile { file } / Hunks { file, ids } / Lines { file, hunk, ranges }；LineSpan 为零起点半开区间 |
+| SelectionFingerprint | expected_head/index、diff_generation、content_digest；有 Valid/Ambiguous/Stale 等绑定状态 |
+| Changelist | repository、worktree、id、schema_version、name/description/is_default、bindings；每个 binding 含选择、指纹与失效状态，空列表也有归属 |
+
+bare 只开放 capability 允许的查询；缺工作区不等于干净仓库。写工作区/Index 的请求必须带 Some(worktree)。多窗口可共享快照但不共享焦点和请求序号。
+
+### 18.3 Facade、Ports 与进程边界
+
+GitApplication 使用 async_trait，Send + Sync。以下参数/返回类型是设计契约，错误统一 GitResult：
+
+| 方法 | 参数 → 返回 |
+|---|---|
+| open_repository | PathBuf → RepositorySessionHandle |
+| close_repository | RepositorySessionHandle → ()，释放调用方引用 |
+| snapshot | SessionTarget → Arc<RepositorySnapshot> |
+| log / commit_details | SessionTarget + LogQuery / ObjectId → CommitPage / CommitDetails |
+| diff | SessionTarget + DiffQuery → DiffDocument |
+| submit | GitCommand（含唯一 target）→ OperationId |
+| cancel / operation | OperationId → CancelOutcome / OperationSnapshot |
+| subscribe | SessionTarget → 事件订阅句柄；支持报告 lag/关闭 |
+| prepare_commit | SessionTarget + SelectionCommitRequest → CommitPreview |
+| open/read/close_edited_index | SessionTarget + 文件/会话句柄 → 编辑会话/候选读取/释放；仅修改临时内容，Apply 必须经 submit |
+
+高级方法未开放时返回 UnsupportedFeature，不能旁路协调器。事件统一 GitEvent，包含 target、SnapshotUpdated(revision)、HeadChanged(head)、OperationChanged(id) 及会话生命周期。先订阅再读快照，按版本去重；lag 时重新获取快照和操作结果。OperationFinished 不另建一套事件语义，终态由 OperationChanged 后查询 operation 获取。
+
+底层 RepositoryReader.discover(Path) → RepositoryLocation；read_head(Location) → HeadState。StatusReader.status(Location, options) → StatusData；HistoryReader.log/commit_details(Location, query/oid)；DiffReader.diff(Location, query)、blob(Location, query)。Facade 的 ID 由 Application 解析，不要求 adapter 反向访问 Application Registry。
+
+ChangelistRepository.list/save/delete 均显式携带 repository/worktree；save 的作用域与数据不一致必须拒绝。存储 schema 迁移/备份为用户数据契约。
+
+ExecutionContext 位于 ports：operation_id、CancellationToken、有界 progress Sender、deadline: Option<Instant>。长操作与写端口显式接收 ctx。所有普通写端口只由已获授权的协调器调用。
+
+ProcessSpec/CommandSpec 统一 executable、cwd、args: Vec<OsString>、env（含敏感字段标记/覆盖规则）、stdin（空/受控字节/流）、timeout、stdout/stderr 限额。并发消费管道，超限/超时必须终止并回收子进程；进程组/Windows Job 等平台实现验证后才能声称进程树取消。Token 或丢弃 future 本身不是终止证明。
+
+### 18.4 Command、Commit 与 Diff
+
+GitCommand 的每个变体只携带一个 SessionTarget；包括 StageFiles/UnstageFiles、StageSelection/UnstageSelection（选择+指纹）、ApplyEditedIndex（会话句柄）、CommitIndex、CommitSelection、Checkout/Branch、Remote 和 Sequencer Continue/Skip/Abort。未实现命令可显式拒绝。任何 nested FileIdentity/preview 目标与 target 不同均拒绝。
+
+CommitOptions：message: Vec<u8>、amend、allow_empty、signoff、author/committer 可选覆盖、signing: UseGitConfig/Disable/Require。默认尊重原生 Hooks，不隐式跳过。StandardCommitRequest = options + expected_revision + Index/HEAD 基线；SelectionCommitRequest = options + selections + fingerprints + preview 身份。不得再用通用 selected_paths 偷换两种提交模式。
+
+CommitPreview：目标、expected_head/index 强指纹、candidate_tree、selection_digest、过期身份、warnings；必须绑定实际确认内容。CommitOutcome 统一：
+- CommittedAndReconciled { oid, tree }；
+- CommittedButNeedsRecovery { oid, journal_id }；
+- NoCommit { reason }（必须确认提交未发生）；
+- Indeterminate { journal_id }。
+
+ContentSource：Head/Index/Worktree/Commit(OID)/Tree(OID)/ConflictStage(1..3)。DiffQuery 只含比较端点、paths、context_lines、ignore_whitespace、max_bytes，目标由 Facade 参数提供一次；冲突来源必须绑定路径及有效 stage。DiffDocument 含 generation、files、truncated，FileDiff 保留路径/OID/mode/类型及字节行/no-newline 元数据。完整可写 Patch 为另一类型，需所有 headers、基线/目标 Blob、未截断证明；展示 AST 不是通用 Patch 序列化器。
+
+### 18.5 生命周期、Journal 与开放条件
+
+命令阶段：Queued → ResourceWait → Preflight → Running → Reconciling → Finished(outcome)，凭据等待为 Running 的等待阶段。副作用可能已发生时，失败/取消不得跳过 Reconciling；队列中确认未执行的取消可直接结束。
+
+Sequencer 状态与命令状态分开：冲突命令结束为 Conflict，仓库维持 AwaitingConflictResolution；Continue/Skip/Abort 创建关联 Operation，重新获锁，不让等待用户的旧命令占队列。UI 的 Saved Result 不等于 Resolved，Stage 后仍需检查是否允许 Continue。
+
+Journal 统一 schema、目标身份、command、预期 HEAD、原 Index 强指纹/备份、候选 Tree、已观察 commit OID/父提交、phase、reconcile 结果；敏感信息不得入日志。PartialCommitPhase 统一为 IntentRecorded、SnapshotCaptured、TempIndexPrepared、PreviewReady、PreflightRevalidated、CommitInProgress、CommitObserved、ReconcilingIndex、Completed、RecoveryRequired；它是持久子阶段，不与 OperationPhase 混用。写前耐久化、提交后响应丢失和截断日志都要有恢复测试；不自动重试 Commit，不自动覆盖当前 Index。
+
+M2 仅标准 Index Commit。高级候选 Index 发布需单独证明锁内比较/发布协议：应用资源锁不是外部锁；不得占有真实 index.lock 又调用争用该锁的 Git。标准命令由 Git 自行获锁。高级写入协议未证明前关闭该 capability。Git 自有锁不提供跨 HEAD/Index/Worktree/Hooks 原子事务。
+
+部分提交和编辑 Index 的对外开放依赖 CCD-007/008/009、TEST-004 与恢复门禁；无法证明的 Hook/HEAD 竞态、重叠暂存转移、filter/sparse/split Index 组合必须拒绝或只读。后验检测只支持诊断恢复，不承诺能阻止已经发生的偏离提交。
+
+### 18.6 结构化错误与取消
+
+GitResult<T> = Result<T, GitError>。GitError 包含 kind、脱敏 message/diagnostic、target/operation_id 可选上下文及 recovery_actions；可否重试由操作结果与恢复动作决定，不能只根据一个 recoverable 布尔值自动重做。
+
+GitErrorKind 统一 RepositoryNotFound、InvalidRepository、GitUnavailable、UnsupportedGitVersion、DirtyWorktree、IndexLocked、ReferenceChanged、InvalidPath、ObjectNotFound、AuthenticationRequired、AuthenticationFailed、NetworkFailure、MergeConflict、OperationAlreadyInProgress、HookRejected、SigningFailed、PermissionDenied、TimedOut、Cancelled、UnsupportedFeature、OutputTooLarge、StaleSelection、AmbiguousHunk、PatchCheckFailed、IndexChangedExternally、HeadChangedExternally、UnsupportedFileKind、UnsupportedEncoding、HooksMutatedRepository、Internal。不得另建同义错误名；已提交需恢复/未知结果由 CommitOutcome 表达，不降成普通 GitError。
+
+OperationOutcome 统一 Success（含具体业务结果）、Failed(GitError)、Cancelled(CancelOutcome)、Conflict（含 Sequencer 身份）、RecoveryRequired（含诊断和已观察业务结果）。CancelOutcome 明确未执行/已停止并核对/需恢复三类，不承诺回滚。UI 消费结构化业务结果，不只展示字符串错误。

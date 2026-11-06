@@ -1,5 +1,7 @@
 # IdeaGit — Commit / Changelist / Diff 生产级深度设计
 
+> 修订：2026-11-06，执行已批准的 [ADR-ARCH-REMEDIATION-001](adr/ADR-ARCH-REMEDIATION-001.md) D1–D7。共享契约见 [Git Core §18](LLD-GIT-CORE-001.md)；主里程碑以 IP-001 为准。代码片段仍为设计草案，未做编译或三平台验证。
+
 > **文档编号**：LLD-CCD-001  
 > **版本**：1.0（设计基线，待实现验证）  
 > **日期**：2026-11-06  
@@ -176,199 +178,31 @@ proptest = "1"
 
 ## 4.1 仓库身份与路径
 
-```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct RepositoryId(pub uuid::Uuid);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct WorktreeId(pub uuid::Uuid);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct OperationId(pub uuid::Uuid);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SnapshotRevision(pub u64);
-
-/// Git 路径原始字节；仅通过经过验证的构造器创建。
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RepoPath(pub Vec<u8>);
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ObjectId {
-    Sha1([u8; 20]),
-    Sha256([u8; 32]),
-}
-
-pub struct RepositoryLocation {
-    pub worktree_root: Option<std::path::PathBuf>,
-    pub git_dir: std::path::PathBuf,
-    pub common_dir: std::path::PathBuf,
-    pub is_bare: bool,
-}
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 路径必须区分 Git RepoPath 原始字节与 Windows/macOS/Linux 原生 Path。禁止使用 UI Display Path 执行真实文件操作。OID 不固定为 SHA-1。
 
 ## 4.2 文件与版本
 
-```rust
-pub enum ContentSource {
-    Head,
-    Index,
-    Worktree,
-    Commit(ObjectId),
-    Tree(ObjectId),
-    ConflictStage(u8), // 仅 1/2/3，带文件路径校验
-}
-
-pub enum FileKind {
-    Regular,
-    Executable,
-    Symlink,
-    Submodule,
-    Binary,
-}
-
-pub enum ChangeKind {
-    Added, Modified, Deleted, Renamed, Copied, TypeChanged, Unmerged,
-}
-
-pub struct FileIdentity {
-    pub repository: RepositoryId,
-    pub path: RepoPath,
-    pub previous_path: Option<RepoPath>,
-    pub file_kind: FileKind,
-}
-
-pub struct FileFingerprint {
-    pub head_oid: Option<ObjectId>,
-    pub index_oid: Option<ObjectId>,
-    pub worktree_digest: Option<[u8; 32]>,
-    pub index_generation: u64,
-}
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 `worktree_digest` 是用于校验的内容指纹，不能拿 mtime/size 当作强校验；实际可采用有界流式计算。对于 LFS、Filter、CRLF、特殊文件，应区分**工作区原始内容**与**Git clean/filter 后将进入 Index 的内容**。
 
 ## 4.3 选择身份与 Changelist
 
-```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ChangelistId(pub uuid::Uuid);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct HunkId(pub uuid::Uuid);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LineSpan {
-    pub start: u32, // 0-based
-    pub end_exclusive: u32,
-}
-
-pub enum ChangeSelection {
-    WholeFile { file: FileIdentity },
-    Hunks { file: FileIdentity, ids: Vec<HunkId> },
-    Lines { file: FileIdentity, hunk: HunkId, ranges: Vec<LineSpan> },
-}
-
-pub struct SelectionFingerprint {
-    pub expected_head: Option<ObjectId>,
-    pub expected_index: Option<ObjectId>,
-    pub diff_generation: u64,
-    pub content_digest: [u8; 32],
-}
-
-pub struct Changelist {
-    pub id: ChangelistId,
-    pub name: String,
-    pub description: Option<String>,
-    pub is_default: bool,
-    pub selections: Vec<ChangeSelection>,
-}
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 **核心规则**：HunkId 不能直接等于行号；需要根据基准 Blob OID、修改块内容、上下文以及 Diff Generation 生成稳定但有失效机制的身份。无法无歧义重定位则将选区标为 `Stale`，提示用户重新选择。
 
 ## 4.4 Diff AST
 
-```rust
-pub struct DiffDocument {
-    pub generation: u64,
-    pub files: Vec<FileDiff>,
-    pub truncated: bool,
-}
-
-pub struct FileDiff {
-    pub old_path: Option<RepoPath>,
-    pub new_path: Option<RepoPath>,
-    pub old_oid: Option<ObjectId>,
-    pub new_oid: Option<ObjectId>,
-    pub old_mode: Option<u32>,
-    pub new_mode: Option<u32>,
-    pub kind: FileDiffKind,
-    pub hunks: Vec<DiffHunk>,
-}
-
-pub enum FileDiffKind { Text, Binary, Image, Symlink, Submodule }
-
-pub struct DiffHunk {
-    pub id: HunkId,
-    pub old_start: u32,
-    pub old_count: u32,
-    pub new_start: u32,
-    pub new_count: u32,
-    pub lines: Vec<DiffLine>,
-}
-
-pub enum DiffLine {
-    Context(Vec<u8>),
-    Addition(Vec<u8>),
-    Deletion(Vec<u8>),
-    NoNewlineMarker,
-}
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 实际解析器还需保留 Binary Patch、Extended Headers、rename/copy score、No-Newline 状态和文件属性信息；不能仅靠以上展示 AST 重建任意 Git Patch。
 
 ## 4.5 Commit 类型
 
-```rust
-pub struct CommitIdentity {
-    pub name: String,
-    pub email: String,
-}
-
-pub enum CommitMode { StagingArea, Changelists }
-
-pub enum SigningPolicy { UseGitConfig, Disable, Require }
-
-pub struct CommitRequest {
-    pub repository: RepositoryId,
-    pub mode: CommitMode,
-    pub message: Vec<u8>,
-    pub amend: bool,
-    pub allow_empty: bool,
-    pub signoff: bool,
-    pub author: Option<CommitIdentity>,
-    pub signing: SigningPolicy,
-    pub selections: Vec<ChangeSelection>,
-    pub expected_revision: SnapshotRevision,
-}
-
-pub struct CommitPreview {
-    pub expected_head: Option<ObjectId>,
-    pub candidate_tree: ObjectId,
-    pub changed_paths: Vec<RepoPath>,
-    pub selection_digest: [u8; 32],
-    pub warnings: Vec<String>,
-}
-
-pub enum CommitOutcome {
-    Committed { oid: ObjectId, tree: ObjectId },
-    Rejected { reason: String },
-    RecoveryRequired { journal_id: OperationId },
-}
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 `CommitPreview` 必须是执行确认依据；提交时重验快照，Hook 或用户脚本改变内容后需要重新检查结果是否仍满足用户确认的选择策略。
 
@@ -376,81 +210,19 @@ pub enum CommitOutcome {
 
 ## 5.1 查询接口
 
-```rust
-#[async_trait::async_trait]
-pub trait ChangeReader: Send + Sync {
-    async fn status(&self, repo: RepositoryId) -> GitResult<StatusSnapshot>;
-    async fn file_versions(
-        &self,
-        repo: RepositoryId,
-        path: RepoPath,
-    ) -> GitResult<FileVersions>;
-}
-
-#[async_trait::async_trait]
-pub trait DiffReader: Send + Sync {
-    async fn diff(&self, query: DiffQuery) -> GitResult<DiffDocument>;
-    async fn blob(&self, query: BlobQuery) -> GitResult<BlobReadHandle>;
-}
-
-#[async_trait::async_trait]
-pub trait ChangelistRepository: Send + Sync {
-    async fn list(&self, repo: RepositoryId) -> GitResult<Vec<Changelist>>;
-    async fn save(&self, list: Changelist) -> GitResult<()>;
-    async fn delete(&self, repo: RepositoryId, id: ChangelistId) -> GitResult<()>;
-}
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 `BlobReadHandle` 应支持流式读取/有界分块；不要强制把超大文件装入 `Vec<u8>`。`GitResult<T>` 来自统一错误模块。
 
 ## 5.2 写入命令及上下文
 
-```rust
-pub enum ChangeCommand {
-    StageFiles { repository: RepositoryId, paths: Vec<RepoPath> },
-    UnstageFiles { repository: RepositoryId, paths: Vec<RepoPath> },
-    StageSelection { repository: RepositoryId, selection: ChangeSelection, expected: SelectionFingerprint },
-    UnstageSelection { repository: RepositoryId, selection: ChangeSelection, expected: SelectionFingerprint },
-    ApplyEditedIndex { repository: RepositoryId, session: EditableIndexSessionId },
-    Commit(CommitRequest),
-}
-
-pub struct ExecutionContext {
-    pub operation_id: OperationId,
-    pub cancellation: tokio_util::sync::CancellationToken,
-    pub progress: tokio::sync::mpsc::Sender<OperationProgress>,
-}
-
-#[async_trait::async_trait]
-pub trait ChangeCommandPort: Send + Sync {
-    async fn execute(
-        &self,
-        command: ChangeCommand,
-        ctx: ExecutionContext,
-    ) -> GitResult<ChangeCommandOutcome>;
-}
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 UI 不直接使用 `ChangeCommandPort`；通过 `GitApplication::submit(...)` 进入 `OperationCoordinator`，由协调器取得权限与锁后调用具体端口。`EditableIndexSessionId` 是应用内部稳定句柄，指向用户正在编辑的临时 Index 内容。
 
 ## 5.3 预览与提交引擎
 
-```rust
-#[async_trait::async_trait]
-pub trait CommitPlanner: Send + Sync {
-    async fn prepare(&self, request: &CommitRequest) -> GitResult<CommitPreview>;
-}
-
-#[async_trait::async_trait]
-pub trait CommitTransactionEngine: Send + Sync {
-    async fn execute(
-        &self,
-        request: CommitRequest,
-        preview: CommitPreview,
-        ctx: ExecutionContext,
-    ) -> GitResult<CommitOutcome>;
-}
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 建议 `prepare` 的结果具有过期策略和有效期，而不是当作可无限期执行的令牌；执行入口必须再次核对 HEAD、Index 指纹和选区内容。
 
@@ -503,7 +275,7 @@ pub struct VersionDescriptor {
 
 ## 7.1 Stage File
 
-默认由 Git CLI 执行受控命令：`git add -- <path>`；涉及任意字节路径、海量路径时使用 Git 支持的 `--pathspec-from-file=- --pathspec-file-nul`（在选定支持的 Git 版本做兼容验证）。
+默认由 Git CLI 执行受控的 literal pathspec 命令；不能仅以 git add -- <path> 宣称任意路径安全；涉及任意字节路径、海量路径时使用 Git 支持的 `--pathspec-from-file=- --pathspec-file-nul`（在选定支持的 Git 版本做兼容验证）。
 
 操作流程：
 
@@ -515,25 +287,9 @@ pub struct VersionDescriptor {
 
 ## 7.2 Hunk Stage
 
-使用 `git diff` 生成包含必要 metadata 的 Patch，然后经 `git apply --cached --check` 验证，再用 `git apply --cached`。`--cached` 只更新 Index，不修改 Worktree。`--recount` 可在重算 Hunk Header 后辅助应用，但不能代替正确的 Patch 生成和选区有效性验证。
+必须从完整原始字节和必要 metadata 构建可写 Patch，与 ignore-whitespace/textconv/截断展示分离。git apply --cached --check 仅验证候选适用性，不是外部并发防护；对候选 Index 应用后需核验目标 Blob，再通过经过独立证明的真实 Index 比较/发布协议发布。协议未实现前 StageSelection capability 关闭。`--cached` 只更新 Index，不修改 Worktree。`--recount` 可在重算 Hunk Header 后辅助应用，但不能代替正确的 Patch 生成和选区有效性验证。
 
-```text
-Diff Query (INDEX ↔ WORKTREE)
-   ↓
-Select Hunk(s)
-   ↓
-Validate Expected Index OID / Source Digest
-   ↓
-Build Patch with sufficient context
-   ↓
-git apply --cached --check
-   ↓
-Revalidate index identity under lock
-   ↓
-git apply --cached
-   ↓
-Read Index Snapshot / Verify
-```
+候选流程：捕获 Index/Worktree 指纹 → 构造完整 Patch → 对候选 Index 检查/应用 → 比较目标 Blob → 经已验证的真实 Index 锁内比较/发布协议 → Reconcile。不能将进程内锁下的 check→apply 当成原子事务，也不能预占真实 index.lock 后调用争用同一锁的 Git。
 
 对 Unstage Hunk，可对 `HEAD ↔ INDEX` 的 Patch 使用 `git apply --cached --reverse`；但初始提交、合并状态、特殊模式文件等场景需要单独测试和策略。
 
@@ -562,6 +318,8 @@ Read Index Snapshot / Verify
 
 ## 8.1 数据模型与文件/块归属
 
+共享模型见 Core §18：Changelist、持久化 save 和空列表均显式携带 repository/worktree/schema；绑定包含选择和强指纹。存储更新用事务、版本检查及备份迁移，不根据列表首项推断仓库。
+
 Changelist 是 **IdeaGit 私有逻辑元数据**。其归属记录必须包含：
 
 - Changelist ID / 显示名称 / 默认组。
@@ -573,23 +331,7 @@ Changelist 是 **IdeaGit 私有逻辑元数据**。其归属记录必须包含�
 
 ## 8.2 归属的稳定性
 
-```rust
-pub enum SelectionBindingState {
-    Valid,
-    Relocated { from_generation: u64, to_generation: u64 },
-    Ambiguous,
-    Stale,
-    MissingFile,
-    Conflict,
-}
-
-pub struct ChangelistBinding {
-    pub list_id: ChangelistId,
-    pub selection: ChangeSelection,
-    pub fingerprint: SelectionFingerprint,
-    pub state: SelectionBindingState,
-}
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 每次外部修改文件或 Index 更新后：
 
@@ -636,6 +378,8 @@ S2 **只能在经过验证的 Git 状态子集上启用**，例如普通单工�
 
 ## 9.3 临时 Index 设计
 
+**开放门禁**：本节是待验证事务规格，不是已实现安全协议。候选 Index 初始化、锁内比较/发布、HEAD/Hook 竞态及 I0→I1 语义必须分别有实现说明和真实 Git 测试，未满足时能力关闭。临时空文件不是合法空 Index；split/sparse Index、未知扩展、intent-to-add/skip-worktree、重叠选择、filter 组合先拒绝或只读，不能自动丢弃元数据。
+
 `GIT_INDEX_FILE` 指向临时 Index；可使用 `git read-tree <HEAD tree>` 或其他经过验证的方式初始化，不修改真实 Index。注意 Unborn HEAD 需要空 Tree 的特殊处理。
 
 ```rust
@@ -663,6 +407,8 @@ pub struct TemporaryIndexContext {
 
 ### 9.3.2 提交执行
 
+预验 HEAD 与标准 git commit 不是统一原子事务，后验核对不能阻止已发生的父提交/Tree 偏离。不能用外部 update-ref CAS 声称包裹标准 commit。只有证明支持边界的高级组合才开放；偏离时保留实际 OID/父提交并报告已提交需恢复或未知结果。
+
 建议在受控临时 Index 上执行标准 `git commit`，并明确：
 
 - Commit Hooks 可能直接操作工作区或真实 Index；使用临时 Index **不代表 Hooks 受到完整隔离**。
@@ -684,7 +430,7 @@ pub struct TemporaryIndexContext {
 
 **推荐分两条路径**：
 
-- **无竞争安全路径**：在确认 `I0`/`W0` 未被外部改变、Git 状态允许时，以临时 Index 模拟从 `H0→I0` 的剩余 staged 变更转移到 `H1`，检查三方合并及 Blob/Mode，生成新 Index `I1`，对比预期后安全切换真实 Index。
+- **无竞争安全路径**：在确认 `I0`/`W0` 未被外部改变、Git 状态允许时，以临时 Index 模拟从 `H0→I0` 的剩余 staged 变更转移到 `H1`，检查三方合并及 Blob/Mode，生成新 Index I1；必须先定义选中/剩余修改原子、重叠/抵消/rename/mode 的精确预期 Blob，再通过独立验证的锁内比较/发布协议更新真实 Index。无法无歧义转移则不发布。
 - **存在竞争或冲突**：禁止覆盖真实 Index，保留备份和 Journal，标记 `RecoveryRequired`，提供用户查看原 Index 与新 HEAD 差异及手动恢复的工具。
 
 **不能假设“HEAD 改了但 Index 保持原文件字节”就一定符合 Git 暂存语义**；必须进行具体对比与验证。
@@ -715,27 +461,7 @@ flowchart TD
   L -->|No| N[Committed but Recovery Required]
 ```
 
-```rust
-pub enum PartialCommitPhase {
-    IntentRecorded,
-    SnapshotCaptured,
-    TempIndexPrepared,
-    PreviewReady,
-    PreflightRevalidated,
-    CommitInProgress,
-    CommitObserved,
-    ReconcilingIndex,
-    Completed,
-    RecoveryRequired,
-}
-
-pub enum PartialCommitFinalOutcome {
-    CommittedAndReconciled { commit_oid: ObjectId },
-    NoCommit { reason: String },
-    CommittedButNeedsRecovery { commit_oid: ObjectId, journal_id: OperationId },
-    Indeterminate { journal_id: OperationId },
-}
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 ## 9.5 Journal 约束
 
@@ -781,17 +507,7 @@ pub enum CommitCheckResult {
 
 ## 11.1 Diff 查询
 
-```rust
-pub struct DiffQuery {
-    pub repository: RepositoryId,
-    pub left: ContentSource,
-    pub right: ContentSource,
-    pub paths: Vec<RepoPath>,
-    pub context_lines: u32,
-    pub ignore_whitespace: bool,
-    pub max_bytes: u64,
-}
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 基本模式：
 
@@ -875,7 +591,7 @@ HEAD                 EDITABLE INDEX CONTENT         WORKTREE
 1. 检查 Session 是否仍基于当前 HEAD/Index。
 2. 验证编辑结果的编码、文件模式和过滤规则。
 3. 将 Center 内容转换为可写入 Git Index 的 Blob；这里需明确是直接 Index Blob 还是经 Git clean filter 处理后的工作区数据，避免二次过滤。
-4. 在 Worktree Index 锁下使用经过验证的 Git Index 写入协议。
+4. 经独立验证的 Index 比较/发布协议更新；区分应用锁与 Git 锁，禁止占有 index.lock 又运行争用它的 Git 子进程；协议未通过门禁则拒绝 Apply。
 5. 再读取 `INDEX` Blob 并与目标内容逐字节比较。
 6. UI 仅在 Reconcile 后显示已应用；否则保留用户 Center 编辑草稿。
 
@@ -885,7 +601,7 @@ pub struct EditableIndexSessionId(pub uuid::Uuid);
 
 pub struct EditableIndexSession {
     pub id: EditableIndexSessionId,
-    pub repository: RepositoryId,
+    pub target: SessionTarget,
     pub path: RepoPath,
     pub original_index_oid: Option<ObjectId>,
     pub original_head_oid: Option<ObjectId>,
@@ -929,7 +645,7 @@ GPUI-Kit 的 Code Editor、Virtual List、Dock、Focus、Overlay 可提供基础
 
 ```rust
 pub struct CommitPanelViewModel {
-    pub repository: RepositoryId,
+    pub target: SessionTarget,
     pub revision: SnapshotRevision,
     pub mode: CommitMode,
     pub groups: Vec<ChangeGroupVm>,
@@ -942,11 +658,13 @@ pub struct CommitPanelViewModel {
 
 pub enum CommitSubmissionState {
     Idle, Validating, Previewing, AwaitingConfirmation,
-    Running(OperationId), Committed(ObjectId), Failed(String), RecoveryRequired(OperationId),
+    Running(OperationId), CommittedAndReconciled(ObjectId),
+    CommittedButNeedsRecovery { oid: ObjectId, journal_id: OperationId },
+    NoCommit(String), Indeterminate(OperationId),
 }
 
 pub struct DiffViewerViewModel {
-    pub repository: RepositoryId,
+    pub target: SessionTarget,
     pub request_id: u64,
     pub document: LoadState<DiffDocumentVm>,
     pub selected_hunk: Option<HunkId>,
@@ -973,7 +691,7 @@ pub enum CommitAction {
 }
 ```
 
-UI Action → `GitApplication` → `OperationCoordinator` → Core Service → SnapshotUpdated/OperationFinished → UI Projection。所有 Action 都应通过当前 Repository 与 Request Token 校验，避免切换仓库后错误操作旧项目。
+UI Action → `GitApplication` → `OperationCoordinator` → Core Service → SnapshotUpdated/OperationChanged（查询终态） → UI Projection。所有 Action 都应通过当前 Repository 与 Request Token 校验，避免切换仓库后错误操作旧项目。
 
 ## 12.4 操作流程：Hunk Stage
 
@@ -988,8 +706,8 @@ sequenceDiagram
     UI->>APP: StageSelection + Fingerprint
     APP->>CO: Submit Operation
     CO->>CO: Lock + Revalidate
-    CO->>G: apply --cached --check
-    CO->>G: apply --cached
+    CO->>G: 候选 Index 检查并应用 Patch
+    CO->>G: 已验证的真实 Index 比较与发布协议
     CO->>G: status / index verify
     CO-->>APP: OperationOutcome
     APP-->>UI: Snapshot + Operation Event
@@ -1023,7 +741,7 @@ sequenceDiagram
 
 ```rust
 pub struct ChangeSnapshot {
-    pub repository: RepositoryId,
+    pub target: SessionTarget,
     pub worktree: WorktreeId,
     pub revision: SnapshotRevision,
     pub head_oid: Option<ObjectId>,
@@ -1066,22 +784,7 @@ pub enum RecoveryDecision {
 
 # 14. 错误模型和用户安全协议
 
-```rust
-pub enum CcdErrorKind {
-    StaleSelection,
-    AmbiguousHunk,
-    PatchCheckFailed,
-    IndexChangedExternally,
-    HeadChangedExternally,
-    UnsupportedFileKind,
-    UnsupportedEncoding,
-    HooksMutatedRepository,
-    CommitRejected,
-    CommitSucceededIndexReconcileFailed,
-    UserCancelled,
-    RecoveryRequired,
-}
-```
+共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
 | 错误 | UI 文案原则 | 允许动作 |
 |---|---|---|
@@ -1221,6 +924,8 @@ BeforeJournalCompleted
 | CCD-M5 | 3～5 周 | Hooks 副作用、Index 协调、恢复流程、特殊文件支持 | 高级语义 Beta | T-013～T-024 |
 | CCD-M6 | 2～4 周 | 三平台故障注入、性能、安全、发布验证 | Production Candidate | 所有发布阻断测试通过 |
 
+CCD-M0/M1 对应主 M1/M2；CCD-M2/M3 高级 Diff/Index 编辑对应主 M4，最小只读 Diff 已前移 M1/M2；CCD-M4/M5 的事务及安全门禁均属于主 M4 的开放前置；CCD-M6 全量复核对应主 M6。子阶段的 Beta 不绕过主计划发布门禁。
+
 总计约 14～23 周（在有 Git 内部机制经验的工程师与 UI 工程师协作、阶段部分并行情况下的粗估）。
 
 ## 17.1 首条垂直切片
@@ -1293,6 +998,6 @@ BeforeJournalCompleted
 
 ## 最终实施建议
 
-**必须按 S0 → S1 → S2 → S3 顺序推进**。先实现正确可靠的原生 Index/Commit，再加入 Hunk/Line Staging，最后实现 Changelist 临时 Index 部分提交与恢复事务。对不能证明安全的特殊场景，明确限制/只读降级，而不是强行追求表面上的“与 IDEA 一样”。
+**按主 IP 的 M2 标准提交 → M4 部分暂存/编辑 Index → M4 选择提交及恢复门禁顺序推进**。先实现正确可靠的原生 Index/Commit，再加入 Hunk/Line Staging，最后实现 Changelist 临时 Index 部分提交与恢复事务。对不能证明安全的特殊场景，明确限制/只读降级，而不是强行追求表面上的“与 IDEA 一样”。
 
 下一步可据此进一步生成：`git-diff` 的 Parser/Builder 逐模块实现任务、`git-commit` 事务机规格、SQLite Schema、GPUI Entity 接口，以及逐项 Rust 集成测试代码。
