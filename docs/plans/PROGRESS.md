@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 已完成三平台 CI；INFRA-004 的架构约束、开发规范、依赖记录和 PR 模板已完成；UI-001 已完成三平台窗口启动验收。M0 整体仍未完成，剩余任务为 UI-002 Design Tokens 和 TEST-001 Git Fixture。
+INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003/004 已完成；UI-001 已完成三平台窗口启动验收。UI-002 Design Tokens 已在当前 macOS 实现并通过 Workspace 检查，等待统一推送后的 Windows/Linux CI 复验。M0 整体仍未完成，剩余工程门禁为 TEST-001 Git Fixture 和 UI-002 三平台复验。
 
 ## 已完成的文档工作
 
@@ -39,7 +39,7 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 已完成三平台
 
 ## 下一步
 
-依次执行 UI-002 Design Tokens 和 TEST-001 Git Fixture；一次只实施一个已跟踪任务。核心版本或边界变更仍需 ADR。
+提交 UI-002 后执行 TEST-001 Git Fixture；统一推送后取得 UI-002 三平台 CI 结果并完成对应收尾。一次只实施一个已跟踪任务，核心版本或边界变更仍需 ADR。
 
 ## INFRA-004 架构与开发约束（2026-11-07）
 
@@ -88,3 +88,12 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 已完成三平台
 - 通过 locked check、Clippy 和 Workspace tests；新增 2 个烟雾时限解析测试。
 - UI-001 已完成；Windows 10/11、Linux Wayland/真实桌面以及输入、焦点、IME、DPI 仍属于后续平台与 UI 验证范围。
 - 未实现 Design Tokens、Dock、Workbench、Git 功能、输入/焦点/IME 或视觉回归；详细结果见 [UI-VERIFICATION-001](../reviews/UI-VERIFICATION-001.md)。
+
+## UI-002 IDEA Design Tokens（2026-11-07）
+
+- `idea-theme` 新增暗/亮色语义色板、平台字体回退、Typography、逻辑像素 Metrics、完整 Theme Bundle 和可叠加交互状态。
+- 颜色与逻辑像素使用强类型并拒绝非法输入；交互状态允许 Selected 与 Focused 等状态同时存在。
+- 保持纯 Rust、零新增依赖；Cargo.toml 与 Cargo.lock 未变化，GPUI 映射和运行时切换留给后续 Primitive/Workbench 任务。
+- 当前 macOS 通过 fmt、locked check、Clippy 和 Workspace tests；`idea-theme` 新增 7 个测试。
+- Windows/Linux 条件编译字体列表尚未取得 CI 结果，统一推送并通过三平台 CI 前不能将 UI-002 标记为最终完成。
+- 工程初值不是 IDEA 2026.2 精确测量；实际字体、DPI、控件状态和 Golden 视觉测试仍未验证。详细记录见 [UI-TOKENS-VERIFICATION-001](../reviews/UI-TOKENS-VERIFICATION-001.md)。
