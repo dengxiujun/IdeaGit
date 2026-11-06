@@ -112,6 +112,19 @@ impl GitCliInvocation {
             stderr_limit: git_ports::DEFAULT_OUTPUT_LIMIT,
         }
     }
+
+    pub(crate) fn with_cwd(mut self, cwd: impl Into<PathBuf>) -> Self {
+        self.cwd = Some(cwd.into());
+        self
+    }
+
+    pub(crate) fn with_environment(
+        mut self,
+        environment: impl IntoIterator<Item = EnvironmentVariable>,
+    ) -> Self {
+        self.environment = environment.into_iter().collect();
+        self
+    }
 }
 
 pub(crate) mod sealed {

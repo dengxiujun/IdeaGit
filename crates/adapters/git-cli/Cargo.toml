@@ -12,5 +12,6 @@ process-wrap.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+git-fixture = { path = "../../../tests/fixtures" }
 tempfile.workspace = true
 tokio-util.workspace = true

@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001 已完成当前平台和 Rust CI #9 三平台验证；CORE-003 ProcessRunner / GitCliExecutor 已在当前 macOS 通过专项检查，等待本提交三平台 CI。未执行的 Repository Discovery、Status/HEAD、Snapshot、Workbench 和其他高级场景继续明确保留。
+M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001 与 CORE-003 已完成当前平台及三平台 CI 验证；CORE-002 Repository Discovery 已在当前 macOS 通过专项检查，等待本提交三平台 CI。未执行的 Status/HEAD、Snapshot、Session、Watcher、Workbench 和其他高级场景继续明确保留。
 
 ## 已完成的文档工作
 
@@ -39,7 +39,7 @@ M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001 已完成�
 
 ## 下一步
 
-CORE-003 三平台 CI 通过后，按依赖 DAG 实施依赖它的 CORE-002 Repository Discovery。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+CORE-002 三平台 CI 通过后，按依赖 DAG 进入 CORE-004 Porcelain v2 Status Parser，再依次完成 HEAD、Snapshot、Session、Watcher 与 Workbench。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
 
 ## INFRA-004 架构与开发约束（2026-11-07）
 
@@ -124,4 +124,12 @@ CORE-003 三平台 CI 通过后，按依赖 DAG 实施依赖它的 CORE-002 Repo
 - Unix 使用 process group，Windows 使用 Job Object；精确新增 `process-wrap 10.0.1` 的最小 features，Cargo.lock 未改变既有依赖版本。
 - `GitCliExecutor` 仅接受 sealed 强类型命令；本轮以真实 `git --version` 验证入口，不开放任意 Git 字符串或仓库写操作。
 - 当前 macOS / Rust 1.99.1 已通过专项 fmt、locked check、Clippy 和 14 个测试；覆盖非 UTF-8、双管道大输出、非零退出、启动失败、超限、超时、取消、流式 stdin、提前退出和嵌套进程清理。
-- Workspace 全量检查与三平台 CI 尚待执行；Windows Job 与 Linux process group 在 CI 通过前不得声称已验证。详细记录见 [CORE-003-VERIFICATION-001](../reviews/CORE-003-VERIFICATION-001.md)。
+- Workspace 全量检查已通过；[Rust CI #10](https://github.com/dengxiujun/IdeaGit/actions/runs/42279427776) 已在 Windows Server 2022、macOS 15 和 Ubuntu 24.04 通过全部门禁及嵌套进程清理测试，CORE-003 已完成。详细记录见 [CORE-003-VERIFICATION-001](../reviews/CORE-003-VERIFICATION-001.md)。
+
+## CORE-002 Repository Discovery（2026-11-07）
+
+- `git-ports` 新增唯一的 `RepositoryLocation` 与 `RepositoryReader` 契约；bare 用 `None` 表达缺少 worktree，linked worktree 以共同的规范化 common_dir 表达共享协调域。
+- `GitCliRepositoryReader` 只使用 Git 报告的 git_dir/common_dir/worktree root，再经文件系统 canonicalize；不拼接 `.git`，不经 Shell，并允许注入平台选择的 Git executable 与隔离环境。
+- TEST-001 fixture 新增隔离环境导出和本地 submodule helper；生产 reader 集成测试不会读取用户全局 Git 配置。
+- 当前 macOS / Rust 1.99.1 已通过专项 fmt、locked check、Clippy 和 21 个测试；真实 Git 覆盖 ordinary nested path、linked worktree、bare remote、submodule 及失败路径，Unix 路径解析保留内部换行。
+- Workspace 全量检查与三平台 CI 尚待执行；Windows 原生路径与三平台 Git 行为在 CI 通过前不得声称已验证。详细记录见 [CORE-002-VERIFICATION-001](../reviews/CORE-002-VERIFICATION-001.md)。

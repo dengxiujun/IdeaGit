@@ -134,6 +134,24 @@ impl TestRepository {
         Ok(repository)
     }
 
+    /// Returns the environment required to isolate a production Git command from user config.
+    #[must_use]
+    pub fn isolated_environment(&self) -> Vec<(OsString, OsString)> {
+        vec![
+            (
+                OsString::from("GIT_CONFIG_GLOBAL"),
+                self.global_config.clone().into_os_string(),
+            ),
+            (OsString::from("GIT_CONFIG_NOSYSTEM"), OsString::from("1")),
+            (OsString::from("GIT_TERMINAL_PROMPT"), OsString::from("0")),
+            (OsString::from("HOME"), self.home.clone().into_os_string()),
+            (
+                OsString::from("USERPROFILE"),
+                self.home.clone().into_os_string(),
+            ),
+        ]
+    }
+
     /// Writes `data`, stages only `path`, and creates a fixture commit.
     pub fn commit_file(&self, path: &str, data: &[u8]) -> Result<(), TestError> {
         self.commit_file_with_message(path, data, "fixture commit")
@@ -347,6 +365,59 @@ impl TestRepository {
             ],
         )?;
         Ok(linked)
+    }
+
+    /// Creates a committed local repository and adds it as a file-protocol submodule.
+    pub fn add_local_submodule(&self) -> Result<PathBuf, TestError> {
+        let source = self.temp_dir.path().join("submodule-source");
+        let checkout_relative = Path::new("modules").join("fixture-submodule");
+        let checkout = self.worktree.join(&checkout_relative);
+        self.run_git_at(
+            self.temp_dir.path(),
+            "initialize submodule source",
+            vec![
+                OsString::from("init"),
+                OsString::from("--initial-branch=main"),
+                source.as_os_str().to_owned(),
+            ],
+        )?;
+        fs::write(source.join("README.md"), b"fixture submodule\n").map_err(|source_error| {
+            TestError::Io {
+                operation: "write submodule source file".to_owned(),
+                source: source_error,
+            }
+        })?;
+        self.run_git_at(
+            &source,
+            "stage submodule source",
+            vec![
+                OsString::from("add"),
+                OsString::from("--"),
+                OsString::from("README.md"),
+            ],
+        )?;
+        self.run_git_at(
+            &source,
+            "commit submodule source",
+            vec![
+                OsString::from("commit"),
+                OsString::from("-m"),
+                OsString::from("fixture submodule source"),
+            ],
+        )?;
+        self.run_git_at(
+            &self.worktree,
+            "add local submodule",
+            vec![
+                OsString::from("-c"),
+                OsString::from("protocol.file.allow=always"),
+                OsString::from("submodule"),
+                OsString::from("add"),
+                source.into_os_string(),
+                checkout_relative.into_os_string(),
+            ],
+        )?;
+        Ok(checkout)
     }
 
     /// Installs a hook in the fixture-only hook directory.

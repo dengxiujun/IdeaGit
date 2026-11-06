@@ -2,7 +2,7 @@
 
 - 日期：2026-11-07
 - 任务：CORE-003
-- 当前状态：当前 macOS 实现及检查通过；本提交三平台 CI 待执行
+- 当前状态：已完成；当前 macOS 检查及 Rust CI #10 三平台验证全部通过
 
 ## 1. 范围与边界
 
@@ -61,9 +61,20 @@
 | `cargo test --workspace --locked` | 通过；40 个 Workspace 测试全部成功 |
 | `RUSTDOCFLAGS='-D warnings' cargo doc -p git-ports -p git-cli --no-deps --locked` | 通过；公共 API 文档无警告 |
 
-## 5. 设计差异、风险与遗留事项
+## 5. 三平台验证
 
-- 计划没有指定跨平台进程树实现库；采用精确版本、最小 features 的 `process-wrap` 实现已要求的平台原语，并保留项目无 unsafe Rust。第三方库内部的平台代码不等于三平台验证，Windows Job 与 Linux process group 必须等待本提交 CI。
+[Rust CI #10](https://github.com/dengxiujun/IdeaGit/actions/runs/42279427776) 对提交 `0891ae8` 执行固定 Rust 1.99.1 的 locked metadata、check、Clippy、Workspace tests 和窗口烟雾测试，结果全部成功。CORE-003 的超时、取消、输出限制与嵌套进程 marker 测试在三种 Runner 上实际执行，因而 Windows Job Object 与 Linux/macOS process group 均有平台运行证据。
+
+| Job | 结果 | 证据 |
+| --- | --- | --- |
+| Format | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42279427776/job/128104201815) |
+| Windows Server 2022 | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42279427776/job/128104202506) |
+| macOS 15 | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42279427776/job/128104202392) |
+| Ubuntu 24.04 | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42279427776/job/128104202358) |
+
+## 6. 设计差异、风险与遗留事项
+
+- 计划没有指定跨平台进程树实现库；采用精确版本、最小 features 的 `process-wrap` 实现已要求的平台原语，并保留项目无 unsafe Rust。Windows Job 与 Unix process group 已由 CI #10 实际执行测试，但真实用户终端、权限受限 Job 和发行版差异仍属于后续平台验证。
 - 进度事件只报告 PID、流和字节数，不复制可能含凭据的输出内容。后续确需展示 Git 进度时，应由具体命令 parser 生成脱敏的领域进度，而不是扩大此底层事件。
 - 取消只证明外部进程树已终止，不证明 Git 仓库回滚；任何可能写仓库的后续调用仍必须经 OperationCoordinator 并执行 Reconcile。
 - 本轮没有实现凭据 broker、TTY、交互提示或网络 Git。`GIT_TERMINAL_PROMPT` 等非交互策略由后续具体命令明确设置，不能由通用 runner 猜测。
