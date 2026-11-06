@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 已完成三平台 CI；UI-001 已由当前 macOS 实际运行和 Rust CI #4 三平台窗口烟雾测试完成验收。M0 整体仍未完成，下一门禁为 TEST-001 Git Fixture。
+INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 已完成三平台 CI；INFRA-004 的架构约束、开发规范、依赖记录和 PR 模板已完成；UI-001 已完成三平台窗口启动验收。M0 整体仍未完成，剩余任务为 UI-002 Design Tokens 和 TEST-001 Git Fixture。
 
 ## 已完成的文档工作
 
@@ -13,6 +13,7 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 已完成三平台
 - 已将 docs/adr 移至 docs/architecture/adr，修正链接并记录 Accepted 状态。
 - 根据 ADR 修订六份设计/基线/主计划：共享契约集中 Core §18；Index 写后恢复捷径移除；状态/恢复统一；任务前置和发布门禁补齐。
 - M0 清单保留首轮发现，并补充设计修订与待验证事项的区分。
+- INFRA-004 已由根 AGENTS.md、正式 ADR、[Workspace 依赖记录](INFRA-001-workspace.md) 和 GitHub PR 模板共同闭环。
 
 ## 架构修订阶段验证记录（历史）
 
@@ -38,7 +39,15 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003 已完成三平台
 
 ## 下一步
 
-执行 TEST-001，建立隔离用户 Git 配置的真实 Git Fixture。核心版本或边界变更仍需 ADR。
+依次执行 UI-002 Design Tokens 和 TEST-001 Git Fixture；一次只实施一个已跟踪任务。核心版本或边界变更仍需 ADR。
+
+## INFRA-004 架构与开发约束（2026-11-07）
+
+- 已批准的 [ADR-ARCH-REMEDIATION-001](../architecture/adr/ADR-ARCH-REMEDIATION-001.md) 固化 D1–D7 架构决策，受影响设计与主计划已完成同步。
+- 根 AGENTS.md 已定义架构、Git 安全、Rust 质量、必需检查、完成定义和单任务范围约束。
+- [INFRA-001 Workspace 记录](INFRA-001-workspace.md) 列出 25 个包的直接依赖；实际 Cargo 解析图已验证无环，UI 无直接 `git-cli` 依赖。
+- 新增 `.github/PULL_REQUEST_TEMPLATE.md`，要求记录任务与设计依据、范围、接口、架构依赖、实际测试、三平台影响、Git 数据安全、风险和回滚。
+- INFRA-004 已完成；本次收尾仅补 PR 模板与进度记录，没有修改架构决策、代码、依赖或 CI。
 
 ## INFRA-001 本机验证（2026-11-06）
 
