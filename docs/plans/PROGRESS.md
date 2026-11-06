@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003/004 已完成；UI-001 已完成三平台窗口启动验收。UI-002 Design Tokens 已在当前 macOS 实现并通过 Workspace 检查，等待统一推送后的 Windows/Linux CI 复验。M0 整体仍未完成，剩余工程门禁为 TEST-001 Git Fixture 和 UI-002 三平台复验。
+INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003/004 已完成；UI-001 已完成三平台窗口启动验收；UI-002 Design Tokens 已由 Rust CI #5 完成三平台验证。M0 整体仍未完成，剩余工程门禁为 TEST-001 Git Fixture。
 
 ## 已完成的文档工作
 
@@ -39,7 +39,7 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003/004 已完成；UI
 
 ## 下一步
 
-提交 UI-002 后执行 TEST-001 Git Fixture；统一推送后取得 UI-002 三平台 CI 结果并完成对应收尾。一次只实施一个已跟踪任务，核心版本或边界变更仍需 ADR。
+执行 TEST-001 Git Fixture，隔离用户全局 Git 配置并覆盖真实仓库初始化、提交和冲突场景。一次只实施一个已跟踪任务，核心版本或边界变更仍需 ADR。
 
 ## INFRA-004 架构与开发约束（2026-11-07）
 
@@ -95,5 +95,6 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003/004 已完成；UI
 - 颜色与逻辑像素使用强类型并拒绝非法输入；交互状态允许 Selected 与 Focused 等状态同时存在。
 - 保持纯 Rust、零新增依赖；Cargo.toml 与 Cargo.lock 未变化，GPUI 映射和运行时切换留给后续 Primitive/Workbench 任务。
 - 当前 macOS 通过 fmt、locked check、Clippy 和 Workspace tests；`idea-theme` 新增 7 个测试。
-- Windows/Linux 条件编译字体列表尚未取得 CI 结果，统一推送并通过三平台 CI 前不能将 UI-002 标记为最终完成。
+- [Rust CI #5](https://github.com/dengxiujun/IdeaGit/actions/runs/42256320592) 已在 Windows Server 2022、macOS 15 和 Ubuntu 24.04 通过 locked check、Clippy、Workspace tests 和窗口烟雾测试。
+- UI-002 已完成；字体安装、中文回退、GPUI 映射、实际控件状态和 Golden 视觉测试仍属于后续 UI 验证范围。
 - 工程初值不是 IDEA 2026.2 精确测量；实际字体、DPI、控件状态和 Golden 视觉测试仍未验证。详细记录见 [UI-TOKENS-VERIFICATION-001](../reviews/UI-TOKENS-VERIFICATION-001.md)。

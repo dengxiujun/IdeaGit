@@ -2,7 +2,7 @@
 
 - 日期：2026-11-07
 - 任务：UI-002
-- 状态：当前 macOS 实现与 Workspace 检查通过；Windows/Linux 等待后续统一推送后的 CI 复验
+- 状态：已完成；当前 macOS 检查及 Rust CI #5 三平台验证全部通过
 
 ## 1. 范围
 
@@ -63,9 +63,21 @@
 
 新增测试覆盖暗/亮色差异、非法 RGB、Metrics 初值、非法逻辑像素、平台字体安全回退、交互状态叠加和完整主题选择。
 
-## 5. 尚未验证
+## 5. 三平台验证
 
-- Windows 和 Linux 条件编译字体列表；等待统一推送后的三平台 CI。
+[Rust CI #5](https://github.com/dengxiujun/IdeaGit/actions/runs/42256320592) 对提交 `ee30de0` 执行固定 Rust 1.99.1 的 locked metadata、check、Clippy、Workspace tests、Cargo.lock 检查和 UI-001 窗口烟雾测试，结果全部成功：
+
+| Job | 结果 | 证据 |
+| --- | --- | --- |
+| Format | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42256320592/job/128024352473) |
+| Windows Server 2022 | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42256320592/job/128024352756) |
+| macOS 15 | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42256320592/job/128024352940) |
+| Ubuntu 24.04 | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42256320592/job/128024353103) |
+
+Windows、macOS 和 Linux 的条件编译字体列表及 Token 测试均已通过，UI-002 的工程验收条件满足。
+
+## 6. 尚未验证
+
 - 字体是否安装、中文回退、字形宽度、截断和排版结果。
 - GPUI 映射、应用内主题切换、系统主题跟随和持久化。
 - Hover/Selected/Focused/Disabled/Busy/Error 的真实控件渲染。
