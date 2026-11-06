@@ -608,6 +608,9 @@ mod tests {
     #[test]
     fn commits_special_paths_without_leaving_the_fixture() {
         let repository = TestRepository::init().expect("fixture initialization should succeed");
+        #[cfg(windows)]
+        let path = "directory with spaces/brackets[and]#hash.txt";
+        #[cfg(not(windows))]
         let path = "directory with spaces/line\nfeed.txt";
 
         repository

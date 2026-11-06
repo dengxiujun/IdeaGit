@@ -32,7 +32,7 @@
 `git-fixture` 的 5 个真实 Git 测试均通过：
 
 1. 初始化空仓库并确认 Unborn HEAD、隔离的全局身份、签名和 credential helper。
-2. 提交包含空格及换行的文件名。
+2. 提交特殊文件名：Unix 使用空格及换行；Windows 使用空格、方括号和 `#`，因为 Win32 文件 API 拒绝换行文件名。
 3. 建立本地 bare `origin`，从 peer clone 提交并 Push，再由原 worktree fast-forward Pull。
 4. 从两个分支修改同一路径，保留 `UU` 未解决冲突状态。
 5. 创建 linked worktree；专用 `pre-commit` Hook 拒绝提交，且 HEAD 不改变。
@@ -49,7 +49,7 @@ Cargo.lock 已随新 workspace 成员更新；没有新增第三方版本或传�
 
 ## 4. 尚未验证与边界
 
-- 本提交尚未经 Windows、macOS、Linux 三平台 CI 运行；当前结果不能替代三平台验收。
+- Windows 首次 CI 已证实 Win32 文件 API 拒绝换行文件名（错误 123）；夹具测试已按平台使用可创建的特殊路径。修正提交尚待 Windows、macOS、Linux CI 复验，当前结果不能替代三平台验收。
 - 夹具隔离了签名和凭据的默认配置，但没有调用真实 GPG/SSH 签名代理或 credential helper；这些平台差异及失败注入留给相关后续写操作任务。
 - 未覆盖非 UTF-8 路径、SHA-256 仓库、Index.lock、网络中断、外部 Git 竞争、rebase conflict 或恢复流程。
 - 本任务不开放任何生产写操作，也不证明 OperationCoordinator、Lock、Journal、Index 安全协议或高级 Partial Commit 的正确性。

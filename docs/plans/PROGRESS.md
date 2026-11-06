@@ -103,6 +103,6 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003/004 已完成；UI
 
 - 新增独立的 `tests/fixtures` workspace crate `git-fixture`，不被任何生产 crate 依赖；以 `TempDir` 创建真实 Git worktree，并在删除夹具时清理所有测试资料。
 - 每个 `TestRepository` 为 Git 进程显式设置临时 HOME、USERPROFILE、GIT_CONFIG_GLOBAL、GIT_CONFIG_NOSYSTEM 和 GIT_TERMINAL_PROMPT；临时全局配置固定测试身份、空 Credential Helper、禁用 GPG 签名及专用 Hooks 目录。
-- 当前 macOS 15.8 / Apple Silicon、Rust 1.99.1、Apple Git 2.39.5 已验证：Unborn HEAD、提交含空格/换行的路径、本地 bare remote 的 Push/Pull 往返、真实三方冲突、linked worktree 与 pre-commit Hook 拒绝，共 5 个真实 Git 测试。
+- 当前 macOS 15.8 / Apple Silicon、Rust 1.99.1、Apple Git 2.39.5 已验证：Unborn HEAD、特殊路径、本地 bare remote 的 Push/Pull 往返、真实三方冲突、linked worktree 与 pre-commit Hook 拒绝，共 5 个真实 Git 测试。Windows 首次 CI 证实 Win32 API 不支持换行文件名，已改为 Windows 合法的特殊路径并等待复验。
 - 当前平台已通过 fmt、locked check、Clippy（`-D warnings`）和 Workspace tests；详细结果及尚未验证范围见 [TEST-FIXTURE-VERIFICATION-001](../reviews/TEST-FIXTURE-VERIFICATION-001.md)。
 - Windows 和 Linux 仍未由本轮提交的 CI 实测；真实 GPG/SSH 签名代理、凭据程序、网络远端、非 UTF-8 文件名及后续写操作故障注入也仍属后续任务，不能据此开放标准写操作或高级 Index 功能。
