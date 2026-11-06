@@ -2059,6 +2059,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "git-fixture"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "git-graph"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,9 @@
+[package]
+name = "git-fixture"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+tempfile.workspace = true
+thiserror.workspace = true

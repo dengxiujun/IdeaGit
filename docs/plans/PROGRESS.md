@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003/004 已完成；UI-001 已完成三平台窗口启动验收；UI-002 Design Tokens 已由 Rust CI #5 完成三平台验证。M0 整体仍未完成，剩余工程门禁为 TEST-001 Git Fixture。
+INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003/004 已完成；UI-001 已完成三平台窗口启动验收；UI-002 Design Tokens 已由 Rust CI #5 完成三平台验证。TEST-001 Git Fixture 已完成当前 macOS 的真实 Git 验证，等待该提交的三平台 CI；M0 尚未据此整体关闭。
 
 ## 已完成的文档工作
 
@@ -39,7 +39,7 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003/004 已完成；UI
 
 ## 下一步
 
-执行 TEST-001 Git Fixture，隔离用户全局 Git 配置并覆盖真实仓库初始化、提交和冲突场景。一次只实施一个已跟踪任务，核心版本或边界变更仍需 ADR。
+等待 TEST-001 提交的 Windows、macOS、Linux CI 验证。该验证完成前不得宣称 Fixture 已完成三平台验收；后续任务仍一次只实施一个，核心版本或边界变更仍需 ADR。
 
 ## INFRA-004 架构与开发约束（2026-11-07）
 
@@ -98,3 +98,11 @@ INFRA-001/002 已建立 Workspace 并锁定依赖；INFRA-003/004 已完成；UI
 - [Rust CI #5](https://github.com/dengxiujun/IdeaGit/actions/runs/42256320592) 已在 Windows Server 2022、macOS 15 和 Ubuntu 24.04 通过 locked check、Clippy、Workspace tests 和窗口烟雾测试。
 - UI-002 已完成；字体安装、中文回退、GPUI 映射、实际控件状态和 Golden 视觉测试仍属于后续 UI 验证范围。
 - 工程初值不是 IDEA 2026.2 精确测量；实际字体、DPI、控件状态和 Golden 视觉测试仍未验证。详细记录见 [UI-TOKENS-VERIFICATION-001](../reviews/UI-TOKENS-VERIFICATION-001.md)。
+
+## TEST-001 Git Fixture Harness（2026-11-07）
+
+- 新增独立的 `tests/fixtures` workspace crate `git-fixture`，不被任何生产 crate 依赖；以 `TempDir` 创建真实 Git worktree，并在删除夹具时清理所有测试资料。
+- 每个 `TestRepository` 为 Git 进程显式设置临时 HOME、USERPROFILE、GIT_CONFIG_GLOBAL、GIT_CONFIG_NOSYSTEM 和 GIT_TERMINAL_PROMPT；临时全局配置固定测试身份、空 Credential Helper、禁用 GPG 签名及专用 Hooks 目录。
+- 当前 macOS 15.8 / Apple Silicon、Rust 1.99.1、Apple Git 2.39.5 已验证：Unborn HEAD、提交含空格/换行的路径、本地 bare remote 的 Push/Pull 往返、真实三方冲突、linked worktree 与 pre-commit Hook 拒绝，共 5 个真实 Git 测试。
+- 当前平台已通过 fmt、locked check、Clippy（`-D warnings`）和 Workspace tests；详细结果及尚未验证范围见 [TEST-FIXTURE-VERIFICATION-001](../reviews/TEST-FIXTURE-VERIFICATION-001.md)。
+- Windows 和 Linux 仍未由本轮提交的 CI 实测；真实 GPG/SSH 签名代理、凭据程序、网络远端、非 UTF-8 文件名及后续写操作故障注入也仍属后续任务，不能据此开放标准写操作或高级 Index 功能。
