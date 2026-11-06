@@ -1,0 +1,8 @@
+[package]
+name = "git-changelist"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+git-domain.workspace = true

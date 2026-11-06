@@ -1,0 +1,8 @@
+[package]
+name = "git-ui-model"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+git-application.workspace = true

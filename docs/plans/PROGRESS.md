@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-处于架构收敛阶段；尚未创建 Cargo Workspace，M0 工程任务未完成。
+INFRA-001 最小 Cargo Workspace 已建立并完成本机检查，待评审；M0 整体未完成。下文架构修订记录保留为历史，最新工程状态见末节。
 
 ## 已完成的文档工作
 
@@ -38,4 +38,15 @@
 
 ## 下一步
 
-后续领取 INFRA-001 前复核已批准契约及 INFRA-004 决策输入；按单任务建立最小 Workspace。任何新的核心版本/边界变更先走 ADR。当前不自动开始工程创建。
+后续单独领取 INFRA-002，验证并固定候选工具链及依赖，然后执行 INFRA-003 三平台 CI。本次未提前实施；核心版本或边界变更仍需 ADR。
+
+## INFRA-001 本机验证（2026-11-06）
+
+- 根 Cargo.toml、Cargo.lock、25 个包的 Cargo.toml 与入口源码已建立；成员路径和依赖见 [Workspace 记录](INFRA-001-workspace.md)。
+- 8 个 Core/Application、5 个 Adapters、10 个 UI、1 个 Platform 库及 desktop 二进制，统一 Edition 2024、Resolver 3，仅依赖本地包。
+- 当前环境：macOS / aarch64-apple-darwin，rustc 1.98.1、cargo 1.98.1。这是本机检查记录，不替代或修改 Rust 1.99.1 候选基线；工具链固定属于 INFRA-002。
+- 通过：`cargo fmt --all -- --check`、`cargo check --workspace`、`cargo test --workspace`、`cargo check --workspace --locked`、`cargo test --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`。
+- `cargo metadata --locked --format-version 1` 返回 25 个本地包；DFS 检查解析图无环，Domain 无依赖，UI 无直接 git-cli 依赖。
+- 测试目标及文档测试成功，实际用例为 0。空骨架无业务行为或失败分支，未添加占位断言，不能视为业务验证。
+- 测试链接时 Xcode 输出缓存路径与 FSEvents 环境警告，命令成功退出。
+- 未验证 Rust 1.99.1、Windows/Linux、真实 UI、Git 功能或第三方依赖兼容性；本次没有公共业务 API。

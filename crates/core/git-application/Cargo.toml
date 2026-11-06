@@ -1,0 +1,9 @@
+[package]
+name = "git-application"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+git-operations.workspace = true
+git-ports.workspace = true

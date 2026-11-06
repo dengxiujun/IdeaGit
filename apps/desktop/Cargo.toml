@@ -1,0 +1,20 @@
+[package]
+name = "desktop"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+git-application.workspace = true
+git-cli.workspace = true
+repository-watcher.workspace = true
+credential-broker.workspace = true
+persistence.workspace = true
+desktop-platform.workspace = true
+idea-shell.workspace = true
+git-workbench.workspace = true
+git-commit-ui.workspace = true
+git-log-ui.workspace = true
+git-branch-ui.workspace = true
+git-diff-ui.workspace = true
+git-merge-ui.workspace = true

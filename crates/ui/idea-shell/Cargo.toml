@@ -1,0 +1,9 @@
+[package]
+name = "idea-shell"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+idea-ui-primitives.workspace = true
+git-ui-model.workspace = true

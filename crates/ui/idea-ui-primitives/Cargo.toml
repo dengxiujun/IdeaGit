@@ -1,0 +1,8 @@
+[package]
+name = "idea-ui-primitives"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+idea-theme.workspace = true

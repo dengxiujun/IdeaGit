@@ -1,0 +1,9 @@
+[package]
+name = "git-operations"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+git-ports.workspace = true
+git-commit.workspace = true

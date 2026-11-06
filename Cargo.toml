@@ -1,0 +1,40 @@
+[workspace]
+resolver = "3"
+members = [
+    "apps/desktop",
+    "crates/core/*",
+    "crates/adapters/*",
+    "crates/ui/*",
+    "crates/platform/*",
+]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+publish = false
+
+[workspace.dependencies]
+credential-broker = { path = "crates/adapters/credential-broker" }
+desktop-platform = { path = "crates/platform/desktop-platform" }
+git-application = { path = "crates/core/git-application" }
+git-branch-ui = { path = "crates/ui/git-branch-ui" }
+git-changelist = { path = "crates/core/git-changelist" }
+git-cli = { path = "crates/adapters/git-cli" }
+git-commit = { path = "crates/core/git-commit" }
+git-commit-ui = { path = "crates/ui/git-commit-ui" }
+git-diff = { path = "crates/core/git-diff" }
+git-diff-ui = { path = "crates/ui/git-diff-ui" }
+git-domain = { path = "crates/core/git-domain" }
+git-graph = { path = "crates/core/git-graph" }
+git-libgit2 = { path = "crates/adapters/git-libgit2" }
+git-log-ui = { path = "crates/ui/git-log-ui" }
+git-merge-ui = { path = "crates/ui/git-merge-ui" }
+git-operations = { path = "crates/core/git-operations" }
+git-ports = { path = "crates/core/git-ports" }
+git-ui-model = { path = "crates/ui/git-ui-model" }
+git-workbench = { path = "crates/ui/git-workbench" }
+idea-shell = { path = "crates/ui/idea-shell" }
+idea-theme = { path = "crates/ui/idea-theme" }
+idea-ui-primitives = { path = "crates/ui/idea-ui-primitives" }
+persistence = { path = "crates/adapters/persistence" }
+repository-watcher = { path = "crates/adapters/repository-watcher" }

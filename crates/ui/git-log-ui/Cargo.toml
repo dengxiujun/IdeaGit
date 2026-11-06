@@ -1,0 +1,9 @@
+[package]
+name = "git-log-ui"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+git-ui-model.workspace = true
+idea-ui-primitives.workspace = true

@@ -1,0 +1,9 @@
+[package]
+name = "git-commit"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+git-ports.workspace = true
+git-diff.workspace = true
