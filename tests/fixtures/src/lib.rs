@@ -157,6 +157,40 @@ impl TestRepository {
         self.commit_file_with_message(path, data, "fixture commit")
     }
 
+    /// Writes a fixture-owned worktree file without staging it.
+    pub fn write_file(&self, path: &str, data: &[u8]) -> Result<(), TestError> {
+        self.write_file_at(&self.worktree, path, data)
+    }
+
+    /// Stages one fixture-owned worktree path.
+    pub fn stage_file(&self, path: &str) -> Result<(), TestError> {
+        self.run_git_at(
+            &self.worktree,
+            "stage fixture path",
+            vec![
+                OsString::from("add"),
+                OsString::from("--"),
+                OsString::from(path),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Renames one tracked fixture path through Git.
+    pub fn rename_file(&self, source: &str, target: &str) -> Result<(), TestError> {
+        self.run_git_at(
+            &self.worktree,
+            "rename fixture path",
+            vec![
+                OsString::from("mv"),
+                OsString::from("--"),
+                OsString::from(source),
+                OsString::from(target),
+            ],
+        )?;
+        Ok(())
+    }
+
     /// Returns whether the repository currently has no commit at HEAD.
     pub fn is_unborn(&self) -> Result<bool, TestError> {
         Ok(self.head_oid()?.is_none())

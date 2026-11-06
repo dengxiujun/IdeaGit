@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001 与 CORE-003 已完成当前平台及三平台 CI 验证；CORE-002 Repository Discovery 已在当前 macOS 通过专项检查，等待本提交三平台 CI。未执行的 Status/HEAD、Snapshot、Session、Watcher、Workbench 和其他高级场景继续明确保留。
+M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003 已完成当前平台及三平台 CI 验证；CORE-004 Porcelain v2 Status Parser/Reader 已在当前 macOS 通过专项检查，等待本提交三平台 CI。未执行的独立 HEAD、Snapshot、Session、Watcher、Workbench 和其他高级场景继续明确保留。
 
 ## 已完成的文档工作
 
@@ -39,7 +39,7 @@ M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001 与 CORE-0
 
 ## 下一步
 
-CORE-002 三平台 CI 通过后，按依赖 DAG 进入 CORE-004 Porcelain v2 Status Parser，再依次完成 HEAD、Snapshot、Session、Watcher 与 Workbench。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+CORE-004 三平台 CI 通过后，按依赖 DAG 进入 CORE-005 HEAD / Branch Reader，再依次完成 Snapshot、Session、Watcher 与 Workbench。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
 
 ## INFRA-004 架构与开发约束（2026-11-07）
 
@@ -132,4 +132,13 @@ CORE-002 三平台 CI 通过后，按依赖 DAG 进入 CORE-004 Porcelain v2 Sta
 - `GitCliRepositoryReader` 只使用 Git 报告的 git_dir/common_dir/worktree root，再经文件系统 canonicalize；不拼接 `.git`，不经 Shell，并允许注入平台选择的 Git executable 与隔离环境。
 - TEST-001 fixture 新增隔离环境导出和本地 submodule helper；生产 reader 集成测试不会读取用户全局 Git 配置。
 - 当前 macOS / Rust 1.99.1 已通过专项 fmt、locked check、Clippy 和 21 个测试；真实 Git 覆盖 ordinary nested path、linked worktree、bare remote、submodule 及失败路径，Unix 路径解析保留内部换行。
-- Workspace 全量检查与三平台 CI 尚待执行；Windows 原生路径与三平台 Git 行为在 CI 通过前不得声称已验证。详细记录见 [CORE-002-VERIFICATION-001](../reviews/CORE-002-VERIFICATION-001.md)。
+- Workspace 全量检查已通过；[Rust CI #11](https://github.com/dengxiujun/IdeaGit/actions/runs/42313168974) 已在 Windows Server 2022、macOS 15 和 Ubuntu 24.04 通过全部门禁及真实仓库发现测试，CORE-002 已完成。详细记录见 [CORE-002-VERIFICATION-001](../reviews/CORE-002-VERIFICATION-001.md)。
+
+## CORE-004 Porcelain v2 Status Parser（2026-11-07）
+
+- `git-domain` 新增原始 ref、branch headers、XY、submodule、mode/OID、rename/copy score、conflict stages 和 `StatusData`；全零 mode/OID 表达为缺失。
+- `git-ports` 新增 `StatusParser`、结构化 `StatusParseError`、`StatusOptions` 与异步 `StatusReader`，没有复制第二套 DTO。
+- `git-cli` 严格按 NUL token 解析 porcelain v2；type-2 原路径单独取下一 token，未知 header 可扩展，截断或非法记录不静默接受。
+- 生产 reader 使用 `--no-optional-locks`、明确 untracked/ignored/rename 选项；bare status 明确拒绝，不误报干净工作区。
+- 当前 macOS / Rust 1.99.1 已通过专项 fmt、locked check、Clippy 和 43 个测试；合成输入覆盖所有格式/失败分支，隔离真实 Git 覆盖 staged+unstaged、rename、ignored/untracked、`UU` conflict 和 bare 拒绝。
+- Workspace 全量检查与三平台 CI 尚待执行；三平台 Git status 差异在 CI 通过前不得声称已验证。详细记录见 [CORE-004-VERIFICATION-001](../reviews/CORE-004-VERIFICATION-001.md)。

@@ -2,7 +2,7 @@
 
 - 日期：2026-11-07
 - 任务：CORE-002
-- 当前状态：当前 macOS 实现及检查通过；本提交三平台 CI 待执行
+- 当前状态：已完成；当前 macOS 检查及 Rust CI #11 三平台验证全部通过
 
 ## 1. 范围与统一契约
 
@@ -59,9 +59,20 @@ git -c core.quotepath=false rev-parse --show-toplevel  # 仅非 bare
 | `cargo test --workspace --locked` | 通过；47 个 Workspace 测试全部成功 |
 | `RUSTDOCFLAGS='-D warnings' cargo doc -p git-ports -p git-cli --no-deps --locked` | 通过；公共 API 文档无警告 |
 
-## 4. 依赖、设计差异与遗留事项
+## 4. 三平台验证
+
+[Rust CI #11](https://github.com/dengxiujun/IdeaGit/actions/runs/42313168974) 对提交 `c97124c` 执行固定 Rust 1.99.1 的 locked metadata、check、Clippy、Workspace tests 和窗口烟雾测试，结果全部成功。ordinary nested path、linked worktree、bare remote 与本地 submodule 的真实 Git 发现测试在三个系统上实际执行。
+
+| Job | 结果 | 证据 |
+| --- | --- | --- |
+| Format | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42313168974/job/128219293470) |
+| Windows Server 2022 | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42313168974/job/128219293129) |
+| macOS 15 | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42313168974/job/128219293636) |
+| Ubuntu 24.04 | 通过 | [Job](https://github.com/dengxiujun/IdeaGit/actions/runs/42313168974/job/128219293446) |
+
+## 5. 依赖、设计差异与遗留事项
 
 - 无新增第三方依赖或版本变化；`git-fixture` 仅作为 `git-cli` dev-dependency，并新增可复用的隔离环境与本地 submodule helper。
 - 权威契约没有 `RepositoryKind::Submodule`；本轮不擅自增加类型。Submodule 验收以 Git 返回独立 worktree/git_dir/common_dir 为准。
 - discovery 的多个只读查询之间外部进程仍可能移动或删除仓库；任何不一致会在 canonicalize 或后续命令中失败，不发布猜测位置。Session 级复用、身份与刷新由 CORE-007/008 负责。
-- 当前 macOS 已覆盖普通、linked、bare、submodule 与路径内换行解析；Windows 原生路径编码、Linux 路径和三平台 Git 差异必须等待本提交 CI，不能提前声称通过。
+- macOS 路径内换行解析已有字节级测试；ordinary、linked、bare、submodule 及 Windows/Linux 原生路径行为已由 CI #11 实际执行。符号链接身份、大小写敏感差异和非 UTF-8 仓库根仍留给后续平台矩阵。

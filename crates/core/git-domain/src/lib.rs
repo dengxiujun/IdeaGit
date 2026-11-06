@@ -7,8 +7,14 @@ mod error;
 mod id;
 mod object_id;
 mod path;
+mod status;
 
 pub use error::{GitError, GitErrorKind, GitResult, RecoveryAction};
 pub use id::{OperationId, RepositoryId, SessionTarget, SnapshotRevision, WorktreeId};
 pub use object_id::{ObjectFormat, ObjectId, ObjectIdError};
 pub use path::{LocalPath, RepoPath, RepoPathError};
+pub use status::{
+    BranchHead, BranchOid, BranchStatus, ChangeKind, ConflictKind, FileMode, OrdinaryChange,
+    RefName, RefNameError, RenamedChange, Similarity, SimilarityKind, StatusData, StatusEntry,
+    SubmoduleState, UnmergedChange,
+};

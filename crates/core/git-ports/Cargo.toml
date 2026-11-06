@@ -9,3 +9,4 @@ async-trait.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 git-domain.workspace = true
+thiserror.workspace = true
