@@ -95,6 +95,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 当已有 refresh 正在执行时，Reconcile 请求留在有界队列等待下一轮，避免把写入前启动的旧 snapshot 错认作写后结果；普通文件系统触发仍按原策略合并。
 - Reconcile 保留 target 校验、取消和底层结构化读取错误；测试覆盖成功产生下一 revision 及权威读取失败透传。
 
+## M2 CORE-010 Desktop M2 Executor Composition（2026-11-07）
+
+- desktop composition root 新增完整 M2 executor 构造器：Index/Branch 为 Lock → Journal → Git CLI → Reconcile，Commit 为 Lock → Preflight → Journal → Git CLI → Reconcile。
+- 三类 writer 共享同一个 `ResourceLockManager`、durable `JsonJournalStore` 与 session `ScheduledSnapshotRebuilder`；构造器本身不安装 Action Dispatcher，不提前开放 GUI 写入口。
+- 真实仓库测试通过该生产构造器执行 Stage，并验证权威 Snapshot 已暂存且 Journal 终态为 Completed，证明不是仅编译的空装配。
+
 ## M2 CORE-012 Operation Journal 平台路径（2026-11-07）
 
 - `desktop-platform::operation_journal_path` 将 durable Journal 放在 IdeaGit 平台配置目录，与 Workbench layout 同目录但独立文件，不写入用户仓库或进程当前目录。

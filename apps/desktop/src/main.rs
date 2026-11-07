@@ -72,6 +72,101 @@ impl<R: git_ports::ProcessRunner> git_operations::CommitStateReader
     }
 }
 
+/// Complete M2 Index writer stack assembled by the desktop composition root.
+pub type DesktopIndexWriter = git_operations::ReconciledIndexWriter<
+    git_operations::CoordinatedIndexWriter<
+        git_operations::JournaledIndexWriter<
+            git_cli::GitCliIndexWriter<git_cli::TokioProcessRunner>,
+            persistence::JsonJournalStore,
+        >,
+    >,
+    git_application::ScheduledSnapshotRebuilder,
+>;
+
+/// Complete M2 Commit writer stack assembled by the desktop composition root.
+pub type DesktopCommitWriter = git_operations::ReconciledCommitWriter<
+    git_operations::CoordinatedCommitWriter<
+        git_operations::PreflightCommitWriter<
+            git_operations::JournaledCommitWriter<
+                git_cli::GitCliCommitWriter<git_cli::TokioProcessRunner>,
+                persistence::JsonJournalStore,
+            >,
+            DesktopCommitStateReader<git_cli::TokioProcessRunner>,
+        >,
+    >,
+    git_application::ScheduledSnapshotRebuilder,
+>;
+
+/// Complete M2 Branch writer stack assembled by the desktop composition root.
+pub type DesktopBranchWriter = git_operations::ReconciledBranchWriter<
+    git_operations::CoordinatedBranchWriter<
+        git_operations::JournaledBranchWriter<
+            git_cli::GitCliBranchWriter<git_cli::TokioProcessRunner>,
+            persistence::JsonJournalStore,
+        >,
+    >,
+    git_application::ScheduledSnapshotRebuilder,
+>;
+
+/// Complete Stage/Commit/Branch executor for one discovered repository session.
+pub type DesktopM2Executor = git_operations::M2OperationExecutor<
+    DesktopIndexWriter,
+    DesktopCommitWriter,
+    DesktopBranchWriter,
+>;
+
+/// Builds the production M2 writer stack without opening any GUI write capability by itself.
+#[must_use]
+pub fn build_m2_executor(
+    target: git_domain::SessionTarget,
+    location: git_ports::RepositoryLocation,
+    journal_path: PathBuf,
+    rebuilder: git_application::ScheduledSnapshotRebuilder,
+) -> DesktopM2Executor {
+    let locks = git_operations::ResourceLockManager::new();
+    let journal = persistence::JsonJournalStore::new(journal_path);
+    let index = git_operations::ReconciledIndexWriter::new(
+        git_operations::CoordinatedIndexWriter::new(
+            git_operations::JournaledIndexWriter::new(
+                git_cli::GitCliIndexWriter::new(git_cli::TokioProcessRunner, location.clone()),
+                journal.clone(),
+            ),
+            locks.clone(),
+        ),
+        rebuilder.clone(),
+    );
+    let commit = git_operations::ReconciledCommitWriter::new(
+        git_operations::CoordinatedCommitWriter::new(
+            git_operations::PreflightCommitWriter::new(
+                git_operations::JournaledCommitWriter::new(
+                    git_cli::GitCliCommitWriter::new(git_cli::TokioProcessRunner, location.clone()),
+                    journal.clone(),
+                ),
+                DesktopCommitStateReader::new(
+                    target,
+                    git_cli::GitCliCommitStateProbe::new(
+                        git_cli::TokioProcessRunner,
+                        location.clone(),
+                    ),
+                ),
+            ),
+            locks.clone(),
+        ),
+        rebuilder.clone(),
+    );
+    let branch = git_operations::ReconciledBranchWriter::new(
+        git_operations::CoordinatedBranchWriter::new(
+            git_operations::JournaledBranchWriter::new(
+                git_cli::GitCliBranchWriter::new(git_cli::TokioProcessRunner, location),
+                journal,
+            ),
+            locks,
+        ),
+        rebuilder,
+    );
+    git_operations::M2OperationExecutor::new(index, commit, branch)
+}
+
 /// Composition-root dispatcher that queues typed UI actions without blocking GPUI.
 pub struct DesktopActionDispatcher<E: OperationExecutor> {
     coordinator: Arc<OperationCoordinator<E>>,
@@ -450,6 +545,7 @@ mod tests {
     use async_trait::async_trait;
     use git_domain::{GitResult, RepoPath, RepositoryId, SessionTarget, WorktreeId};
     use git_ports::ExecutionContext;
+    use git_ports::JournalStore as _;
     use git_ui_model::{ActionContext, ActionId, ActionPanel, ActionPayload};
     use tempfile::TempDir;
 
@@ -585,6 +681,99 @@ mod tests {
             .expect_err("foreign session must be rejected before probing Git");
         assert_eq!(error.kind, git_domain::GitErrorKind::InvalidRepository);
         assert_eq!(error.target, Some(foreign));
+    }
+
+    #[tokio::test]
+    async fn production_m2_executor_stages_journals_and_reconciles_a_real_repository() {
+        use git_operations::OperationExecutor as _;
+
+        let repository =
+            git_fixture::TestRepository::init().expect("real Git fixture should initialize");
+        repository
+            .write_file("stage.txt", b"staged content\n")
+            .expect("fixture file should be written");
+        let location = git_ports::RepositoryLocation::worktree(
+            &repository.worktree,
+            repository.worktree.join(".git"),
+            repository.worktree.join(".git"),
+        );
+        let target = SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1);
+        let cancellation = tokio_util::sync::CancellationToken::new();
+        let scheduler = git_application::RefreshScheduler::start(
+            git_application::SnapshotRefreshService::new(
+                git_cli::GitCliHeadReader::new(git_cli::TokioProcessRunner),
+                git_cli::GitCliStatusReader::new(git_cli::TokioProcessRunner),
+            ),
+            target,
+            location.clone(),
+            cancellation.clone(),
+            git_application::RefreshSchedulerConfig::default(),
+        )
+        .expect("refresh scheduler should start");
+        let mut refresh = scheduler.subscribe();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if refresh.borrow().health == git_application::RefreshHealth::Ready {
+                    break;
+                }
+                refresh
+                    .changed()
+                    .await
+                    .expect("refresh scheduler should remain live");
+            }
+        })
+        .await
+        .expect("initial snapshot should become ready");
+
+        let temporary = TempDir::new().expect("temporary directory should be created");
+        let journal_path = temporary.path().join("operation-journal.json");
+        let executor = build_m2_executor(
+            target,
+            location,
+            journal_path.clone(),
+            scheduler.rebuilder(),
+        );
+        let operation_id = git_domain::OperationId::new();
+        let (progress, _receiver) = tokio::sync::mpsc::channel(8);
+        executor
+            .execute(
+                git_domain::GitCommand::StageFiles {
+                    target,
+                    paths: vec![RepoPath::try_from("stage.txt").expect("valid fixture path")],
+                },
+                ExecutionContext::new(
+                    operation_id,
+                    tokio_util::sync::CancellationToken::new(),
+                    progress,
+                ),
+            )
+            .await
+            .expect("full writer stack should stage and reconcile");
+
+        let snapshot = refresh
+            .borrow()
+            .snapshot
+            .clone()
+            .expect("reconcile should publish a snapshot");
+        assert!(
+            snapshot
+                .changes
+                .iter()
+                .any(|change| { change.path.display_lossy() == "stage.txt" && change.is_staged() })
+        );
+        let record = persistence::JsonJournalStore::new(journal_path)
+            .get(operation_id)
+            .await
+            .expect("Journal should remain readable")
+            .expect("operation record should exist");
+        assert_eq!(record.phase, git_domain::JournalPhase::Completed);
+        assert_eq!(record.result, Some(git_domain::JournalResult::Completed));
+
+        cancellation.cancel();
+        scheduler
+            .join()
+            .await
+            .expect("refresh scheduler should stop cleanly");
     }
 
     #[test]
