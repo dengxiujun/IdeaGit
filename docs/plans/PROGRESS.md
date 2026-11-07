@@ -391,6 +391,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 状态读取失败发生在任何 Git 写进程之前；写前指纹与 Commit preflight 复用同一只读 Git CLI 探针，不引入展示路径或乐观 Snapshot 判断。
 - 单元测试验证 Journal 同时保存 expected HEAD/Index；真实仓库跨 Registry fixture 证明原状态为 `NotExecuted`，外部 Stage 改变 Index 后转为 `Unknown` 并关闭写入口，生产 executor 的 Completed Journal 也保留写前指纹。
 
+## M2 RECOVERY-000 最终验收候选（2026-11-07）
+
+- 真实 Git discovery 验证 linked worktree 共享 common dir 但因具体 git dir 不同而生成隔离的 `RecoveryScope`；与存储按 scope 过滤测试共同证明 Index Journal 不串 worktree。
+- Commit/Index 启动恢复的身份、schema 迁移、权威观测、分类、desktop fail-closed 门禁与真实重启/外部变化测试均闭环；详细证据更新至 `RECOVERY-000-VERIFICATION-001`。
+- Rust CI #60（Runner ID `42367271332`）已验证前一检查点；最终 Index 指纹与真实 linked-worktree 隔离需下一次三平台 Runner 通过后，才能关闭 `RECOVERY-000`。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。

@@ -371,6 +371,12 @@ mod tests {
         );
         assert_eq!(primary.common_dir(), linked_location.common_dir());
         assert_ne!(primary.git_dir(), linked_location.git_dir());
+        assert_ne!(
+            primary.recovery_scope().expect("primary recovery scope"),
+            linked_location
+                .recovery_scope()
+                .expect("linked recovery scope")
+        );
     }
 
     #[tokio::test]
