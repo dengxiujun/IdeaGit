@@ -271,6 +271,7 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `git-ports` 新增异步 `HistoryReader`，为 Git CLI、Graph 和 UI 分层保留统一读取边界。
 - 本切片完成领域/端口契约，CLI `--format` 解析与 DAG/分页读取将在后续切片接入。
 - CLI 已接入 NUL 分隔机器格式 Log，支持 limit/skip 分页、父提交解析和 `has_more`；真实 fixture 覆盖两次提交的一页读取。
+- `git-graph` 已将可见 CommitPage 投影为轻量 GraphRow lane，不创建长期 UI Entity；线性父提交 lane 测试通过。
 - `git-operations` 新增 `CoordinatedBranchWriter`，以 CommonGitDir Refs 锁串行化分支变更；`ReconciledBranchWriter` 在写后重建 Snapshot。
 - `JournaledBranchWriter` 在分支变更前记录 CommitInProgress，随后持久化 Completed 或 RecoveryRequired，保留崩溃审计线索。
 - `ReconciledCommitWriter` 只有在实际提交成功且权威 RepositorySnapshot 重建成功后才返回完整成功结果。

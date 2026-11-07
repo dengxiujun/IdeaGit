@@ -13,3 +13,5 @@ cargo clippy -p git-domain -p git-ports --all-targets --locked -- -D warnings
 后续接入 Git CLI 的机器格式解析、父提交 DAG、分页和真实 fixture 测试。
 
 Git CLI 机器格式解析、父提交和分页已接入；真实 fixture 覆盖两次提交、limit=1 与单父提交结果。
+
+`git-graph::layout` 为可见提交页分配轻量父提交 lanes，并通过线性历史测试；复杂 merge lane 与大仓库性能留给后续 Graph/UI 任务。
