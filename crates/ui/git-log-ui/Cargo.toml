@@ -7,3 +7,5 @@ publish.workspace = true
 [dependencies]
 git-ui-model.workspace = true
 idea-ui-primitives.workspace = true
+git-domain.workspace = true
+git-graph.workspace = true

@@ -15,3 +15,5 @@ cargo clippy -p git-domain -p git-ports --all-targets --locked -- -D warnings
 Git CLI 机器格式解析、父提交和分页已接入；真实 fixture 覆盖两次提交、limit=1 与单父提交结果。
 
 `git-graph::layout` 为可见提交页分配轻量父提交 lanes，并通过线性历史测试；复杂 merge lane 与大仓库性能留给后续 Graph/UI 任务。
+
+`git-log-ui::project` 将 CommitPage 映射为虚拟化友好的 LogRow，保留原始 subject/author/timestamp 与 graph lane。
