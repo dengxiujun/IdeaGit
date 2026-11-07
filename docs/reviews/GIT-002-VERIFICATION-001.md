@@ -11,6 +11,7 @@
 - 提交后使用 `rev-parse HEAD` 和 `rev-list -1 --parents HEAD` 获取实际结果；Git 拒绝映射为结构化错误。
 - 真实 fixture 覆盖 staged 文件修改提交和单父提交结果。
 - `PreflightCommitWriter` 在 CLI 启动前比较 expected HEAD/Index，变化分别返回 `HeadChangedExternally` 或 `IndexChangedExternally`。
+- `CoordinatedCommitWriter` 保护共享 Refs 与具体 Worktree Index，使用既有稳定排序和取消感知锁管理器。
 
 已执行并通过：
 

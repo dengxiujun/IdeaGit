@@ -6,6 +6,8 @@ use git_domain::{
 };
 use git_ports::{CommitOutcome, CommitWriter, ExecutionContext};
 
+use crate::{ResourceKey, ResourceKind, ResourceLockManager, ResourceScope};
+
 /// Authoritative state needed before starting a real commit process.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CommitPreflightState {
@@ -27,6 +29,56 @@ pub trait CommitStateReader: Send + Sync {
 pub struct PreflightCommitWriter<W, R> {
     writer: W,
     reader: R,
+}
+
+/// Commit writer that serializes shared refs and the concrete worktree Index.
+#[derive(Debug)]
+pub struct CoordinatedCommitWriter<W> {
+    writer: W,
+    locks: ResourceLockManager,
+}
+
+impl<W> CoordinatedCommitWriter<W> {
+    #[must_use]
+    pub fn new(writer: W, locks: ResourceLockManager) -> Self {
+        Self { writer, locks }
+    }
+}
+
+#[async_trait]
+impl<W: CommitWriter> CommitWriter for CoordinatedCommitWriter<W> {
+    #[allow(clippy::result_large_err)]
+    async fn commit(
+        &self,
+        target: SessionTarget,
+        request: StandardCommitRequest,
+        context: ExecutionContext,
+    ) -> GitResult<CommitOutcome> {
+        let worktree = target.worktree_id().ok_or_else(|| {
+            GitError::new(
+                GitErrorKind::UnsupportedFeature,
+                "commit is unavailable for a bare repository",
+            )
+        })?;
+        let _lock = self
+            .locks
+            .acquire_with_cancellation(
+                [
+                    ResourceKey {
+                        scope: ResourceScope::CommonGitDir(target.repository()),
+                        kind: ResourceKind::Refs,
+                    },
+                    ResourceKey {
+                        scope: ResourceScope::Worktree(worktree),
+                        kind: ResourceKind::Index,
+                    },
+                ],
+                context.cancellation.clone(),
+            )
+            .await
+            .map_err(|error| GitError::new(GitErrorKind::Cancelled, error.to_string()))?;
+        self.writer.commit(target, request, context).await
+    }
 }
 
 impl<W, R> PreflightCommitWriter<W, R> {

@@ -256,4 +256,5 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 真实 fixture 覆盖 staged 修改提交并验证返回一个父提交；完整 expected HEAD/Index preflight、Journal/锁装饰和写后 Snapshot reconcile 沿用 GIT-001 组合层。
 - 详细结果见 [GIT-002-VERIFICATION-001](../reviews/GIT-002-VERIFICATION-001.md)。
 - `git-operations` 新增 `PreflightCommitWriter`，在启动 CLI 前读取权威 HEAD/Index 并拒绝 expected revision 不匹配，避免覆盖外部提交或 Index 变化。
+- `CoordinatedCommitWriter` 按稳定顺序获取 CommonGitDir Refs 与 Worktree Index 锁，锁等待支持取消。
 - 详细结果见 [GIT-001-VERIFICATION-001](../reviews/GIT-001-VERIFICATION-001.md)。
