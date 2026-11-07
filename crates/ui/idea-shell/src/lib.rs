@@ -6,7 +6,8 @@ use std::{sync::Arc, time::Duration};
 use git_operations::{OperationOutcome, OperationPhase, OperationSnapshot};
 use git_ui_model::{
     ActionAvailability, ActionContext, ActionDispatcher, ActionId, ActionPolicy, ActionRequest,
-    ChangesTreeModel, CommitDraftStore, CommitPanelViewModel, RepositoryWorkbenchModel,
+    ChangeContentSource, ChangesTreeModel, CommitDraftStore, CommitPanelViewModel,
+    RepositoryWorkbenchModel,
 };
 use git_workbench::{PanelKind, WorkbenchLayout};
 use gpui_kit::base::StyledExt as _;
@@ -15,6 +16,8 @@ use gpui_kit::component::dock::{
     PanelEvent, panel_handle, register_panel,
 };
 use gpui_kit::component::{
+    Disableable as _,
+    button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     input::{InputEvent, Textarea, TextareaState},
 };
@@ -222,6 +225,7 @@ pub fn open_workbench_window(
     layout_io: WorkbenchLayoutIo,
 ) -> gpui_kit::Result<OpenedWorkbench> {
     register_workbench_panels(cx);
+    let action_dispatcher = Arc::new(Mutex::new(None));
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::centered(size(px(1100.0), px(720.0)), cx)),
         titlebar: Some(TitlebarOptions {
@@ -233,14 +237,15 @@ pub fn open_workbench_window(
         ..Default::default()
     };
 
-    gpui_kit::open_window(options, cx, |window, cx| {
-        cx.new(|cx| WorkbenchWindow::new(window, layout_io, cx))
+    let window_dispatcher = Arc::clone(&action_dispatcher);
+    gpui_kit::open_window(options, cx, move |window, cx| {
+        cx.new(|cx| WorkbenchWindow::new(window, layout_io, window_dispatcher, cx))
     })
     .map(|(window, view)| OpenedWorkbench {
         window,
         controller: WorkbenchController {
             view,
-            action_dispatcher: Arc::new(Mutex::new(None)),
+            action_dispatcher,
         },
     })
 }
@@ -263,15 +268,46 @@ struct WorkbenchWindow {
     commit_panel: Entity<WorkbenchPanel>,
     log_panel: Entity<WorkbenchPanel>,
     operation_feedback: Option<OperationFeedback>,
+    action_dispatcher: Arc<Mutex<Option<Arc<dyn ActionDispatcher>>>>,
+    _commit_action_subscription: Subscription,
 }
 
 impl WorkbenchWindow {
-    fn new(window: &mut Window, layout_io: WorkbenchLayoutIo, cx: &mut Context<Self>) -> Self {
+    fn new(
+        window: &mut Window,
+        layout_io: WorkbenchLayoutIo,
+        action_dispatcher: Arc<Mutex<Option<Arc<dyn ActionDispatcher>>>>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let theme = IdeaTheme::dark();
         let (dock_area, _skin) =
             DockSkin::dock_area("ideagit.workbench.main", Some(LAYOUT_VERSION), window, cx);
         let repository = WorkbenchPanel::new(PanelKind::RepositoryExplorer, window, cx);
         let commit = WorkbenchPanel::new(PanelKind::Commit, window, cx);
+        let commit_action_subscription =
+            cx.subscribe(&commit, |this, _, request: &ActionRequest, cx| {
+                let result = match git_ui_model::DefaultActionPolicy
+                    .evaluate(request.action, &request.context)
+                {
+                    ActionAvailability::Enabled => this
+                        .action_dispatcher
+                        .lock()
+                        .map_err(|_| "action dispatcher lock poisoned".to_owned())
+                        .and_then(|dispatcher| {
+                            dispatcher
+                                .clone()
+                                .ok_or_else(|| "action dispatcher is not configured".to_owned())
+                        })
+                        .and_then(|dispatcher| dispatcher.dispatch(request.clone())),
+                    ActionAvailability::Disabled(reason) => Err(reason),
+                    ActionAvailability::Hidden => Err("此操作当前不可用".to_owned()),
+                };
+                this.operation_feedback = Some(match result {
+                    Ok(()) => OperationFeedback::Running(format!("{:?}", request.action)),
+                    Err(error) => OperationFeedback::Failed(error),
+                });
+                cx.notify();
+            });
         let log = WorkbenchPanel::new(PanelKind::GitLog, window, cx);
         let log_panel = log.clone();
         let diff = WorkbenchPanel::new(PanelKind::Diff, window, cx);
@@ -339,6 +375,8 @@ impl WorkbenchWindow {
             commit_panel: commit,
             log_panel,
             operation_feedback: None,
+            action_dispatcher,
+            _commit_action_subscription: commit_action_subscription,
         }
     }
 }
@@ -440,6 +478,7 @@ struct WorkbenchPanel {
     commit_message: Option<Entity<TextareaState>>,
     pending_message_sync: Option<SharedString>,
     _commit_message_subscription: Option<Subscription>,
+    selected_changes: Vec<(ChangeContentSource, git_domain::RepoPath)>,
     log_rows: Vec<git_log_ui::LogRow>,
 }
 
@@ -486,19 +525,67 @@ impl WorkbenchPanel {
                 commit_message,
                 pending_message_sync: None,
                 _commit_message_subscription: commit_message_subscription,
+                selected_changes: Vec::new(),
                 log_rows: Vec::new(),
             }
         })
     }
 
     fn set_changes(&mut self, changes: ChangesTreeModel) {
+        let same_target = self.changes.target == changes.target;
         self.changes = changes;
+        if same_target {
+            self.selected_changes.retain(|selected| {
+                self.changes.groups.iter().any(|group| {
+                    group
+                        .entries
+                        .iter()
+                        .any(|entry| entry.source == selected.0 && entry.path == selected.1)
+                })
+            });
+        } else {
+            self.selected_changes.clear();
+        }
         self.commit_model = CommitPanelViewModel::from_changes(&self.changes, &self.commit_drafts);
         self.pending_message_sync = self
             .commit_model
             .as_ref()
             .map(|model| SharedString::from(model.message.clone()));
     }
+
+    fn emit_file_action(&mut self, action: ActionId, cx: &mut Context<Self>) {
+        if let Some(request) = file_action_request(&self.changes, &self.selected_changes, action) {
+            cx.emit(request);
+        }
+    }
+}
+
+fn file_action_request(
+    changes: &ChangesTreeModel,
+    selected_changes: &[(ChangeContentSource, git_domain::RepoPath)],
+    action: ActionId,
+) -> Option<ActionRequest> {
+    let target = changes.target?;
+    let expected_source = match action {
+        ActionId::Stage => ChangeContentSource::Worktree,
+        ActionId::Unstage => ChangeContentSource::Index,
+        _ => return None,
+    };
+    let selected_files = selected_changes
+        .iter()
+        .filter(|(source, _)| *source == expected_source)
+        .map(|(_, path)| path.clone())
+        .collect();
+    Some(ActionRequest {
+        action,
+        context: ActionContext {
+            target: Some(target),
+            selected_files,
+            active_panel: git_ui_model::ActionPanel::Commit,
+            ..ActionContext::default()
+        },
+        payload: git_ui_model::ActionPayload::None,
+    })
 }
 
 impl BasePanel for WorkbenchPanel {
@@ -518,6 +605,7 @@ impl Panel for WorkbenchPanel {
 }
 
 impl EventEmitter<PanelEvent> for WorkbenchPanel {}
+impl EventEmitter<ActionRequest> for WorkbenchPanel {}
 
 impl Focusable for WorkbenchPanel {
     fn focus_handle(&self, _: &App) -> FocusHandle {
@@ -553,7 +641,18 @@ impl Render for WorkbenchPanel {
             }
             let message = self.commit_message.clone();
             let amend = self.commit_model.as_ref().is_some_and(|model| model.amend);
+            let groups = self.changes.groups.clone();
+            let selected = self.selected_changes.clone();
             let panel = cx.entity().downgrade();
+            let amend_panel = panel.clone();
+            let stage_panel = panel.clone();
+            let unstage_panel = panel.clone();
+            let has_worktree_selection = selected
+                .iter()
+                .any(|(source, _)| *source == ChangeContentSource::Worktree);
+            let has_index_selection = selected
+                .iter()
+                .any(|(source, _)| *source == ChangeContentSource::Index);
             return div()
                 .flex()
                 .flex_col()
@@ -561,7 +660,7 @@ impl Render for WorkbenchPanel {
                 .p_3()
                 .gap_2()
                 .child(div().font_semibold().child("Changes"))
-                .children(self.changes.groups.iter().map(|group| {
+                .children(groups.into_iter().map(|group| {
                     div()
                         .flex()
                         .flex_col()
@@ -571,23 +670,77 @@ impl Render for WorkbenchPanel {
                             group.kind.label(),
                             group.entries.len()
                         )))
-                        .children(group.entries.iter().map(|entry| {
-                            let original = entry
-                                .original_path
-                                .as_ref()
-                                .map_or_else(String::new, |path| {
-                                    format!(" ← {}", path.display_lossy())
-                                });
-                            let conflict = if entry.conflicted { " · conflict" } else { "" };
-                            div().pl_3().text_sm().child(format!(
-                                "{} · {:?}{}{}",
-                                entry.path.display_lossy(),
-                                entry.change_kind,
-                                original,
-                                conflict
-                            ))
+                        .children(group.entries.into_iter().map({
+                            let selected = selected.clone();
+                            let panel = panel.clone();
+                            move |entry| {
+                                let original = entry
+                                    .original_path
+                                    .as_ref()
+                                    .map_or_else(String::new, |path| {
+                                        format!(" ← {}", path.display_lossy())
+                                    });
+                                let conflict = if entry.conflicted { " · conflict" } else { "" };
+                                let source = entry.source;
+                                let path = entry.path.clone();
+                                let checked = selected.contains(&(source, path.clone()));
+                                let id = format!("change-{:?}-{}", source, path.display_lossy());
+                                Checkbox::new(id)
+                                    .checked(checked)
+                                    .label(format!(
+                                        "{} · {:?}{}{}",
+                                        path.display_lossy(),
+                                        entry.change_kind,
+                                        original,
+                                        conflict
+                                    ))
+                                    .on_change({
+                                        let panel = panel.clone();
+                                        move |checked, _, cx| {
+                                            let _ = panel.update(cx, |panel, cx| {
+                                                let key = (source, path.clone());
+                                                if *checked {
+                                                    if !panel.selected_changes.contains(&key) {
+                                                        panel.selected_changes.push(key);
+                                                    }
+                                                } else {
+                                                    panel
+                                                        .selected_changes
+                                                        .retain(|item| item != &key);
+                                                }
+                                                cx.notify();
+                                            });
+                                        }
+                                    })
+                            }
                         }))
                 }))
+                .child(
+                    div()
+                        .flex()
+                        .gap_2()
+                        .child(
+                            Button::new("stage-selected")
+                                .primary()
+                                .label("Stage")
+                                .disabled(!has_worktree_selection)
+                                .on_click(move |_, _, cx| {
+                                    let _ = stage_panel.update(cx, |panel, cx| {
+                                        panel.emit_file_action(ActionId::Stage, cx);
+                                    });
+                                }),
+                        )
+                        .child(
+                            Button::new("unstage-selected")
+                                .label("Unstage")
+                                .disabled(!has_index_selection)
+                                .on_click(move |_, _, cx| {
+                                    let _ = unstage_panel.update(cx, |panel, cx| {
+                                        panel.emit_file_action(ActionId::Unstage, cx);
+                                    });
+                                }),
+                        ),
+                )
                 .child(div().mt_2().font_semibold().child("Commit Message"))
                 .children(message.map(|message| Textarea::new(&message).h(px(96.0))))
                 .child(
@@ -595,7 +748,7 @@ impl Render for WorkbenchPanel {
                         .label("Amend")
                         .checked(amend)
                         .on_change(move |checked, _, cx| {
-                            let _ = panel.update(cx, |panel, cx| {
+                            let _ = amend_panel.update(cx, |panel, cx| {
                                 let Some(target) =
                                     panel.commit_model.as_ref().map(|model| model.target)
                                 else {
@@ -645,5 +798,34 @@ mod tests {
 
         let malformed = WorkbenchLayout::new("main", serde_json::json!({"not": "dock"}));
         assert_eq!(decode_layout(&malformed), None);
+    }
+
+    #[test]
+    fn stage_and_unstage_requests_keep_content_sources_separate() {
+        let target = git_domain::SessionTarget::worktree(
+            git_domain::RepositoryId::new(),
+            git_domain::WorktreeId::new(),
+            1,
+        );
+        let staged = git_domain::RepoPath::try_from("staged.txt").expect("valid path");
+        let unstaged = git_domain::RepoPath::try_from("unstaged.txt").expect("valid path");
+        let changes = ChangesTreeModel {
+            target: Some(target),
+            revision: Some(git_domain::SnapshotRevision::new(1)),
+            ..ChangesTreeModel::default()
+        };
+        let selection = vec![
+            (ChangeContentSource::Index, staged.clone()),
+            (ChangeContentSource::Worktree, unstaged.clone()),
+        ];
+
+        let stage = file_action_request(&changes, &selection, ActionId::Stage)
+            .expect("stage request should project");
+        let unstage = file_action_request(&changes, &selection, ActionId::Unstage)
+            .expect("unstage request should project");
+
+        assert_eq!(stage.context.selected_files, vec![unstaged]);
+        assert_eq!(unstage.context.selected_files, vec![staged]);
+        assert_eq!(stage.context.target, Some(target));
     }
 }

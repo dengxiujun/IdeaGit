@@ -427,6 +427,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - repository projection 刷新时从面板持有的 `CommitDraftStore` 重建 `CommitPanelViewModel`，并在实际窗口上下文同步输入控件；仓库切换不会复用其他 target 的消息。
 - 输入控件只修改 UI Draft，不直接执行 Git CLI；Stage/Commit 仍将通过统一 `ActionDispatcher` 接入后续切片。
 
+## M2 UI-007 Changes 选择与 Stage/Unstage（2026-11-07）
+
+- Commit Panel 的每个 Changes 条目新增受控选择框，选择身份同时保留 `ChangeContentSource` 与原始 `RepoPath`；Snapshot 刷新清理消失条目，target 切换清空旧选择。
+- Stage 只收集 Worktree 来源，Unstage 只收集 Index 来源，并由 Panel 发出 typed `ActionRequest`；Workbench 统一执行 `DefaultActionPolicy` 后交给生产 `ActionDispatcher`，GPUI 线程不运行 Git CLI。
+- 单元测试验证混合选择被正确拆分为 Stage/Unstage 请求；操作排队失败和终态继续复用 UI-006 的统一 Operation feedback。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。
