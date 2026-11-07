@@ -112,6 +112,21 @@ mod tests {
     async fn cherry_picks_a_real_commit() {
         let fixture = TestRepository::init().expect("fixture");
         fixture.commit_file("base.txt", b"base\n").expect("base");
+        let initial_branch = String::from_utf8_lossy(
+            &Command::new("git")
+                .args([
+                    "-C",
+                    fixture.worktree.to_str().expect("utf8"),
+                    "branch",
+                    "--show-current",
+                ])
+                .output()
+                .expect("git")
+                .stdout,
+        )
+        .trim()
+        .to_owned();
+        assert!(!initial_branch.is_empty());
         let git = |args: &[&str]| {
             let output = Command::new("git")
                 .args(["-C", fixture.worktree.to_str().expect("utf8")])
@@ -142,7 +157,7 @@ mod tests {
         )
         .trim()
         .to_owned();
-        git(&["switch", "main"]);
+        git(&["switch", &initial_branch]);
         let writer = GitCliSequencerWriter::new(
             crate::TokioProcessRunner,
             RepositoryLocation::worktree(
