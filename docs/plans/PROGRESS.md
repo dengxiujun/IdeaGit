@@ -255,4 +255,5 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 提交成功后重新读取 `HEAD` 与父提交，返回实际 OID/parents；Hook 或 Git 拒绝通过结构化错误返回，不伪造成功。
 - 真实 fixture 覆盖 staged 修改提交并验证返回一个父提交；完整 expected HEAD/Index preflight、Journal/锁装饰和写后 Snapshot reconcile 沿用 GIT-001 组合层。
 - 详细结果见 [GIT-002-VERIFICATION-001](../reviews/GIT-002-VERIFICATION-001.md)。
+- `git-operations` 新增 `PreflightCommitWriter`，在启动 CLI 前读取权威 HEAD/Index 并拒绝 expected revision 不匹配，避免覆盖外部提交或 Index 变化。
 - 详细结果见 [GIT-001-VERIFICATION-001](../reviews/GIT-001-VERIFICATION-001.md)。

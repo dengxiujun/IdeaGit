@@ -3,10 +3,12 @@
 //! CORE-010 supplies the bounded queue and lifecycle contract. It delegates the actual Git side
 //! effect to an injected executor; resource locks, journaling, and recovery are later tasks.
 
+mod commit;
 mod index;
 mod lock;
 mod recovery;
 
+pub use commit::{CommitPreflightState, CommitStateReader, PreflightCommitWriter};
 pub use index::{
     CoordinatedIndexWriter, JournaledIndexWriter, ReconciledIndexWriter, SnapshotRebuilder,
 };
