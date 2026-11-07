@@ -403,6 +403,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - GPUI 线程只安装 `ActionDispatcher` 并消费 operation snapshot，不直接运行 Git CLI；dispatcher 显式持有后台 Tokio runtime handle，窗口关闭后停止反馈转发且不会重复命令。
 - 真实仓库测试从 bridge 取得生产 dispatcher，通过 typed `ActionRequest::Stage` 完成 Lock → preflight → Journal → Git CLI → Reconcile，验证 Finished/Success、Staged UI model 与 Completed Journal。
 
+## M2 UI-006 Dispatcher 排队失败反馈（2026-11-07）
+
+- `DesktopActionDispatcher` 将后台 Coordinator 的队列饱和和二次命令校验失败转换为带 target/operation ID 的 `Finished/Failed` snapshot，不再只写日志并让 Workbench 永久停留在 Running。
+- QueueFull 映射为结构化 `OperationAlreadyInProgress`，无 operation state 与不可能的构造错误保留为 `Internal`，typed command 和目标身份随失败反馈返回。
+- 多线程 Tokio 测试用阻塞 executor 填满有界队列，验证第三个 Action 的异步拒绝稳定到达 UI feedback stream。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。

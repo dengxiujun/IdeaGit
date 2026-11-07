@@ -241,6 +241,7 @@ impl<E: OperationExecutor> DesktopActionDispatcher<E> {
 impl<E: OperationExecutor> ActionDispatcher for DesktopActionDispatcher<E> {
     fn dispatch(&self, request: ActionRequest) -> Result<(), String> {
         let command = to_git_command(&request)?;
+        let failed_command = command.clone();
         let coordinator = Arc::clone(&self.coordinator);
         let updates = self.updates.clone();
         self.runtime.spawn(async move {
@@ -248,11 +249,25 @@ impl<E: OperationExecutor> ActionDispatcher for DesktopActionDispatcher<E> {
                 Ok(id) => id,
                 Err(error) => {
                     tracing::error!(%error, "failed to queue desktop Git action");
+                    let _ = updates.send(queue_failure_snapshot(failed_command, error));
                     return;
                 }
             };
             let Some(mut snapshots) = coordinator.subscribe(id).await else {
                 tracing::error!(%id, "queued desktop Git action has no snapshot stream");
+                let error = git_domain::GitError::new(
+                    git_domain::GitErrorKind::Internal,
+                    "queued Git action has no operation state",
+                )
+                .with_target(failed_command.target())
+                .with_operation(id);
+                let _ = updates.send(OperationSnapshot {
+                    id,
+                    target: failed_command.target(),
+                    command: failed_command,
+                    phase: OperationPhase::Finished,
+                    outcome: Some(git_operations::OperationOutcome::Failed(error)),
+                });
                 return;
             };
             loop {
@@ -267,6 +282,36 @@ impl<E: OperationExecutor> ActionDispatcher for DesktopActionDispatcher<E> {
             }
         });
         Ok(())
+    }
+}
+
+fn queue_failure_snapshot(
+    command: git_domain::GitCommand,
+    error: git_operations::CoordinatorError,
+) -> OperationSnapshot {
+    let id = git_domain::OperationId::new();
+    let kind = match error {
+        git_operations::CoordinatorError::QueueFull => {
+            git_domain::GitErrorKind::OperationAlreadyInProgress
+        }
+        git_operations::CoordinatorError::InvalidCommand(_) => {
+            git_domain::GitErrorKind::StaleSelection
+        }
+        git_operations::CoordinatorError::ZeroCapacity
+        | git_operations::CoordinatorError::UnknownOperation(_) => {
+            git_domain::GitErrorKind::Internal
+        }
+    };
+    let target = command.target();
+    let error = git_domain::GitError::new(kind, error.to_string())
+        .with_target(target)
+        .with_operation(id);
+    OperationSnapshot {
+        id,
+        target,
+        command,
+        phase: OperationPhase::Finished,
+        outcome: Some(git_operations::OperationOutcome::Failed(error)),
     }
 }
 
@@ -726,6 +771,24 @@ mod tests {
         }
     }
 
+    struct BlockingExecutor {
+        started: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+    }
+
+    #[async_trait]
+    impl OperationExecutor for BlockingExecutor {
+        async fn execute(
+            &self,
+            _command: git_domain::GitCommand,
+            _context: ExecutionContext,
+        ) -> GitResult<()> {
+            self.started.notify_one();
+            self.release.notified().await;
+            Ok(())
+        }
+    }
+
     fn stage_request() -> ActionRequest {
         ActionRequest {
             action: ActionId::Stage,
@@ -790,6 +853,54 @@ mod tests {
             terminal.outcome,
             Some(git_operations::OperationOutcome::Success)
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn dispatcher_reports_bounded_queue_rejection_as_terminal_failure() {
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let coordinator = Arc::new(
+            OperationCoordinator::new(
+                BlockingExecutor {
+                    started: Arc::clone(&started),
+                    release: Arc::clone(&release),
+                },
+                1,
+            )
+            .expect("valid coordinator capacity"),
+        );
+        let (dispatcher, mut updates) =
+            DesktopActionDispatcher::new(coordinator, tokio::runtime::Handle::current());
+        dispatcher
+            .dispatch(stage_request())
+            .expect("first action should spawn submission");
+        tokio::time::timeout(Duration::from_secs(2), started.notified())
+            .await
+            .expect("first action should enter the executor");
+        dispatcher
+            .dispatch(stage_request())
+            .expect("second action should spawn submission");
+        dispatcher
+            .dispatch(stage_request())
+            .expect("third action should report asynchronously");
+
+        let rejected = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let snapshot = updates
+                    .recv()
+                    .await
+                    .expect("dispatcher update stream should remain live");
+                if let Some(git_operations::OperationOutcome::Failed(ref error)) = snapshot.outcome
+                    && error.kind == git_domain::GitErrorKind::OperationAlreadyInProgress
+                {
+                    break snapshot;
+                }
+            }
+        })
+        .await
+        .expect("queue rejection should reach the UI feedback stream");
+        assert_eq!(rejected.phase, OperationPhase::Finished);
+        release.notify_waiters();
     }
 
     #[tokio::test]
