@@ -2,7 +2,8 @@
 
 use git_application::{RefreshHealth, RefreshState, RepositorySessionView};
 use git_domain::{
-    ChangeKind, HeadState, RepoPath, RepositorySnapshot, SessionTarget, SnapshotRevision,
+    ChangeKind, GitCommand, HeadState, RepoPath, RepositorySnapshot, SessionTarget,
+    SnapshotRevision,
 };
 
 /// Immutable source selected by a read-only change-tree entry.
@@ -248,6 +249,28 @@ pub struct ActionRequest {
 /// Application-owned boundary for queuing a typed action.
 pub trait ActionDispatcher: Send + Sync {
     fn dispatch(&self, request: ActionRequest) -> Result<(), String>;
+}
+
+/// Converts the file-based first-slice actions into the shared Git command contract.
+pub fn to_git_command(request: &ActionRequest) -> Result<GitCommand, String> {
+    let target = request
+        .context
+        .target
+        .ok_or_else(|| "action target is missing".to_owned())?;
+    if request.context.selected_files.is_empty() {
+        return Err("action requires at least one selected file".to_owned());
+    }
+    match request.action {
+        ActionId::Stage => Ok(GitCommand::StageFiles {
+            target,
+            paths: request.context.selected_files.clone(),
+        }),
+        ActionId::Unstage => Ok(GitCommand::UnstageFiles {
+            target,
+            paths: request.context.selected_files.clone(),
+        }),
+        _ => Err("action requires a dedicated command builder".to_owned()),
+    }
 }
 
 /// Conservative default policy for the first write-action slice.
@@ -591,6 +614,27 @@ mod tests {
         assert!(matches!(
             policy.evaluate(ActionId::CheckoutBranch, &context),
             ActionAvailability::Disabled(_)
+        ));
+    }
+
+    #[test]
+    fn file_actions_convert_to_shared_git_commands() {
+        let target = SessionTarget::worktree(
+            git_domain::RepositoryId::new(),
+            git_domain::WorktreeId::new(),
+            1,
+        );
+        let request = ActionRequest {
+            action: ActionId::Stage,
+            context: ActionContext {
+                target: Some(target),
+                selected_files: vec![RepoPath::try_from("a.txt").expect("valid path")],
+                ..Default::default()
+            },
+        };
+        assert!(matches!(
+            to_git_command(&request),
+            Ok(GitCommand::StageFiles { target: actual, .. }) if actual == target
         ));
     }
 }
