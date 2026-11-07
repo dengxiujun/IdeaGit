@@ -238,6 +238,18 @@ pub trait ActionPolicy {
     fn evaluate(&self, action: ActionId, context: &ActionContext) -> ActionAvailability;
 }
 
+/// Validated intent handed from UI controls to the application composition root.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ActionRequest {
+    pub action: ActionId,
+    pub context: ActionContext,
+}
+
+/// Application-owned boundary for queuing a typed action.
+pub trait ActionDispatcher: Send + Sync {
+    fn dispatch(&self, request: ActionRequest) -> Result<(), String>;
+}
+
 /// Conservative default policy for the first write-action slice.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultActionPolicy;

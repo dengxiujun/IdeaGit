@@ -2,7 +2,10 @@
 
 use std::{sync::Arc, time::Duration};
 
-use git_ui_model::{ChangesTreeModel, RepositoryWorkbenchModel};
+use git_ui_model::{
+    ActionAvailability, ActionContext, ActionDispatcher, ActionId, ActionPolicy, ActionRequest,
+    ChangesTreeModel, RepositoryWorkbenchModel,
+};
 use git_workbench::{PanelKind, WorkbenchLayout};
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::dock::{
@@ -109,6 +112,32 @@ impl WorkbenchController {
             view.operation_feedback = Some(feedback);
             cx.notify();
         });
+    }
+
+    /// Validates and queues one UI action without executing Git on the UI thread.
+    pub fn dispatch_action(
+        &self,
+        action: ActionId,
+        context: ActionContext,
+        policy: &dyn ActionPolicy,
+        dispatcher: &dyn ActionDispatcher,
+        cx: &mut App,
+    ) -> Result<(), String> {
+        match policy.evaluate(action, &context) {
+            ActionAvailability::Enabled => {}
+            ActionAvailability::Disabled(reason) => {
+                self.set_operation_feedback(OperationFeedback::Failed(reason.clone()), cx);
+                return Err(reason);
+            }
+            ActionAvailability::Hidden => {
+                let reason = "此操作当前不可用".to_owned();
+                self.set_operation_feedback(OperationFeedback::Failed(reason.clone()), cx);
+                return Err(reason);
+            }
+        }
+        dispatcher.dispatch(ActionRequest { action, context })?;
+        self.set_operation_feedback(OperationFeedback::Running(format!("{action:?}")), cx);
+        Ok(())
     }
 }
 
