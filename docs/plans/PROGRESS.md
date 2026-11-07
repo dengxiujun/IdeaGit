@@ -397,6 +397,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Index 启动恢复的身份、schema 迁移、权威观测、分类、desktop fail-closed 门禁与真实重启/外部变化测试均闭环；详细证据更新至 `RECOVERY-000-VERIFICATION-001`。
 - Rust CI #61（Runner ID `42368138172`）已在 Windows Server 2022、macOS 15 与 Ubuntu 24.04 全部通过；`RECOVERY-000` 按 IP-001 §5.2.1 的 Commit/Index 最小启动恢复范围完成。
 
+## M2 UI-006 生产 Action Dispatcher 接入（2026-11-07）
+
+- desktop repository bridge 仅在启动恢复报告允许写入时构造完整 M2 executor、bounded `OperationCoordinator` 与 `DesktopActionDispatcher`，并把 dispatcher/operation stream 交给 GPUI Workbench；恢复阻断路径不发送写入口。
+- GPUI 线程只安装 `ActionDispatcher` 并消费 operation snapshot，不直接运行 Git CLI；dispatcher 显式持有后台 Tokio runtime handle，窗口关闭后停止反馈转发且不会重复命令。
+- 真实仓库测试从 bridge 取得生产 dispatcher，通过 typed `ActionRequest::Stage` 完成 Lock → preflight → Journal → Git CLI → Reconcile，验证 Finished/Success、Staged UI model 与 Completed Journal。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。

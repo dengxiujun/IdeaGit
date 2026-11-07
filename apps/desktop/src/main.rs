@@ -21,12 +21,15 @@ use std::{
 const SMOKE_DURATION_ENV: &str = "IDEAGIT_UI_SMOKE_DURATION_MS";
 const OPEN_REPOSITORY_ENV: &str = "IDEAGIT_OPEN_REPOSITORY";
 
-#[derive(Debug)]
 enum DesktopUiUpdate {
     Repository(git_ui_model::RepositoryWorkbenchModel),
     Log(git_domain::CommitPage),
     LogFailed(String),
     RecoveryBlocked(String),
+    WriteReady {
+        dispatcher: Arc<dyn ActionDispatcher>,
+        updates: tokio::sync::mpsc::UnboundedReceiver<OperationSnapshot>,
+    },
 }
 
 /// Composition-root adapter from the Git CLI probe to the Core commit preflight contract.
@@ -278,9 +281,19 @@ pub fn install_action_dispatcher<E: OperationExecutor>(
     controller: &idea_shell::WorkbenchController,
     cx: &mut gpui_kit::App,
 ) -> Arc<DesktopActionDispatcher<E>> {
-    let (dispatcher, mut updates) = DesktopActionDispatcher::new(coordinator, runtime);
+    let (dispatcher, updates) = DesktopActionDispatcher::new(coordinator, runtime);
     let dispatcher = Arc::new(dispatcher);
-    controller.set_action_dispatcher(dispatcher.clone());
+    install_prebuilt_action_dispatcher(dispatcher.clone(), updates, controller, cx);
+    dispatcher
+}
+
+fn install_prebuilt_action_dispatcher(
+    dispatcher: Arc<dyn ActionDispatcher>,
+    mut updates: tokio::sync::mpsc::UnboundedReceiver<OperationSnapshot>,
+    controller: &idea_shell::WorkbenchController,
+    cx: &mut gpui_kit::App,
+) {
+    controller.set_action_dispatcher(dispatcher);
     let operation_sink = controller.operation_sink();
     cx.spawn(async move |cx| {
         while let Some(snapshot) = updates.recv().await {
@@ -290,7 +303,6 @@ pub fn install_action_dispatcher<E: OperationExecutor>(
         }
     })
     .detach();
-    dispatcher
 }
 
 fn main() -> ExitCode {
@@ -373,6 +385,15 @@ fn main() -> ExitCode {
                                     cx,
                                 );
                             }
+                            DesktopUiUpdate::WriteReady {
+                                dispatcher,
+                                updates,
+                            } => install_prebuilt_action_dispatcher(
+                                dispatcher,
+                                updates,
+                                &controller,
+                                cx,
+                            ),
                         });
                     }
                 })
@@ -453,6 +474,7 @@ async fn run_repository_bridge(
         Ok(_) => None,
         Err(error) => Some(error),
     };
+    let write_enabled = recovery_block.is_none();
     if let Some(reason) = recovery_block
         && sender
             .send(DesktopUiUpdate::RecoveryBlocked(reason))
@@ -472,6 +494,39 @@ async fn run_repository_bridge(
     )
     .map_err(|error| error.to_string())?;
     let mut refresh = scheduler.subscribe();
+    if write_enabled {
+        let journal_path = journal_path
+            .clone()
+            .ok_or_else(|| "operation Journal path disappeared after recovery".to_owned())?;
+        let executor = build_m2_executor(
+            handle.target(),
+            location.clone(),
+            journal_path,
+            scheduler.rebuilder(),
+        )
+        .map_err(|error| error.to_string())?;
+        let coordinator = Arc::new(
+            OperationCoordinator::new(executor, 32)
+                .map_err(|error| format!("failed to start operation coordinator: {error}"))?,
+        );
+        let (dispatcher, updates) =
+            DesktopActionDispatcher::new(coordinator, tokio::runtime::Handle::current());
+        if sender
+            .send(DesktopUiUpdate::WriteReady {
+                dispatcher: Arc::new(dispatcher),
+                updates,
+            })
+            .is_err()
+        {
+            cancellation.cancel();
+            scheduler
+                .join()
+                .await
+                .map_err(|error| format!("repository refresh task failed: {error}"))?;
+            drop(handle);
+            return Ok(());
+        }
+    }
     let mut watcher = repository_watcher::RepositoryWatch::start(&location, 32)
         .map_err(|error| error.to_string())?;
     let history = git_cli::GitCliHistoryReader::new(git_cli::TokioProcessRunner, location);
@@ -974,6 +1029,129 @@ mod tests {
         assert!(blocked);
         assert!(ready);
 
+        drop(receiver);
+        tokio::time::timeout(Duration::from_secs(10), bridge)
+            .await
+            .expect("bridge should stop after UI receiver closes")
+            .expect("bridge task should not panic")
+            .expect("bridge should stop cleanly");
+    }
+
+    #[tokio::test]
+    async fn repository_bridge_dispatches_a_real_stage_only_after_recovery_is_ready() {
+        let repository =
+            git_fixture::TestRepository::init().expect("real Git fixture should initialize");
+        repository
+            .commit_file("base.txt", b"base\n")
+            .expect("base commit should succeed");
+        repository
+            .write_file("ui-stage.txt", b"stage through ActionDispatcher\n")
+            .expect("worktree file should be written");
+        let temporary = TempDir::new().expect("journal directory");
+        let journal_path = temporary.path().join("journal.json");
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let bridge = tokio::spawn(run_repository_bridge(
+            repository.worktree.clone(),
+            Some(journal_path.clone()),
+            sender,
+        ));
+
+        let (dispatcher, mut operation_updates, target) =
+            tokio::time::timeout(Duration::from_secs(10), async {
+                let mut dispatcher = None;
+                let mut operation_updates = None;
+                let mut target = None;
+                loop {
+                    match receiver.recv().await.expect("bridge should remain live") {
+                        DesktopUiUpdate::WriteReady {
+                            dispatcher: ready_dispatcher,
+                            updates,
+                        } => {
+                            dispatcher = Some(ready_dispatcher);
+                            operation_updates = Some(updates);
+                        }
+                        DesktopUiUpdate::Repository(model)
+                            if model.chrome.status.message == "Ready" =>
+                        {
+                            target = model.chrome.tabs.first().map(|tab| tab.target);
+                        }
+                        DesktopUiUpdate::RecoveryBlocked(reason) => {
+                            panic!("clean repository should not be recovery-blocked: {reason}")
+                        }
+                        _ => {}
+                    }
+                    match (dispatcher.take(), operation_updates.take(), target) {
+                        (Some(dispatcher), Some(updates), Some(target)) => {
+                            break (dispatcher, updates, target);
+                        }
+                        (pending_dispatcher, pending_updates, _) => {
+                            dispatcher = pending_dispatcher;
+                            operation_updates = pending_updates;
+                        }
+                    }
+                }
+            })
+            .await
+            .expect("write dispatcher and repository model should become ready");
+
+        dispatcher
+            .dispatch(ActionRequest {
+                action: ActionId::Stage,
+                context: ActionContext {
+                    target: Some(target),
+                    selected_files: vec![RepoPath::try_from("ui-stage.txt").expect("fixture path")],
+                    selected_commits: Vec::new(),
+                    selected_branch: None,
+                    active_panel: ActionPanel::Commit,
+                },
+                payload: ActionPayload::None,
+            })
+            .expect("Stage action should queue");
+        let terminal = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let snapshot = operation_updates
+                    .recv()
+                    .await
+                    .expect("operation stream should remain live");
+                if snapshot.phase == OperationPhase::Finished {
+                    break snapshot;
+                }
+            }
+        })
+        .await
+        .expect("Stage action should reach a terminal state");
+        assert_eq!(
+            terminal.outcome,
+            Some(git_operations::OperationOutcome::Success)
+        );
+
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let DesktopUiUpdate::Repository(model) =
+                    receiver.recv().await.expect("bridge should remain live")
+                    && model
+                        .changes
+                        .group(git_ui_model::ChangeGroup::Staged)
+                        .expect("staged group")
+                        .entries
+                        .iter()
+                        .any(|entry| entry.path.display_lossy() == "ui-stage.txt")
+                {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("reconciled staged state should reach the UI model");
+        let record = persistence::JsonJournalStore::new(journal_path)
+            .get(terminal.id)
+            .await
+            .expect("Journal should remain readable")
+            .expect("operation should be journaled");
+        assert_eq!(record.result, Some(git_domain::JournalResult::Completed));
+
+        drop(dispatcher);
+        drop(operation_updates);
         drop(receiver);
         tokio::time::timeout(Duration::from_secs(10), bridge)
             .await
