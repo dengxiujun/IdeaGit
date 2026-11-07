@@ -3,6 +3,8 @@
 //! UI-001 initializes GPUI-Kit and opens only the minimal shell window. Git services and the
 //! production workbench remain intentionally uninitialized until their tracked tasks.
 
+use git_operations::{OperationCoordinator, OperationExecutor};
+use git_ui_model::{ActionDispatcher, ActionRequest, to_git_command};
 use gpui_kit::QuitMode;
 use std::{
     env::VarError,
@@ -18,6 +20,33 @@ use std::{
 
 const SMOKE_DURATION_ENV: &str = "IDEAGIT_UI_SMOKE_DURATION_MS";
 const OPEN_REPOSITORY_ENV: &str = "IDEAGIT_OPEN_REPOSITORY";
+
+/// Composition-root dispatcher that queues typed UI actions without blocking GPUI.
+pub struct DesktopActionDispatcher<E: OperationExecutor> {
+    coordinator: Arc<OperationCoordinator<E>>,
+}
+
+impl<E: OperationExecutor> DesktopActionDispatcher<E> {
+    #[must_use]
+    pub fn new(coordinator: Arc<OperationCoordinator<E>>) -> Self {
+        Self { coordinator }
+    }
+}
+
+impl<E: OperationExecutor> ActionDispatcher for DesktopActionDispatcher<E> {
+    fn dispatch(&self, request: ActionRequest) -> Result<(), String> {
+        let command = to_git_command(&request)?;
+        let handle = tokio::runtime::Handle::try_current()
+            .map_err(|_| "Git runtime is unavailable".to_owned())?;
+        let coordinator = Arc::clone(&self.coordinator);
+        handle.spawn(async move {
+            if let Err(error) = coordinator.submit(command).await {
+                tracing::error!(%error, "failed to queue desktop Git action");
+            }
+        });
+        Ok(())
+    }
+}
 
 fn main() -> ExitCode {
     let smoke_duration = match smoke_duration_from_environment() {

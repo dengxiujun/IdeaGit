@@ -77,6 +77,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `git-operations::BranchOperationExecutor` 将 `GitCommand::Branch` 转换为 `BranchWriter::apply`，保留 Create/Checkout/Rename/Delete 的 typed `BranchCommand`。
 - 非 Branch 命令显式拒绝；实际 Refs 锁、Journal、Reconcile 仍由既有 writer 装饰器承担。
 
+## UI-006 Desktop Action Queue（2026-11-07）
+
+- desktop 新增 `DesktopActionDispatcher`：将 UI `ActionRequest` 转换为共享 `GitCommand`，通过 Tokio runtime 异步提交 `OperationCoordinator`，避免阻塞 GPUI 线程。
+- 当前 dispatcher 已覆盖 Stage/Unstage 文件动作；Commit/Branch 仍需在 UI 提供完整参数后接入对应 command builder，终态反馈订阅也待补齐。
+
 ## CORE-011 Resource Lock Manager（2026-11-07）
 
 - `git-operations` 新增 `ResourceKey`、`ResourceScope`、`ResourceKind` 与 RAII `ResourceLock`；CommonGitDir 只承载共享 Refs，Worktree 承载 Index/WorktreeFiles/Sequencer。

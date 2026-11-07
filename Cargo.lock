@@ -1255,6 +1255,7 @@ dependencies = [
  "git-fixture",
  "git-log-ui",
  "git-merge-ui",
+ "git-operations",
  "git-ports",
  "git-ui-model",
  "git-workbench",
