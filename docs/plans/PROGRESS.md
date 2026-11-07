@@ -488,6 +488,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `git-cli` 新增 typed `GitCliRemoteAdapter`：通过 `git config --null --get-regexp` 读取 remote URL，并通过无 Shell 的 `git fetch --no-prune` 执行 Fetch；Push 在该节点明确返回 `UnsupportedFeature`。
 - 真实 fixture 覆盖本地 bare remote 的 Remote Config 读取与 Fetch；Rust CI #72（Runner `42397556262`）三平台通过。
 
+## M3 REMOTE-003 Push writer（2026-11-08）
+
+- `GitCliRemoteAdapter` 已支持 typed `RemoteCommand::Push`，参数仅由已验证的 remote/branch `RefName` 生成，并保留 `--force-with-lease` 语义；失败映射为结构化 `NetworkFailure`，不泄露远端 stderr。
+- 真实 fixture 覆盖本地 bare remote 的正常 Push；Rust CI #73（Runner `42398537373`）三平台通过。
+- Push Preview、远端 OID 预期值和 outgoing CommitSummary 尚未宣称完成，作为 REMOTE-003 的后续小切片继续实现。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。
