@@ -82,6 +82,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - desktop 新增 `DesktopActionDispatcher`：将 UI `ActionRequest` 转换为共享 `GitCommand`，通过 Tokio runtime 异步提交 `OperationCoordinator`，避免阻塞 GPUI 线程。
 - 当前 dispatcher 已覆盖 Stage/Unstage 文件动作；Commit/Branch 仍需在 UI 提供完整参数后接入对应 command builder，终态反馈订阅也待补齐。
 
+## UI-006 Typed Commit/Branch Action Payloads（2026-11-07）
+
+- `ActionRequest` 新增 `ActionPayload`，支持携带 `StandardCommitRequest` 或 typed `BranchCommand`；统一转换器现在可生成 `CommitIndex` 与 `Branch` GitCommand。
+- 缺少 payload 时显式失败，不接受字符串命令；GPUI 控件和操作终态订阅仍待接入。
+
 ## CORE-011 Resource Lock Manager（2026-11-07）
 
 - `git-operations` 新增 `ResourceKey`、`ResourceScope`、`ResourceKind` 与 RAII `ResourceLock`；CommonGitDir 只承载共享 Refs，Worktree 承载 Index/WorktreeFiles/Sequencer。

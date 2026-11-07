@@ -149,7 +149,11 @@ impl WorkbenchController {
             .map_err(|_| "action dispatcher lock poisoned".to_owned())?
             .clone()
             .ok_or_else(|| "action dispatcher is not configured".to_owned())?;
-        dispatcher.dispatch(ActionRequest { action, context })?;
+        dispatcher.dispatch(ActionRequest {
+            action,
+            context,
+            payload: git_ui_model::ActionPayload::None,
+        })?;
         self.set_operation_feedback(OperationFeedback::Running(format!("{action:?}")), cx);
         Ok(())
     }

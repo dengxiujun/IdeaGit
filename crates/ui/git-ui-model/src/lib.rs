@@ -2,8 +2,8 @@
 
 use git_application::{RefreshHealth, RefreshState, RepositorySessionView};
 use git_domain::{
-    ChangeKind, GitCommand, HeadState, RepoPath, RepositorySnapshot, SessionTarget,
-    SnapshotRevision,
+    BranchCommand, ChangeKind, GitCommand, HeadState, RepoPath, RepositorySnapshot, SessionTarget,
+    SnapshotRevision, StandardCommitRequest,
 };
 
 /// Immutable source selected by a read-only change-tree entry.
@@ -244,6 +244,15 @@ pub trait ActionPolicy {
 pub struct ActionRequest {
     pub action: ActionId,
     pub context: ActionContext,
+    pub payload: ActionPayload,
+}
+
+/// Typed parameters required by actions whose intent cannot be inferred from selection alone.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ActionPayload {
+    None,
+    Commit(StandardCommitRequest),
+    Branch(BranchCommand),
 }
 
 /// Application-owned boundary for queuing a typed action.
@@ -290,7 +299,20 @@ pub fn to_git_command(request: &ActionRequest) -> Result<GitCommand, String> {
             target,
             paths: request.context.selected_files.clone(),
         }),
-        _ => Err("action requires a dedicated command builder".to_owned()),
+        ActionId::Commit => match &request.payload {
+            ActionPayload::Commit(commit) => Ok(GitCommand::CommitIndex {
+                target,
+                request: commit.clone(),
+            }),
+            _ => Err("commit action requires typed commit parameters".to_owned()),
+        },
+        ActionId::CreateBranch | ActionId::CheckoutBranch => match &request.payload {
+            ActionPayload::Branch(command) => Ok(GitCommand::Branch {
+                target,
+                command: command.clone(),
+            }),
+            _ => Err("branch action requires a typed branch command".to_owned()),
+        },
     }
 }
 
@@ -652,6 +674,7 @@ mod tests {
                 selected_files: vec![RepoPath::try_from("a.txt").expect("valid path")],
                 ..Default::default()
             },
+            payload: ActionPayload::None,
         };
         assert!(matches!(
             to_git_command(&request),
@@ -666,6 +689,7 @@ mod tests {
         let request = ActionRequest {
             action: ActionId::Stage,
             context: ActionContext::default(),
+            payload: ActionPayload::None,
         };
         assert!(dispatcher.dispatch(request.clone()).is_ok());
         assert_eq!(receiver.recv().expect("request should arrive"), request);
