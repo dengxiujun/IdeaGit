@@ -355,6 +355,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 每条记录返回原始 Journal 与 `NotExecuted`、`Committed`、`CommittedNeedsReconcile` 或 `Unknown`；检查器只读，不自动重试 Commit、不覆盖 Index。
 - 测试覆盖同一观测批量分类以及无 pending 记录时不访问仓库；后续仍需接入真实 Git reader 和 desktop 启动流程，才满足写入口开放条件。
 
+## M2 RECOVERY-000 真实状态读取适配器（2026-11-07）
+
+- `DesktopCommitStateReader` 同时实现 `RecoveryStateReader`，恢复检查与 Commit preflight 复用同一个 Git CLI HEAD/Index tree 探针，不复制进程调用或状态 DTO。
+- 恢复读取继承 `SessionTarget` 绑定校验，过期或跨仓库 session 在执行 Git 前拒绝；输出保留 unborn HEAD 与真实 Index tree OID。
+- 真实仓库测试验证 Commit preflight 与恢复读取获得同一权威状态，并保留 foreign session 失败路径。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。

@@ -72,6 +72,24 @@ impl<R: git_ports::ProcessRunner> git_operations::CommitStateReader
     }
 }
 
+#[async_trait::async_trait]
+impl<R: git_ports::ProcessRunner> git_operations::RecoveryStateReader
+    for DesktopCommitStateReader<R>
+{
+    async fn read(
+        &self,
+        target: git_domain::SessionTarget,
+        context: git_ports::ExecutionContext,
+    ) -> git_domain::GitResult<git_operations::RecoveryObservation> {
+        git_operations::CommitStateReader::read(self, target, context)
+            .await
+            .map(|state| git_operations::RecoveryObservation {
+                head: state.head,
+                index: state.index,
+            })
+    }
+}
+
 /// Complete M2 Index writer stack assembled by the desktop composition root.
 pub type DesktopIndexWriter = git_operations::ReconciledIndexWriter<
     git_operations::CoordinatedIndexWriter<
@@ -632,8 +650,6 @@ mod tests {
 
     #[tokio::test]
     async fn commit_state_reader_maps_probe_and_rejects_a_foreign_session() {
-        use git_operations::CommitStateReader as _;
-
         let repository =
             git_fixture::TestRepository::init().expect("real Git fixture should initialize");
         repository
@@ -652,33 +668,48 @@ mod tests {
             ),
         );
         let (progress, _receiver) = tokio::sync::mpsc::channel(4);
-        let state = reader
-            .read(
-                target,
-                ExecutionContext::new(
-                    git_domain::OperationId::new(),
-                    tokio_util::sync::CancellationToken::new(),
-                    progress,
-                ),
-            )
-            .await
-            .expect("matching session should be readable");
+        let state = git_operations::CommitStateReader::read(
+            &reader,
+            target,
+            ExecutionContext::new(
+                git_domain::OperationId::new(),
+                tokio_util::sync::CancellationToken::new(),
+                progress,
+            ),
+        )
+        .await
+        .expect("matching session should be readable");
         assert!(state.head.is_some());
         assert!(state.index.is_some());
 
+        let (progress, _receiver) = tokio::sync::mpsc::channel(4);
+        let recovery = git_operations::RecoveryStateReader::read(
+            &reader,
+            target,
+            ExecutionContext::new(
+                git_domain::OperationId::new(),
+                tokio_util::sync::CancellationToken::new(),
+                progress,
+            ),
+        )
+        .await
+        .expect("recovery state should reuse the same authoritative probe");
+        assert_eq!(recovery.head, state.head);
+        assert_eq!(recovery.index, state.index);
+
         let foreign = SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1);
         let (progress, _receiver) = tokio::sync::mpsc::channel(4);
-        let error = reader
-            .read(
-                foreign,
-                ExecutionContext::new(
-                    git_domain::OperationId::new(),
-                    tokio_util::sync::CancellationToken::new(),
-                    progress,
-                ),
-            )
-            .await
-            .expect_err("foreign session must be rejected before probing Git");
+        let error = git_operations::CommitStateReader::read(
+            &reader,
+            foreign,
+            ExecutionContext::new(
+                git_domain::OperationId::new(),
+                tokio_util::sync::CancellationToken::new(),
+                progress,
+            ),
+        )
+        .await
+        .expect_err("foreign session must be rejected before probing Git");
         assert_eq!(error.kind, git_domain::GitErrorKind::InvalidRepository);
         assert_eq!(error.target, Some(foreign));
     }
