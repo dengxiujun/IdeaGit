@@ -2,7 +2,7 @@
 
 - 日期：2026-11-07
 - 任务：CORE-009
-- 当前状态：本机专项通过；本提交三平台 CI 待执行。
+- 当前状态：本机专项与 Rust CI #22 三平台门禁均通过。
 
 ## 1. 范围与契约
 
@@ -35,9 +35,9 @@
 - `cargo check -p git-domain --locked`
 - `cargo clippy -p git-domain --all-targets --locked -- -D warnings`
 - `cargo test -p git-domain --locked`：23 个测试通过。
+- [Rust CI #22](https://github.com/dengxiujun/IdeaGit/actions/runs/42346763268) 的 Format、locked check、Clippy、Workspace tests 已在 Windows Server 2022、macOS 15 与 Ubuntu 24.04 全部通过。
 - 测试覆盖单目标提取、跨会话选择拒绝、空消息/空选择拒绝；未触碰真实用户仓库。
 
 ## 4. 遗留风险
 
-- 本提交尚未执行 Workspace 全量门禁和三平台 Runner；推送后需按 2 分钟间隔检查。
 - 命令类型尚未被 Operation Coordinator 消费；在 CORE-010 完成前不能声称 Stage/Commit 已可执行。
