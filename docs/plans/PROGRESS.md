@@ -92,6 +92,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `WorkbenchController::set_operation_snapshot` 将 `OperationCoordinator` 的 Running、Success、Failed、Cancelled、RecoveryRequired 映射为统一中文 UI feedback；Finished 无结果也按失败处理，不伪造成功。
 - 该映射只更新 UI 状态，不改变 Git 仓库；desktop 仍需订阅 coordinator 的 latest-only snapshot 并回送窗口实体。
 
+## M2 UI-0008 Coordinator 终态订阅（2026-11-07）
+
+- `DesktopActionDispatcher` 在成功提交 command 后订阅对应 `OperationId` 的 latest-only snapshot，并通过无界 UI 更新通道转发 Queued 至 Finished 的真实状态。
+- 订阅在 Finished、接收端关闭或 coordinator stream 关闭时终止，不重复执行 Git 命令；下一小节点将把 receiver 回送 `WorkbenchController::set_operation_snapshot`。
+
 ## CORE-011 Resource Lock Manager（2026-11-07）
 
 - `git-operations` 新增 `ResourceKey`、`ResourceScope`、`ResourceKind` 与 RAII `ResourceLock`；CommonGitDir 只承载共享 Refs，Worktree 承载 Index/WorktreeFiles/Sequencer。

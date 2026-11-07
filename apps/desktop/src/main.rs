@@ -3,7 +3,7 @@
 //! UI-001 initializes GPUI-Kit and opens only the minimal shell window. Git services and the
 //! production workbench remain intentionally uninitialized until their tracked tasks.
 
-use git_operations::{OperationCoordinator, OperationExecutor};
+use git_operations::{OperationCoordinator, OperationExecutor, OperationPhase, OperationSnapshot};
 use git_ui_model::{ActionDispatcher, ActionRequest, to_git_command};
 use gpui_kit::QuitMode;
 use std::{
@@ -24,12 +24,25 @@ const OPEN_REPOSITORY_ENV: &str = "IDEAGIT_OPEN_REPOSITORY";
 /// Composition-root dispatcher that queues typed UI actions without blocking GPUI.
 pub struct DesktopActionDispatcher<E: OperationExecutor> {
     coordinator: Arc<OperationCoordinator<E>>,
+    updates: tokio::sync::mpsc::UnboundedSender<OperationSnapshot>,
 }
 
 impl<E: OperationExecutor> DesktopActionDispatcher<E> {
     #[must_use]
-    pub fn new(coordinator: Arc<OperationCoordinator<E>>) -> Self {
-        Self { coordinator }
+    pub fn new(
+        coordinator: Arc<OperationCoordinator<E>>,
+    ) -> (
+        Self,
+        tokio::sync::mpsc::UnboundedReceiver<OperationSnapshot>,
+    ) {
+        let (updates, receiver) = tokio::sync::mpsc::unbounded_channel();
+        (
+            Self {
+                coordinator,
+                updates,
+            },
+            receiver,
+        )
     }
 }
 
@@ -39,9 +52,28 @@ impl<E: OperationExecutor> ActionDispatcher for DesktopActionDispatcher<E> {
         let handle = tokio::runtime::Handle::try_current()
             .map_err(|_| "Git runtime is unavailable".to_owned())?;
         let coordinator = Arc::clone(&self.coordinator);
+        let updates = self.updates.clone();
         handle.spawn(async move {
-            if let Err(error) = coordinator.submit(command).await {
-                tracing::error!(%error, "failed to queue desktop Git action");
+            let id = match coordinator.submit(command).await {
+                Ok(id) => id,
+                Err(error) => {
+                    tracing::error!(%error, "failed to queue desktop Git action");
+                    return;
+                }
+            };
+            let Some(mut snapshots) = coordinator.subscribe(id).await else {
+                tracing::error!(%id, "queued desktop Git action has no snapshot stream");
+                return;
+            };
+            loop {
+                let snapshot = snapshots.borrow().clone();
+                let finished = snapshot.phase == OperationPhase::Finished;
+                if updates.send(snapshot).is_err() || finished {
+                    break;
+                }
+                if snapshots.changed().await.is_err() {
+                    break;
+                }
             }
         });
         Ok(())
