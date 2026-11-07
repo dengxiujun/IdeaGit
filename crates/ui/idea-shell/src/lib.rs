@@ -3,6 +3,7 @@
 use std::sync::Mutex;
 use std::{sync::Arc, time::Duration};
 
+use git_operations::{OperationOutcome, OperationPhase, OperationSnapshot};
 use git_ui_model::{
     ActionAvailability, ActionContext, ActionDispatcher, ActionId, ActionPolicy, ActionRequest,
     ChangesTreeModel, RepositoryWorkbenchModel,
@@ -121,6 +122,27 @@ impl WorkbenchController {
             view.operation_feedback = Some(feedback);
             cx.notify();
         });
+    }
+
+    /// Publishes the latest coordinator snapshot as UI-safe progress or terminal feedback.
+    pub fn set_operation_snapshot(&self, snapshot: &OperationSnapshot, cx: &mut App) {
+        let feedback = match snapshot.outcome.as_ref() {
+            Some(OperationOutcome::Success) => {
+                OperationFeedback::Succeeded("Git 操作完成".to_owned())
+            }
+            Some(OperationOutcome::Failed(error)) => OperationFeedback::Failed(error.to_string()),
+            Some(OperationOutcome::Cancelled(_)) => {
+                OperationFeedback::Failed("Git 操作已取消，仓库状态需重新读取".to_owned())
+            }
+            Some(OperationOutcome::RecoveryRequired(error)) => {
+                OperationFeedback::Failed(format!("需要恢复：{error}"))
+            }
+            None if snapshot.phase == OperationPhase::Finished => {
+                OperationFeedback::Failed("Git 操作结束但没有终态结果".to_owned())
+            }
+            None => OperationFeedback::Running(format!("Git 操作：{:?}", snapshot.phase)),
+        };
+        self.set_operation_feedback(feedback, cx);
     }
 
     /// Validates and queues one UI action without executing Git on the UI thread.

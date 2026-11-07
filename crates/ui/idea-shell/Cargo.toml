@@ -9,6 +9,7 @@ gpui-kit.workspace = true
 git-workbench.workspace = true
 git-log-ui.workspace = true
 git-domain.workspace = true
+git-operations.workspace = true
 idea-theme.workspace = true
 idea-ui-primitives.workspace = true
 git-ui-model.workspace = true

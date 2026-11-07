@@ -3299,6 +3299,7 @@ version = "0.1.0"
 dependencies = [
  "git-domain",
  "git-log-ui",
+ "git-operations",
  "git-ui-model",
  "git-workbench",
  "gpui-kit",

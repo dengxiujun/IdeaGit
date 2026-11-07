@@ -87,6 +87,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `ActionRequest` 新增 `ActionPayload`，支持携带 `StandardCommitRequest` 或 typed `BranchCommand`；统一转换器现在可生成 `CommitIndex` 与 `Branch` GitCommand。
 - 缺少 payload 时显式失败，不接受字符串命令；GPUI 控件和操作终态订阅仍待接入。
 
+## UI-006 Operation Feedback Mapping（2026-11-07）
+
+- `WorkbenchController::set_operation_snapshot` 将 `OperationCoordinator` 的 Running、Success、Failed、Cancelled、RecoveryRequired 映射为统一中文 UI feedback；Finished 无结果也按失败处理，不伪造成功。
+- 该映射只更新 UI 状态，不改变 Git 仓库；desktop 仍需订阅 coordinator 的 latest-only snapshot 并回送窗口实体。
+
 ## CORE-011 Resource Lock Manager（2026-11-07）
 
 - `git-operations` 新增 `ResourceKey`、`ResourceScope`、`ResourceKind` 与 RAII `ResourceLock`；CommonGitDir 只承载共享 Refs，Worktree 承载 Index/WorktreeFiles/Sequencer。
