@@ -26,7 +26,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use git_domain::{GitCommand, GitError, GitErrorKind, GitResult, OperationId, SessionTarget};
-use git_ports::{ExecutionContext, IndexMutation, IndexWriter, ProcessProgress};
+use git_ports::{CommitWriter, ExecutionContext, IndexMutation, IndexWriter, ProcessProgress};
 use thiserror::Error;
 use tokio::sync::{Mutex, mpsc, watch};
 use tokio_util::sync::CancellationToken;
@@ -114,6 +114,38 @@ impl<W: IndexWriter + Send + Sync + 'static> OperationExecutor for IndexOperatio
             }
         };
         self.writer.apply(mutation, context).await
+    }
+}
+
+/// Bridges standard Index commits to the coordinated Commit writer stack.
+#[derive(Debug)]
+pub struct CommitOperationExecutor<W> {
+    writer: W,
+}
+
+impl<W> CommitOperationExecutor<W> {
+    #[must_use]
+    pub fn new(writer: W) -> Self {
+        Self { writer }
+    }
+}
+
+#[async_trait]
+impl<W: CommitWriter + Send + Sync + 'static> OperationExecutor for CommitOperationExecutor<W> {
+    async fn execute(&self, command: GitCommand, context: ExecutionContext) -> GitResult<()> {
+        let (target, request) = match command {
+            GitCommand::CommitIndex { target, request } => (target, request),
+            other => {
+                return Err(GitError::new(
+                    GitErrorKind::UnsupportedFeature,
+                    format!("commit executor does not support {other:?}"),
+                ));
+            }
+        };
+        self.writer
+            .commit(target, request, context)
+            .await
+            .map(|_| ())
     }
 }
 
@@ -301,7 +333,10 @@ pub enum CoordinatorError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use git_domain::{RepoPath, RepositoryId, SessionTarget, WorktreeId};
+    use git_domain::{
+        CommitOptions, RepoPath, RepositoryId, SessionTarget, SigningMode, SnapshotRevision,
+        StandardCommitRequest, WorktreeId,
+    };
     use git_ports::IndexMutation;
     use std::sync::Arc;
     use tokio::sync::Notify;
@@ -322,6 +357,27 @@ mod tests {
                 .expect("test mutex should not poison")
                 .push(mutation);
             Ok(())
+        }
+    }
+
+    struct RecordingCommitWriter {
+        seen: Arc<std::sync::Mutex<usize>>,
+    }
+
+    #[async_trait]
+    impl CommitWriter for RecordingCommitWriter {
+        async fn commit(
+            &self,
+            _target: SessionTarget,
+            _request: StandardCommitRequest,
+            _context: ExecutionContext,
+        ) -> GitResult<git_ports::CommitOutcome> {
+            *self.seen.lock().expect("test mutex should not poison") += 1;
+            Ok(git_ports::CommitOutcome {
+                commit: git_domain::ObjectId::from_bytes(git_domain::ObjectFormat::Sha1, &[2; 20])
+                    .expect("test OID should be valid"),
+                parents: Vec::new(),
+            })
         }
     }
 
@@ -470,5 +526,38 @@ mod tests {
             .await
             .expect_err("unsupported command should fail");
         assert_eq!(error.kind, GitErrorKind::UnsupportedFeature);
+    }
+
+    #[tokio::test]
+    async fn commit_executor_maps_standard_commit() {
+        let seen = Arc::new(std::sync::Mutex::new(0));
+        let executor = CommitOperationExecutor::new(RecordingCommitWriter {
+            seen: Arc::clone(&seen),
+        });
+        let (progress, _) = mpsc::channel(2);
+        executor
+            .execute(
+                GitCommand::CommitIndex {
+                    target: target(),
+                    request: StandardCommitRequest {
+                        options: CommitOptions {
+                            message: b"message".to_vec(),
+                            amend: false,
+                            allow_empty: false,
+                            signoff: false,
+                            author: None,
+                            committer: None,
+                            signing: SigningMode::UseGitConfig,
+                        },
+                        expected_revision: SnapshotRevision::new(1),
+                        expected_head: None,
+                        expected_index: None,
+                    },
+                },
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect("commit should map");
+        assert_eq!(*seen.lock().expect("test mutex should not poison"), 1);
     }
 }
