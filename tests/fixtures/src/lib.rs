@@ -158,6 +158,31 @@ impl TestRepository {
         self.commit_file_with_message(path, data, "fixture commit")
     }
 
+    /// Configures an explicit repository-local identity for production Git commands.
+    ///
+    /// Fixture setup commands use an isolated global config, but application code under test
+    /// intentionally receives only the discovered repository location. A local identity keeps
+    /// those production commands deterministic across CI runners without changing the caller's
+    /// global Git configuration.
+    pub fn configure_local_identity(&self) -> Result<(), TestError> {
+        for (key, value) in [
+            ("user.name", "IdeaGit Fixture"),
+            ("user.email", "fixture@ideagit.invalid"),
+        ] {
+            self.run_git_at(
+                &self.worktree,
+                "configure repository-local Git identity",
+                vec![
+                    OsString::from("config"),
+                    OsString::from("--local"),
+                    OsString::from(key),
+                    OsString::from(value),
+                ],
+            )?;
+        }
+        Ok(())
+    }
+
     /// Writes a fixture-owned worktree file without staging it.
     pub fn write_file(&self, path: &str, data: &[u8]) -> Result<(), TestError> {
         self.write_file_at(&self.worktree, path, data)

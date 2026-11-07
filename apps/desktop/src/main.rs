@@ -1215,6 +1215,9 @@ mod tests {
         let repository =
             git_fixture::TestRepository::init().expect("real Git fixture should initialize");
         repository
+            .configure_local_identity()
+            .expect("production bridge Git identity should be configured");
+        repository
             .commit_file("base.txt", b"base\n")
             .expect("base commit should succeed");
         repository
