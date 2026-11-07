@@ -206,7 +206,7 @@ pub fn build_m2_executor(
         rebuilder,
     );
     Ok(git_operations::M2OperationExecutor::new(
-        index, commit, branch,
+        target, index, commit, branch,
     ))
 }
 

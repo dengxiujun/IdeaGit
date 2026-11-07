@@ -409,6 +409,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - QueueFull 映射为结构化 `OperationAlreadyInProgress`，无 operation state 与不可能的构造错误保留为 `Internal`，typed command 和目标身份随失败反馈返回。
 - 多线程 Tokio 测试用阻塞 executor 填满有界队列，验证第三个 Action 的异步拒绝稳定到达 UI feedback stream。
 
+## M2 UI-006 执行前 Session 重校验（2026-11-07）
+
+- `M2OperationExecutor` 绑定 composition root 打开的唯一 `SessionTarget`，每条 Stage/Unstage/Commit/Branch command 在任何 writer、锁、Journal 或 Git CLI 前重新比较 target。
+- 菜单打开后切换仓库、关闭重开产生新 generation、或跨仓库复用旧 ActionContext 均以结构化 `StaleSelection` 终止，并保留旧 target 与 operation ID 供 UI 诊断。
+- 单元测试注入三个 recording writer，证明 stale Stage 被拒绝时 Index/Commit/Branch writer 调用数均为零。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。

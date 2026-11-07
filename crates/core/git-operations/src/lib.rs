@@ -98,6 +98,7 @@ pub trait OperationExecutor: Send + Sync + 'static {
 /// lock, Journal, preflight, and reconciliation decorators before constructing this executor.
 #[derive(Debug)]
 pub struct M2OperationExecutor<I, C, B> {
+    target: SessionTarget,
     index: I,
     commit: C,
     branch: B,
@@ -105,8 +106,9 @@ pub struct M2OperationExecutor<I, C, B> {
 
 impl<I, C, B> M2OperationExecutor<I, C, B> {
     #[must_use]
-    pub fn new(index: I, commit: C, branch: B) -> Self {
+    pub fn new(target: SessionTarget, index: I, commit: C, branch: B) -> Self {
         Self {
+            target,
             index,
             commit,
             branch,
@@ -122,6 +124,14 @@ where
     B: BranchWriter + Send + Sync + 'static,
 {
     async fn execute(&self, command: GitCommand, context: ExecutionContext) -> GitResult<()> {
+        if command.target() != self.target {
+            return Err(GitError::new(
+                GitErrorKind::StaleSelection,
+                "Git action target is no longer the active repository session",
+            )
+            .with_target(command.target())
+            .with_operation(context.operation_id));
+        }
         match command {
             GitCommand::StageFiles { target, paths } => {
                 self.index
@@ -716,7 +726,9 @@ mod tests {
         let index_seen = Arc::new(std::sync::Mutex::new(Vec::new()));
         let commit_seen = Arc::new(std::sync::Mutex::new(0));
         let branch_seen = Arc::new(std::sync::Mutex::new(0));
+        let target = target();
         let executor = M2OperationExecutor::new(
+            target,
             RecordingIndexWriter {
                 seen: Arc::clone(&index_seen),
             },
@@ -727,7 +739,6 @@ mod tests {
                 seen: Arc::clone(&branch_seen),
             },
         );
-        let target = target();
         let path = RepoPath::try_from("file.txt").expect("valid path");
 
         executor
@@ -806,6 +817,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn m2_executor_rejects_stale_session_before_any_writer_runs() {
+        let index_seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let commit_seen = Arc::new(std::sync::Mutex::new(0));
+        let branch_seen = Arc::new(std::sync::Mutex::new(0));
+        let bound_target = target();
+        let stale_target = target();
+        let executor = M2OperationExecutor::new(
+            bound_target,
+            RecordingIndexWriter {
+                seen: Arc::clone(&index_seen),
+            },
+            RecordingCommitWriter {
+                seen: Arc::clone(&commit_seen),
+            },
+            RecordingBranchWriter {
+                seen: Arc::clone(&branch_seen),
+            },
+        );
+        let operation_id = OperationId::new();
+        let (progress, _receiver) = mpsc::channel(4);
+        let error = executor
+            .execute(
+                GitCommand::StageFiles {
+                    target: stale_target,
+                    paths: vec![RepoPath::try_from("file.txt").expect("valid path")],
+                },
+                ExecutionContext::new(operation_id, CancellationToken::new(), progress),
+            )
+            .await
+            .expect_err("stale target must be rejected");
+        assert_eq!(error.kind, GitErrorKind::StaleSelection);
+        assert_eq!(error.target, Some(stale_target));
+        assert_eq!(error.operation_id, Some(operation_id));
+        assert!(
+            index_seen
+                .lock()
+                .expect("test mutex should not poison")
+                .is_empty()
+        );
+        assert_eq!(
+            *commit_seen.lock().expect("test mutex should not poison"),
+            0
+        );
+        assert_eq!(
+            *branch_seen.lock().expect("test mutex should not poison"),
+            0
+        );
+    }
+
+    #[tokio::test]
     async fn m2_reconciled_writers_never_report_success_when_rebuild_fails() {
         let index_seen = Arc::new(std::sync::Mutex::new(Vec::new()));
         let commit_seen = Arc::new(std::sync::Mutex::new(0));
@@ -814,7 +875,9 @@ mod tests {
         let rebuilder = FailingRebuilder {
             calls: Arc::clone(&rebuilds),
         };
+        let target = target();
         let executor = M2OperationExecutor::new(
+            target,
             ReconciledIndexWriter::new(
                 RecordingIndexWriter {
                     seen: Arc::clone(&index_seen),
@@ -834,8 +897,6 @@ mod tests {
                 rebuilder,
             ),
         );
-        let target = target();
-
         let index_error = executor
             .execute(
                 GitCommand::StageFiles {
