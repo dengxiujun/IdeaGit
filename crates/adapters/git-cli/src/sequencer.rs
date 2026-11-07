@@ -77,6 +77,7 @@ impl sealed::Sealed for SequencerMutation {
             SequencerCommand::CherryPick { commit } => {
                 args.extend([
                     OsString::from("cherry-pick"),
+                    OsString::from("--no-edit"),
                     OsString::from(commit.to_string()),
                 ]);
             }
