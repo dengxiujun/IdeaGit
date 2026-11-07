@@ -125,6 +125,11 @@ impl GitCliInvocation {
         self.environment = environment.into_iter().collect();
         self
     }
+
+    pub(crate) fn with_stdin(mut self, stdin: ProcessStdin) -> Self {
+        self.stdin = stdin;
+        self
+    }
 }
 
 pub(crate) mod sealed {

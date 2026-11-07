@@ -248,4 +248,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `git-operations` 新增 `CoordinatedIndexWriter`，在调用适配器前按 Worktree 获取 `ResourceKind::Index`，并把取消传递到锁等待；不持有锁时不会预占 Git 的 `.git/index.lock`。
 - `JournaledIndexWriter` 在执行前追加 Intent 记录，成功写入 Completed，失败/取消写入 RecoveryRequired；新增持久记录终态测试。
 - `ReconciledIndexWriter` 要求写入成功后调用 `SnapshotRebuilder` 重新读取并返回权威 `RepositorySnapshot`，避免把 Index 写成功误报为 UI 已同步。
+
+## GIT-002 Standard Commit（2026-11-07）
+
+- `git-ports` 新增 `CommitWriter` / `CommitOutcome`；CLI 适配器使用 typed `git commit --file=-`，消息通过 stdin 传递，支持 amend、allow-empty、signoff 和签名模式。
+- 提交成功后重新读取 `HEAD` 与父提交，返回实际 OID/parents；Hook 或 Git 拒绝通过结构化错误返回，不伪造成功。
+- 真实 fixture 覆盖 staged 修改提交并验证返回一个父提交；完整 expected HEAD/Index preflight、Journal/锁装饰和写后 Snapshot reconcile 沿用 GIT-001 组合层。
+- 详细结果见 [GIT-002-VERIFICATION-001](../reviews/GIT-002-VERIFICATION-001.md)。
 - 详细结果见 [GIT-001-VERIFICATION-001](../reviews/GIT-001-VERIFICATION-001.md)。
