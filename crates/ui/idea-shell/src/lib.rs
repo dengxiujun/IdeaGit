@@ -156,6 +156,46 @@ impl WorkbenchController {
     /// Publishes the latest coordinator snapshot as UI-safe progress or terminal feedback.
     pub fn set_operation_snapshot(&self, snapshot: &OperationSnapshot, cx: &mut App) {
         self.set_operation_feedback(operation_feedback(snapshot), cx);
+        let is_commit = matches!(
+            &snapshot.command,
+            git_domain::GitCommand::CommitIndex { .. }
+        );
+        if is_commit {
+            let snapshot = snapshot.clone();
+            self.view.update(cx, |view, cx| {
+                view.commit_panel.update(cx, |panel, cx| {
+                    if panel
+                        .commit_model
+                        .as_ref()
+                        .is_some_and(|model| model.target == snapshot.target)
+                    {
+                        let submission = if snapshot.phase != OperationPhase::Finished {
+                            git_ui_model::CommitSubmissionState::Running(snapshot.id)
+                        } else {
+                            match snapshot.outcome {
+                                Some(OperationOutcome::Failed(error))
+                                | Some(OperationOutcome::RecoveryRequired(error)) => {
+                                    git_ui_model::CommitSubmissionState::NoCommit(error.to_string())
+                                }
+                                Some(OperationOutcome::Cancelled(_)) => {
+                                    git_ui_model::CommitSubmissionState::NoCommit(
+                                        "提交已取消，草稿已保留".to_owned(),
+                                    )
+                                }
+                                Some(OperationOutcome::Success) | None => {
+                                    git_ui_model::CommitSubmissionState::Idle
+                                }
+                            }
+                        };
+                        if let Some(model) = panel.commit_model.as_mut() {
+                            model.submission = submission;
+                        }
+                    }
+                    cx.notify();
+                });
+                cx.notify();
+            });
+        }
     }
 
     /// Creates a weak feedback target for a desktop-owned asynchronous subscription.

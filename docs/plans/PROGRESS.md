@@ -439,6 +439,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit 按钮仅在消息、staged 文件和权威 revision/HEAD/Index 齐备时发出 typed `StandardCommitRequest`，保留 Amend 与预期状态，随后由统一 dispatcher 排队并由 Operation feedback 展示终态。
 - 测试覆盖 Commit payload 的 revision、HEAD、Index 与消息传递；未以 Snapshot 猜测 Index 身份，也未绕过 preflight。
 
+## M2 UI-007 提交进度与失败反馈（2026-11-07）
+
+- Workbench 收到 Commit operation snapshot 后更新 `CommitSubmissionState`：排队/锁等待/执行阶段显示 Running，失败、恢复要求和取消映射为 NoCommit/Indeterminate，并保留原 Draft 消息。
+- 成功终态不伪造 commit OID；Operation overlay 展示真实成功结果，面板等待下一次权威 refresh，避免把缺少 OID 的快照误报为具体提交身份。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。
