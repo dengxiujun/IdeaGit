@@ -7,7 +7,7 @@ use git_domain::{
 };
 use git_ports::{ExecutionContext, IndexMutation, IndexWriter, JournalStore};
 
-use crate::{ResourceKey, ResourceKind, ResourceLockManager, ResourceScope};
+use crate::{RecoveryStateReader, ResourceKey, ResourceKind, ResourceLockManager, ResourceScope};
 
 /// Index writer decorator that acquires the concrete Worktree Index lock first.
 #[derive(Debug)]
@@ -65,25 +65,29 @@ impl<W: IndexWriter, R: SnapshotRebuilder> IndexWriter for ReconciledIndexWriter
 
 /// Journal decorator that records Index intent before execution and terminal outcome afterwards.
 #[derive(Debug)]
-pub struct JournaledIndexWriter<W, J> {
+pub struct JournaledIndexWriter<W, J, R> {
     inner: W,
     journal: J,
     recovery_scope: RecoveryScope,
+    state_reader: R,
 }
 
-impl<W, J> JournaledIndexWriter<W, J> {
+impl<W, J, R> JournaledIndexWriter<W, J, R> {
     #[must_use]
-    pub fn new(inner: W, journal: J, recovery_scope: RecoveryScope) -> Self {
+    pub fn new(inner: W, journal: J, recovery_scope: RecoveryScope, state_reader: R) -> Self {
         Self {
             inner,
             journal,
             recovery_scope,
+            state_reader,
         }
     }
 }
 
 #[async_trait]
-impl<W: IndexWriter, J: JournalStore> IndexWriter for JournaledIndexWriter<W, J> {
+impl<W: IndexWriter, J: JournalStore, R: RecoveryStateReader> IndexWriter
+    for JournaledIndexWriter<W, J, R>
+{
     #[allow(clippy::result_large_err)]
     async fn apply(&self, mutation: IndexMutation, context: ExecutionContext) -> GitResult<()> {
         mutation
@@ -101,6 +105,12 @@ impl<W: IndexWriter, J: JournalStore> IndexWriter for JournaledIndexWriter<W, J>
         };
         let mut record =
             JournalRecord::intent(context.operation_id, command, self.recovery_scope.clone());
+        let state = self
+            .state_reader
+            .read(mutation.target(), context.clone())
+            .await?;
+        record.expected_head = state.head;
+        record.expected_index = state.index;
         self.journal.append(record.clone()).await?;
         let result = self.inner.apply(mutation, context).await;
         record.phase = if result.is_ok() {
@@ -188,6 +198,22 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
+    struct FixedStateReader {
+        state: crate::RecoveryObservation,
+    }
+
+    #[async_trait]
+    impl RecoveryStateReader for FixedStateReader {
+        async fn read(
+            &self,
+            _target: SessionTarget,
+            _context: ExecutionContext,
+        ) -> GitResult<crate::RecoveryObservation> {
+            Ok(self.state.clone())
+        }
+    }
+
     fn context() -> ExecutionContext {
         let (progress, _receiver) = mpsc::channel(1);
         ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress)
@@ -200,7 +226,23 @@ mod tests {
             RecoveryPath::unix(b"/repo/.git".to_vec()).expect("scope path"),
             RecoveryPath::unix(b"/repo/.git".to_vec()).expect("scope path"),
         );
-        let writer = JournaledIndexWriter::new(SuccessWriter, journal.clone(), scope.clone());
+        let expected_head =
+            git_domain::ObjectId::from_bytes(git_domain::ObjectFormat::Sha1, &[1; 20])
+                .expect("head OID");
+        let expected_index =
+            git_domain::ObjectId::from_bytes(git_domain::ObjectFormat::Sha1, &[2; 20])
+                .expect("Index OID");
+        let writer = JournaledIndexWriter::new(
+            SuccessWriter,
+            journal.clone(),
+            scope.clone(),
+            FixedStateReader {
+                state: crate::RecoveryObservation {
+                    head: Some(expected_head),
+                    index: Some(expected_index),
+                },
+            },
+        );
         let target = SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1);
         writer
             .apply(
@@ -217,6 +259,8 @@ mod tests {
         assert_eq!(records[0].phase, JournalPhase::Completed);
         assert_eq!(records[0].result, Some(JournalResult::Completed));
         assert_eq!(records[0].recovery_scope, Some(scope));
+        assert_eq!(records[0].expected_head, Some(expected_head));
+        assert_eq!(records[0].expected_index, Some(expected_index));
     }
 }
 

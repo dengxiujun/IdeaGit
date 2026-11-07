@@ -97,6 +97,7 @@ pub type DesktopIndexWriter = git_operations::ReconciledIndexWriter<
         git_operations::JournaledIndexWriter<
             git_cli::GitCliIndexWriter<git_cli::TokioProcessRunner>,
             persistence::JsonJournalStore,
+            DesktopCommitStateReader<git_cli::TokioProcessRunner>,
         >,
     >,
     git_application::ScheduledSnapshotRebuilder,
@@ -158,6 +159,13 @@ pub fn build_m2_executor(
                 git_cli::GitCliIndexWriter::new(git_cli::TokioProcessRunner, location.clone()),
                 journal.clone(),
                 recovery_scope.clone(),
+                DesktopCommitStateReader::new(
+                    target,
+                    git_cli::GitCliCommitStateProbe::new(
+                        git_cli::TokioProcessRunner,
+                        location.clone(),
+                    ),
+                ),
             ),
             locks.clone(),
         ),
@@ -873,6 +881,26 @@ mod tests {
             git_operations::RecoveryDisposition::NotExecuted
         );
         assert!(!report.blocks_writes());
+
+        repository
+            .write_file("external.txt", b"external\n")
+            .expect("external file should be written");
+        repository
+            .stage_file("external.txt")
+            .expect("external Index mutation should succeed");
+        let changed = inspect_startup_recovery(
+            current_target,
+            &location,
+            Some(&journal_path),
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .expect("changed-state inspection should succeed");
+        assert_eq!(
+            changed.inspections[0].disposition,
+            git_operations::RecoveryDisposition::Unknown
+        );
+        assert!(changed.blocks_writes());
     }
 
     #[tokio::test]
@@ -1040,6 +1068,8 @@ mod tests {
             .expect("operation record should exist");
         assert_eq!(record.phase, git_domain::JournalPhase::Completed);
         assert_eq!(record.result, Some(git_domain::JournalResult::Completed));
+        assert!(record.expected_head.is_none());
+        assert!(record.expected_index.is_some());
 
         cancellation.cancel();
         scheduler

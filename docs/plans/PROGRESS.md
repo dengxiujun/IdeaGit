@@ -385,6 +385,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 启动检查只使用 `GitCliCommitStateProbe` 的 HEAD/Index 只读命令，不重试旧 command、不修改 HEAD/Index/refs；恢复错误不阻止 Status/Log 只读刷新。
 - 真实仓库测试销毁第一套 Registry 后用第二套随机 `SessionTarget` 重新打开，证明旧 Journal 可按 `RecoveryScope` 找回并绑定当前 target；另覆盖缺失路径和截断 Journal 的 fail-closed 行为。
 
+## M2 RECOVERY-000 Index 写前恢复指纹（2026-11-07）
+
+- `JournaledIndexWriter` 在持有 Worktree Index 资源锁期间、执行 Stage/Unstage 前，通过 `RecoveryStateReader` 读取真实 HEAD 与 Index tree OID，再耐久化 intent。
+- 状态读取失败发生在任何 Git 写进程之前；写前指纹与 Commit preflight 复用同一只读 Git CLI 探针，不引入展示路径或乐观 Snapshot 判断。
+- 单元测试验证 Journal 同时保存 expected HEAD/Index；真实仓库跨 Registry fixture 证明原状态为 `NotExecuted`，外部 Stage 改变 Index 后转为 `Unknown` 并关闭写入口，生产 executor 的 Completed Journal 也保留写前指纹。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。
