@@ -16,8 +16,8 @@ use gpui_kit::component::dock::{
 };
 use gpui_kit::{
     AnyWindowHandle, App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
-    Render, SharedString, Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, div,
-    prelude::*, px, rgb, size,
+    Render, SharedString, Subscription, TitlebarOptions, WeakEntity, Window, WindowBounds,
+    WindowOptions, div, prelude::*, px, rgb, size,
 };
 use idea_theme::IdeaTheme;
 
@@ -87,6 +87,28 @@ pub enum OperationFeedback {
     Failed(String),
 }
 
+/// Weak UI-thread target used by long-running desktop operation subscriptions.
+#[derive(Clone)]
+pub struct WorkbenchOperationSink {
+    view: WeakEntity<WorkbenchWindow>,
+}
+
+impl WorkbenchOperationSink {
+    /// Applies one coordinator snapshot while the workbench entity is still alive.
+    ///
+    /// Returns `false` after the entity has been released so the caller can stop consuming the
+    /// channel without retaining the window or its action dispatcher.
+    pub fn set_operation_snapshot(&self, snapshot: &OperationSnapshot, cx: &mut App) -> bool {
+        let feedback = operation_feedback(snapshot);
+        self.view
+            .update(cx, |view, cx| {
+                view.operation_feedback = Some(feedback);
+                cx.notify();
+            })
+            .is_ok()
+    }
+}
+
 impl WorkbenchController {
     /// Installs the application-owned dispatcher used by all workbench actions.
     pub fn set_action_dispatcher(&self, dispatcher: Arc<dyn ActionDispatcher>) {
@@ -126,23 +148,15 @@ impl WorkbenchController {
 
     /// Publishes the latest coordinator snapshot as UI-safe progress or terminal feedback.
     pub fn set_operation_snapshot(&self, snapshot: &OperationSnapshot, cx: &mut App) {
-        let feedback = match snapshot.outcome.as_ref() {
-            Some(OperationOutcome::Success) => {
-                OperationFeedback::Succeeded("Git 操作完成".to_owned())
-            }
-            Some(OperationOutcome::Failed(error)) => OperationFeedback::Failed(error.to_string()),
-            Some(OperationOutcome::Cancelled(_)) => {
-                OperationFeedback::Failed("Git 操作已取消，仓库状态需重新读取".to_owned())
-            }
-            Some(OperationOutcome::RecoveryRequired(error)) => {
-                OperationFeedback::Failed(format!("需要恢复：{error}"))
-            }
-            None if snapshot.phase == OperationPhase::Finished => {
-                OperationFeedback::Failed("Git 操作结束但没有终态结果".to_owned())
-            }
-            None => OperationFeedback::Running(format!("Git 操作：{:?}", snapshot.phase)),
-        };
-        self.set_operation_feedback(feedback, cx);
+        self.set_operation_feedback(operation_feedback(snapshot), cx);
+    }
+
+    /// Creates a weak feedback target for a desktop-owned asynchronous subscription.
+    #[must_use]
+    pub fn operation_sink(&self) -> WorkbenchOperationSink {
+        WorkbenchOperationSink {
+            view: self.view.downgrade(),
+        }
     }
 
     /// Validates and queues one UI action without executing Git on the UI thread.
@@ -178,6 +192,23 @@ impl WorkbenchController {
         })?;
         self.set_operation_feedback(OperationFeedback::Running(format!("{action:?}")), cx);
         Ok(())
+    }
+}
+
+fn operation_feedback(snapshot: &OperationSnapshot) -> OperationFeedback {
+    match snapshot.outcome.as_ref() {
+        Some(OperationOutcome::Success) => OperationFeedback::Succeeded("Git 操作完成".to_owned()),
+        Some(OperationOutcome::Failed(error)) => OperationFeedback::Failed(error.to_string()),
+        Some(OperationOutcome::Cancelled(_)) => {
+            OperationFeedback::Failed("Git 操作已取消，仓库状态需重新读取".to_owned())
+        }
+        Some(OperationOutcome::RecoveryRequired(error)) => {
+            OperationFeedback::Failed(format!("需要恢复：{error}"))
+        }
+        None if snapshot.phase == OperationPhase::Finished => {
+            OperationFeedback::Failed("Git 操作结束但没有终态结果".to_owned())
+        }
+        None => OperationFeedback::Running(format!("Git 操作：{:?}", snapshot.phase)),
     }
 }
 

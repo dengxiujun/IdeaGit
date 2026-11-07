@@ -30,6 +30,7 @@ git-diff-ui.workspace = true
 git-merge-ui.workspace = true
 
 [dev-dependencies]
+async-trait.workspace = true
 git-fixture = { path = "../../tests/fixtures" }
 tempfile.workspace = true
 proptest.workspace = true

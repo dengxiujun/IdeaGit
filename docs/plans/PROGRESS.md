@@ -97,6 +97,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `DesktopActionDispatcher` 在成功提交 command 后订阅对应 `OperationId` 的 latest-only snapshot，并通过无界 UI 更新通道转发 Queued 至 Finished 的真实状态。
 - 订阅在 Finished、接收端关闭或 coordinator stream 关闭时终止，不重复执行 Git 命令；下一小节点将把 receiver 回送 `WorkbenchController::set_operation_snapshot`。
 
+## M2 UI-0009 Desktop 操作生命周期桥（2026-11-07）
+
+- `DesktopActionDispatcher` 显式持有应用层 Tokio runtime handle；GPUI UI 线程触发 Action 时不再依赖当前线程恰好进入 Tokio 上下文。
+- desktop 新增统一安装入口，将 Dispatcher 注入 `WorkbenchController`，并通过弱 UI 句柄在 GPUI 任务中回送 coordinator snapshots；Workbench Entity 释放后终止反馈消费，不形成 controller/sender 保留环，也不重试 Git 命令。
+- 测试从不含 Tokio context 的独立线程派发 Stage Action，并验证真实 coordinator 终态经 receiver 转发为 Success；具体安全 writer 装配仍由后续小节点完成。
+
 ## CORE-011 Resource Lock Manager（2026-11-07）
 
 - `git-operations` 新增 `ResourceKey`、`ResourceScope`、`ResourceKind` 与 RAII `ResourceLock`；CommonGitDir 只承载共享 Refs，Worktree 承载 Index/WorktreeFiles/Sequencer。

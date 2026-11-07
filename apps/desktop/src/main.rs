@@ -24,6 +24,7 @@ const OPEN_REPOSITORY_ENV: &str = "IDEAGIT_OPEN_REPOSITORY";
 /// Composition-root dispatcher that queues typed UI actions without blocking GPUI.
 pub struct DesktopActionDispatcher<E: OperationExecutor> {
     coordinator: Arc<OperationCoordinator<E>>,
+    runtime: tokio::runtime::Handle,
     updates: tokio::sync::mpsc::UnboundedSender<OperationSnapshot>,
 }
 
@@ -31,6 +32,7 @@ impl<E: OperationExecutor> DesktopActionDispatcher<E> {
     #[must_use]
     pub fn new(
         coordinator: Arc<OperationCoordinator<E>>,
+        runtime: tokio::runtime::Handle,
     ) -> (
         Self,
         tokio::sync::mpsc::UnboundedReceiver<OperationSnapshot>,
@@ -39,6 +41,7 @@ impl<E: OperationExecutor> DesktopActionDispatcher<E> {
         (
             Self {
                 coordinator,
+                runtime,
                 updates,
             },
             receiver,
@@ -49,11 +52,9 @@ impl<E: OperationExecutor> DesktopActionDispatcher<E> {
 impl<E: OperationExecutor> ActionDispatcher for DesktopActionDispatcher<E> {
     fn dispatch(&self, request: ActionRequest) -> Result<(), String> {
         let command = to_git_command(&request)?;
-        let handle = tokio::runtime::Handle::try_current()
-            .map_err(|_| "Git runtime is unavailable".to_owned())?;
         let coordinator = Arc::clone(&self.coordinator);
         let updates = self.updates.clone();
-        handle.spawn(async move {
+        self.runtime.spawn(async move {
             let id = match coordinator.submit(command).await {
                 Ok(id) => id,
                 Err(error) => {
@@ -78,6 +79,32 @@ impl<E: OperationExecutor> ActionDispatcher for DesktopActionDispatcher<E> {
         });
         Ok(())
     }
+}
+
+/// Installs one desktop dispatcher and forwards its coordinator snapshots onto the GPUI thread.
+///
+/// The runtime handle is captured explicitly because GPUI action callbacks do not run inside the
+/// Tokio runtime. Dropping the workbench closes the UI task without retrying or repeating a Git
+/// command.
+pub fn install_action_dispatcher<E: OperationExecutor>(
+    coordinator: Arc<OperationCoordinator<E>>,
+    runtime: tokio::runtime::Handle,
+    controller: &idea_shell::WorkbenchController,
+    cx: &mut gpui_kit::App,
+) -> Arc<DesktopActionDispatcher<E>> {
+    let (dispatcher, mut updates) = DesktopActionDispatcher::new(coordinator, runtime);
+    let dispatcher = Arc::new(dispatcher);
+    controller.set_action_dispatcher(dispatcher.clone());
+    let operation_sink = controller.operation_sink();
+    cx.spawn(async move |cx| {
+        while let Some(snapshot) = updates.recv().await {
+            if !cx.update(|cx| operation_sink.set_operation_snapshot(&snapshot, cx)) {
+                break;
+            }
+        }
+    })
+    .detach();
+    dispatcher
 }
 
 fn main() -> ExitCode {
@@ -321,9 +348,44 @@ fn parse_smoke_duration(value: Option<&str>) -> Result<Option<Duration>, String>
 
 #[cfg(test)]
 mod tests {
+    use async_trait::async_trait;
+    use git_domain::{GitResult, RepoPath, RepositoryId, SessionTarget, WorktreeId};
+    use git_ports::ExecutionContext;
+    use git_ui_model::{ActionContext, ActionId, ActionPanel, ActionPayload};
     use tempfile::TempDir;
 
     use super::*;
+
+    struct ImmediateExecutor;
+
+    #[async_trait]
+    impl OperationExecutor for ImmediateExecutor {
+        async fn execute(
+            &self,
+            _command: git_domain::GitCommand,
+            _context: ExecutionContext,
+        ) -> GitResult<()> {
+            Ok(())
+        }
+    }
+
+    fn stage_request() -> ActionRequest {
+        ActionRequest {
+            action: ActionId::Stage,
+            context: ActionContext {
+                target: Some(SessionTarget::worktree(
+                    RepositoryId::new(),
+                    WorktreeId::new(),
+                    1,
+                )),
+                selected_files: vec![RepoPath::try_from("file.txt").expect("valid test path")],
+                selected_commits: Vec::new(),
+                selected_branch: None,
+                active_panel: ActionPanel::Commit,
+            },
+            payload: ActionPayload::None,
+        }
+    }
 
     #[test]
     fn parses_smoke_duration() {
@@ -338,6 +400,39 @@ mod tests {
     fn rejects_invalid_smoke_duration() {
         assert!(parse_smoke_duration(Some("0")).is_err());
         assert!(parse_smoke_duration(Some("not-a-number")).is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn dispatcher_uses_injected_runtime_outside_tokio_context_and_forwards_terminal_state() {
+        let coordinator = Arc::new(
+            OperationCoordinator::new(ImmediateExecutor, 1).expect("valid coordinator capacity"),
+        );
+        let (dispatcher, mut updates) = DesktopActionDispatcher::new(
+            Arc::clone(&coordinator),
+            tokio::runtime::Handle::current(),
+        );
+        let dispatched = std::thread::spawn(move || dispatcher.dispatch(stage_request()))
+            .join()
+            .expect("UI-like caller thread should not panic");
+        assert_eq!(dispatched, Ok(()));
+
+        let terminal = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let snapshot = updates
+                    .recv()
+                    .await
+                    .expect("dispatcher should forward coordinator snapshots");
+                if snapshot.phase == OperationPhase::Finished {
+                    break snapshot;
+                }
+            }
+        })
+        .await
+        .expect("terminal snapshot should be forwarded");
+        assert_eq!(
+            terminal.outcome,
+            Some(git_operations::OperationOutcome::Success)
+        );
     }
 
     #[test]
