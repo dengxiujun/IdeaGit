@@ -26,6 +26,7 @@ enum DesktopUiUpdate {
     Repository(git_ui_model::RepositoryWorkbenchModel),
     Log(git_domain::CommitPage),
     LogFailed(String),
+    RecoveryBlocked(String),
 }
 
 /// Composition-root adapter from the Git CLI probe to the Core commit preflight contract.
@@ -298,6 +299,7 @@ fn main() -> ExitCode {
     let layout_path = desktop_platform::workbench_layout_path();
     let initial_layout = layout_path.as_deref().and_then(load_layout);
     let initial_repository = std::env::var_os(OPEN_REPOSITORY_ENV).map(PathBuf::from);
+    let journal_path = desktop_platform::operation_journal_path();
 
     gpui_kit::application()
         .with_quit_mode(QuitMode::LastWindowClosed)
@@ -333,7 +335,9 @@ fn main() -> ExitCode {
                         .enable_all()
                         .build()
                         .map_err(|error| format!("failed to start Git runtime: {error}"))
-                        .and_then(|runtime| runtime.block_on(run_repository_bridge(path, sender)));
+                        .and_then(|runtime| {
+                            runtime.block_on(run_repository_bridge(path, journal_path, sender))
+                        });
                     if let Err(error) = result {
                         eprintln!("IdeaGit repository bridge stopped: {error}");
                     }
@@ -349,6 +353,14 @@ fn main() -> ExitCode {
                                 controller.set_operation_feedback(
                                     idea_shell::OperationFeedback::Failed(format!(
                                         "读取 Git Log 失败：{error}"
+                                    )),
+                                    cx,
+                                );
+                            }
+                            DesktopUiUpdate::RecoveryBlocked(reason) => {
+                                controller.set_operation_feedback(
+                                    idea_shell::OperationFeedback::Failed(format!(
+                                        "写操作已禁用：{reason}"
                                     )),
                                     cx,
                                 );
@@ -391,6 +403,7 @@ fn main() -> ExitCode {
 
 async fn run_repository_bridge(
     path: PathBuf,
+    journal_path: Option<PathBuf>,
     sender: tokio::sync::mpsc::UnboundedSender<DesktopUiUpdate>,
 ) -> Result<(), String> {
     use git_ports::{HistoryReader as _, RepositoryReader as _};
@@ -416,6 +429,29 @@ async fn run_repository_bridge(
     let cancellation = registry
         .cancellation_token(handle.target())
         .map_err(|error| error.to_string())?;
+    let recovery = inspect_startup_recovery(
+        handle.target(),
+        &location,
+        journal_path.as_deref(),
+        cancellation.clone(),
+    )
+    .await;
+    let recovery_block = match recovery {
+        Ok(report) if report.blocks_writes() => Some(format!(
+            "检测到 {} 条需人工处理的旧日志和 {} 条未完成操作",
+            report.orphaned.len(),
+            report.inspections.len()
+        )),
+        Ok(_) => None,
+        Err(error) => Some(error),
+    };
+    if let Some(reason) = recovery_block
+        && sender
+            .send(DesktopUiUpdate::RecoveryBlocked(reason))
+            .is_err()
+    {
+        return Ok(());
+    }
     let scheduler = git_application::RefreshScheduler::start(
         git_application::SnapshotRefreshService::new(
             git_cli::GitCliHeadReader::new(git_cli::TokioProcessRunner),
@@ -496,6 +532,38 @@ async fn run_repository_bridge(
         .map_err(|error| format!("repository refresh task failed: {error}"))?;
     drop(handle);
     result
+}
+
+async fn inspect_startup_recovery(
+    target: git_domain::SessionTarget,
+    location: &git_ports::RepositoryLocation,
+    journal_path: Option<&Path>,
+    cancellation: tokio_util::sync::CancellationToken,
+) -> Result<git_operations::StartupRecoveryReport, String> {
+    let journal_path = journal_path.ok_or_else(|| "操作日志路径不可用".to_owned())?;
+    let scope = location
+        .recovery_scope()
+        .map_err(|error| format!("无法构造恢复作用域：{error}"))?;
+    let inspector = git_operations::StartupRecoveryInspector::new(
+        persistence::JsonJournalStore::new(journal_path),
+        DesktopCommitStateReader::new(
+            target,
+            git_cli::GitCliCommitStateProbe::new(git_cli::TokioProcessRunner, location.clone()),
+        ),
+    );
+    let (progress, _progress_receiver) = tokio::sync::mpsc::channel(16);
+    inspector
+        .inspect(
+            target,
+            &scope,
+            git_ports::ExecutionContext::new(
+                git_domain::OperationId::new(),
+                cancellation,
+                progress,
+            ),
+        )
+        .await
+        .map_err(|error| format!("启动恢复检查失败：{error}"))
 }
 
 fn load_layout(path: &Path) -> Option<git_workbench::WorkbenchLayout> {
@@ -728,6 +796,165 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn startup_recovery_matches_scope_after_registry_restart() {
+        use git_operations::CommitStateReader as _;
+
+        let repository =
+            git_fixture::TestRepository::init().expect("real Git fixture should initialize");
+        repository
+            .commit_file("tracked.txt", b"content\n")
+            .expect("fixture commit should succeed");
+        let location = git_ports::RepositoryLocation::worktree(
+            &repository.worktree,
+            repository.worktree.join(".git"),
+            repository.worktree.join(".git"),
+        );
+        let first_registry = git_application::RepositoryRegistry::new();
+        let first_handle = first_registry
+            .open(location.clone())
+            .expect("first session should open");
+        let old_target = first_handle.target();
+        let reader = DesktopCommitStateReader::new(
+            old_target,
+            git_cli::GitCliCommitStateProbe::new(git_cli::TokioProcessRunner, location.clone()),
+        );
+        let (progress, _receiver) = tokio::sync::mpsc::channel(4);
+        let state = reader
+            .read(
+                old_target,
+                ExecutionContext::new(
+                    git_domain::OperationId::new(),
+                    tokio_util::sync::CancellationToken::new(),
+                    progress,
+                ),
+            )
+            .await
+            .expect("pre-crash state should be readable");
+        drop(first_handle);
+        drop(first_registry);
+
+        let temporary = TempDir::new().expect("journal directory");
+        let journal_path = temporary.path().join("journal.json");
+        let scope = location.recovery_scope().expect("recovery scope");
+        let mut record = git_domain::JournalRecord::intent(
+            git_domain::OperationId::new(),
+            git_domain::GitCommand::StageFiles {
+                target: old_target,
+                paths: vec![RepoPath::try_from("tracked.txt").expect("fixture path")],
+            },
+            scope,
+        );
+        record.expected_head = state.head;
+        record.expected_index = state.index;
+        persistence::JsonJournalStore::new(&journal_path)
+            .append(record)
+            .await
+            .expect("pending intent should persist");
+
+        let second_registry = git_application::RepositoryRegistry::new();
+        let second_handle = second_registry
+            .open(location.clone())
+            .expect("second session should open");
+        let current_target = second_handle.target();
+        assert_ne!(current_target, old_target);
+        let report = inspect_startup_recovery(
+            current_target,
+            &location,
+            Some(&journal_path),
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .expect("restart inspection should succeed");
+        assert_eq!(report.inspections.len(), 1);
+        assert_eq!(report.inspections[0].record.target, old_target);
+        assert_eq!(report.inspections[0].current_target, current_target);
+        assert_eq!(
+            report.inspections[0].disposition,
+            git_operations::RecoveryDisposition::NotExecuted
+        );
+        assert!(!report.blocks_writes());
+    }
+
+    #[tokio::test]
+    async fn startup_recovery_blocks_when_journal_is_missing_or_damaged() {
+        let repository =
+            git_fixture::TestRepository::init().expect("real Git fixture should initialize");
+        let location = git_ports::RepositoryLocation::worktree(
+            &repository.worktree,
+            repository.worktree.join(".git"),
+            repository.worktree.join(".git"),
+        );
+        let target = SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1);
+        let missing = inspect_startup_recovery(
+            target,
+            &location,
+            None,
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .expect_err("missing durable path must block writes");
+        assert!(missing.contains("路径不可用"));
+
+        let temporary = TempDir::new().expect("journal directory");
+        let journal_path = temporary.path().join("journal.json");
+        fs::write(&journal_path, b"truncated").expect("damaged Journal fixture should be written");
+        let damaged = inspect_startup_recovery(
+            target,
+            &location,
+            Some(&journal_path),
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .expect_err("damaged Journal must block writes");
+        assert!(damaged.contains("启动恢复检查失败"));
+    }
+
+    #[tokio::test]
+    async fn repository_bridge_reports_recovery_block_and_keeps_read_only_refresh_alive() {
+        let repository =
+            git_fixture::TestRepository::init().expect("real Git fixture should initialize");
+        let temporary = TempDir::new().expect("journal directory");
+        let journal_path = temporary.path().join("journal.json");
+        fs::write(&journal_path, b"truncated").expect("damaged Journal fixture should be written");
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let bridge = tokio::spawn(run_repository_bridge(
+            repository.worktree.clone(),
+            Some(journal_path),
+            sender,
+        ));
+        let (blocked, ready) = tokio::time::timeout(Duration::from_secs(10), async {
+            let mut blocked = false;
+            let mut ready = false;
+            while !blocked || !ready {
+                match receiver.recv().await.expect("bridge should remain live") {
+                    DesktopUiUpdate::RecoveryBlocked(reason) => {
+                        assert!(reason.contains("启动恢复检查失败"));
+                        blocked = true;
+                    }
+                    DesktopUiUpdate::Repository(model)
+                        if model.chrome.status.message == "Ready" =>
+                    {
+                        ready = true;
+                    }
+                    _ => {}
+                }
+            }
+            (blocked, ready)
+        })
+        .await
+        .expect("recovery feedback and read-only snapshot should arrive");
+        assert!(blocked);
+        assert!(ready);
+
+        drop(receiver);
+        tokio::time::timeout(Duration::from_secs(10), bridge)
+            .await
+            .expect("bridge should stop after UI receiver closes")
+            .expect("bridge task should not panic")
+            .expect("bridge should stop cleanly");
+    }
+
+    #[tokio::test]
     async fn production_m2_executor_stages_journals_and_reconciles_a_real_repository() {
         use git_operations::OperationExecutor as _;
 
@@ -870,8 +1097,13 @@ mod tests {
             .write_file("untracked.txt", b"untracked\n")
             .expect("untracked file should be written");
 
+        let journal = TempDir::new().expect("journal directory");
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let bridge = tokio::spawn(run_repository_bridge(repository.worktree.clone(), sender));
+        let bridge = tokio::spawn(run_repository_bridge(
+            repository.worktree.clone(),
+            Some(journal.path().join("journal.json")),
+            sender,
+        ));
         let model = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 let update = receiver
@@ -951,8 +1183,13 @@ mod tests {
         repository
             .commit_file("one.txt", b"one\n")
             .expect("first fixture commit should succeed");
+        let journal = TempDir::new().expect("journal directory");
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let bridge = tokio::spawn(run_repository_bridge(repository.worktree.clone(), sender));
+        let bridge = tokio::spawn(run_repository_bridge(
+            repository.worktree.clone(),
+            Some(journal.path().join("journal.json")),
+            sender,
+        ));
 
         let first = tokio::time::timeout(Duration::from_secs(10), async {
             loop {

@@ -379,6 +379,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `JsonJournalStore` 同时读取 v1/v2：v2 缺 scope 或未知 schema 拒绝；v1 未完成记录保留为 orphaned，追加 v2 记录不会删除旧数据；按 scope 查询不会串 linked worktree。
 - 启动检查报告将旧 target 与当前 target 分离，并汇总 scoped 分类与 orphaned 记录；orphaned、Unknown、CommittedNeedsReconcile 都明确阻止写入口。
 
+## M2 RECOVERY-000 Desktop 启动恢复门禁（2026-11-07）
+
+- repository bridge 在 discovery/open 后、任何写 dispatcher 安装前运行 `StartupRecoveryInspector`；Journal 路径缺失、解码失败或报告阻断时继续只读并向 Workbench 显示“写操作已禁用”。
+- 启动检查只使用 `GitCliCommitStateProbe` 的 HEAD/Index 只读命令，不重试旧 command、不修改 HEAD/Index/refs；恢复错误不阻止 Status/Log 只读刷新。
+- 真实仓库测试销毁第一套 Registry 后用第二套随机 `SessionTarget` 重新打开，证明旧 Journal 可按 `RecoveryScope` 找回并绑定当前 target；另覆盖缺失路径和截断 Journal 的 fail-closed 行为。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。
