@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003/004/005/006 已完成当前平台及三平台 CI 验证；CORE-007 Repository Session / Registry 已在当前 macOS 通过专项及 Workspace 全量门禁，等待本提交三平台 CI。未执行的 Watcher、Workbench 和其他高级场景继续明确保留。
+M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003/004/005/006/007 已完成当前平台及三平台 CI 验证；CORE-008 Watcher + Refresh Scheduler 已在当前 macOS 通过专项及 Workspace 全量门禁，等待本提交三平台 CI。未执行的 Workbench 和其他高级场景继续明确保留。
 
 ## 已完成的文档工作
 
@@ -39,14 +39,22 @@ M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003/00
 
 ## 下一步
 
-CORE-007 三平台 CI 通过后，按依赖 DAG 进入 CORE-008 Watcher + Refresh Scheduler，再依次完成 Workbench。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+CORE-008 三平台 CI 通过后，按依赖 DAG 进入 UI-003 Workbench Shell，再依次完成 Repository Tabs / StatusBar 与 Read-only Changes Tree。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+
+## CORE-008 Watcher + Refresh Scheduler（2026-11-07）
+
+- `repository-watcher` 新增基于 `notify` 的有界、内容无关变化信号；普通仓库递归监控 worktree（包含 `.git`），linked worktree 同时监控独立 worktree 与共享 common dir，bare 只监控 common dir。
+- `git-application` 新增 guarded Snapshot 刷新服务，严格按 `HEAD(before) → Status → Tracking → HEAD(after)` 读取并调用唯一 `SnapshotBuilder`；bare 不执行 worktree Status。
+- Refresh Scheduler 合并 200ms 内突发信号，使用 30 秒周期主动校验兜底丢事件/溢出，串行发布单调 Snapshot；失败保留最后成功 Snapshot 并进入 Degraded，Session 取消时停止后台任务。
+- 当前 macOS 已通过 fmt、locked check、Clippy 和 Workspace tests；新增 7 个 Watcher/Refresh 正常及失败路径测试。三平台 CI 待本提交推送后执行。
+- CORE-008 不提前实现 Sequencer port、Operation 写协调或 UI；详细结果见 [CORE-008-VERIFICATION-001](../reviews/CORE-008-VERIFICATION-001.md)。
 
 ## CORE-007 Repository Session / Registry（2026-11-07）
 
 - `git-application` 新增线程安全 `RepositoryRegistry`、显式所有权 `RepositorySessionHandle` 和只读 `RepositorySessionView`；同一规范化 worktree 的多次打开共享同一 Session 与世代，最后一个句柄释放后才关闭。
 - 同一 `common_dir` 的 linked worktree 共享 `RepositoryId`，但各自拥有 `WorktreeId`、Session 和生命周期；不同仓库保持身份及事件目标隔离，bare Session 不伪造工作区。
 - Session 世代全局单调且关闭后不复用；旧 `SessionTarget` 被拒绝。每个 Session 提供取消令牌，最后关闭时取消，为 CORE-008 的 Watcher/Refresh 后台任务建立生命周期边界。
-- 当前 macOS 已通过 fmt、locked check、Clippy 和 Workspace tests；`git-application` 新增 6 个正常/失败路径测试。三平台 CI 待本提交推送后执行。
+- 当前 macOS 已通过 fmt、locked check、Clippy 和 Workspace tests；`git-application` 新增 6 个正常/失败路径测试。[Rust CI #17](https://github.com/dengxiujun/IdeaGit/actions/runs/42339187095) 已在 Windows Server 2022、macOS 15 和 Ubuntu 24.04 全部通过；CORE-007 三平台验收关闭。
 - CORE-007 不提前实现 Watcher、刷新调度、Snapshot Store、Git Application Facade 或 UI；详细结果见 [CORE-007-VERIFICATION-001](../reviews/CORE-007-VERIFICATION-001.md)。
 
 ## CORE-006 Snapshot Builder（2026-11-07）

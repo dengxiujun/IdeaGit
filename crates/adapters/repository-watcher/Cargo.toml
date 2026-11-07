@@ -8,3 +8,5 @@ publish.workspace = true
 notify.workspace = true
 git-ports.workspace = true
 git-domain.workspace = true
+thiserror.workspace = true
+tokio.workspace = true

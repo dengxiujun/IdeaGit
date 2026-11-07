@@ -1991,10 +1991,12 @@ checksum = "1033caf0b349c518623b5396bfb2cf0bddf44f0306d543a250e5743297aafd10"
 name = "git-application"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "git-domain",
  "git-operations",
  "git-ports",
  "thiserror 2.0.21",
+ "tokio",
  "tokio-util",
 ]
 
@@ -5595,6 +5597,8 @@ dependencies = [
  "git-domain",
  "git-ports",
  "notify",
+ "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]
