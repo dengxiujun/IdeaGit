@@ -65,6 +65,94 @@ impl<R: ProcessRunner> IndexWriter for GitCliIndexWriter<R> {
     }
 }
 
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod tests {
+    use std::process::Command;
+
+    use git_domain::{RepositoryId, SessionTarget, WorktreeId};
+    use git_fixture::TestRepository;
+    use git_ports::IndexWriter;
+    use tokio::sync::mpsc;
+    use tokio_util::sync::CancellationToken;
+
+    use super::*;
+
+    fn context() -> ExecutionContext {
+        let (progress, _receiver) = mpsc::channel(4);
+        ExecutionContext::new(
+            git_domain::OperationId::new(),
+            CancellationToken::new(),
+            progress,
+        )
+    }
+
+    #[tokio::test]
+    async fn stages_and_unstages_a_real_fixture_path() {
+        let fixture = TestRepository::init().expect("fixture should initialize");
+        fixture
+            .commit_file("glob[1].txt", b"original")
+            .expect("fixture commit should succeed");
+        fixture
+            .write_file("glob[1].txt", b"content")
+            .expect("file should write");
+        let target = SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1);
+        let writer = GitCliIndexWriter::new(
+            crate::TokioProcessRunner,
+            RepositoryLocation::worktree(
+                &fixture.worktree,
+                fixture.worktree.join(".git"),
+                fixture.worktree.join(".git"),
+            ),
+        );
+        writer
+            .apply(
+                IndexMutation::Stage {
+                    target,
+                    paths: vec![RepoPath::try_from("glob[1].txt").expect("valid path")],
+                },
+                context(),
+            )
+            .await
+            .expect("stage should succeed");
+        let staged = Command::new("git")
+            .args([
+                "-C",
+                fixture.worktree.to_str().expect("utf8"),
+                "diff",
+                "--cached",
+                "--name-only",
+            ])
+            .output()
+            .expect("git should run");
+        assert_eq!(
+            String::from_utf8_lossy(&staged.stdout).trim(),
+            "glob[1].txt"
+        );
+        writer
+            .apply(
+                IndexMutation::Unstage {
+                    target,
+                    paths: vec![RepoPath::try_from("glob[1].txt").expect("valid path")],
+                },
+                context(),
+            )
+            .await
+            .expect("unstage should succeed");
+        let unstaged = Command::new("git")
+            .args([
+                "-C",
+                fixture.worktree.to_str().expect("utf8"),
+                "diff",
+                "--cached",
+                "--name-only",
+            ])
+            .output()
+            .expect("git should run");
+        assert!(unstaged.stdout.is_empty());
+    }
+}
+
 #[allow(clippy::result_large_err)]
 fn paths_to_args(paths: Vec<RepoPath>) -> GitResult<Vec<OsString>> {
     paths

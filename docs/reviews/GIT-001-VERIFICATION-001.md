@@ -10,6 +10,7 @@
 - 空路径在 `IndexWriter` 调用前拒绝；含 `[ ]` 等 glob 字符的路径仍作为单个 `RepoPath`，不会被 UI 字符串解释。
 - `IndexWriter` 携带 `ExecutionContext`，为后续 OperationCoordinator、锁、取消和 Journal 接入保留边界。
 - CLI 适配器只构造 `add -- <paths>` 或 `restore --staged -- <paths>`，不经 Shell；bare 仓库和非 UTF-8 CLI 参数均显式拒绝。
+- 真实 `git-fixture` 测试覆盖已提交文件修改、文件名含 glob 字符的 Stage/Unstage 往返。
 
 已执行并通过：
 
