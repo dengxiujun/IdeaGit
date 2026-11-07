@@ -415,6 +415,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 菜单打开后切换仓库、关闭重开产生新 generation、或跨仓库复用旧 ActionContext 均以结构化 `StaleSelection` 终止，并保留旧 target 与 operation ID 供 UI 诊断。
 - 单元测试注入三个 recording writer，证明 stale Stage 被拒绝时 Index/Commit/Branch writer 调用数均为零。
 
+## M2 UI-007 Commit Draft 与 ViewModel（2026-11-07）
+
+- `git-ui-model` 新增 `CommitPanelViewModel`、完整提交生命周期状态与按 `SessionTarget` 隔离的 `CommitDraftStore`；Snapshot 刷新只重建只读 Changes，不覆盖消息、Amend 或逻辑选择。
+- 选择契约遵循已批准 ADR 的 `git_domain::ChangeSelection`，不另造 IP-001/LLD-UI 旧示例中的平行 `ChangeSelectionId`；跨仓库选择在进入 dispatcher 前关闭失败。
+- 单元测试覆盖仓库切换保留各自 Draft、刷新保留失败后消息和跨仓库选择拒绝；本切片只建立状态边界，输入控件与 Stage/Commit 事件将在后续 UI-007 切片接入。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。

@@ -1,9 +1,11 @@
 //! Shared UI projections, selections, actions, and asynchronous request identities.
 
+use std::{collections::HashMap, time::SystemTime};
+
 use git_application::{RefreshHealth, RefreshState, RepositorySessionView};
 use git_domain::{
-    BranchCommand, ChangeKind, GitCommand, HeadState, RepoPath, RepositorySnapshot, SessionTarget,
-    SnapshotRevision, StandardCommitRequest,
+    BranchCommand, ChangeKind, ChangeSelection, GitCommand, HeadState, ObjectId, OperationId,
+    RepoPath, RepositorySnapshot, SessionTarget, SnapshotRevision, StandardCommitRequest,
 };
 
 /// Immutable source selected by a read-only change-tree entry.
@@ -146,6 +148,145 @@ impl ChangesTreeModel {
 
     fn group_mut(&mut self, kind: ChangeGroup) -> Option<&mut ChangeTreeGroup> {
         self.groups.iter_mut().find(|group| group.kind == kind)
+    }
+}
+
+/// Submission lifecycle rendered by the Commit Panel.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CommitSubmissionState {
+    Idle,
+    Validating,
+    Previewing,
+    AwaitingConfirmation,
+    Running(OperationId),
+    CommittedAndReconciled(ObjectId),
+    CommittedButNeedsRecovery {
+        oid: ObjectId,
+        journal_id: OperationId,
+    },
+    NoCommit(String),
+    Indeterminate(OperationId),
+}
+
+/// Repository-scoped editable state that must survive refreshes and failed submissions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommitDraft {
+    pub target: SessionTarget,
+    pub draft_revision: u64,
+    pub message: String,
+    pub amend: bool,
+    pub selected_changes: Vec<ChangeSelection>,
+    pub updated_at: SystemTime,
+}
+
+impl CommitDraft {
+    fn empty(target: SessionTarget) -> Self {
+        Self {
+            target,
+            draft_revision: 0,
+            message: String::new(),
+            amend: false,
+            selected_changes: Vec::new(),
+            updated_at: SystemTime::now(),
+        }
+    }
+
+    fn touch(&mut self) {
+        self.draft_revision = self.draft_revision.saturating_add(1);
+        self.updated_at = SystemTime::now();
+    }
+}
+
+/// Per-window draft storage keyed by the complete session target.
+#[derive(Clone, Debug, Default)]
+pub struct CommitDraftStore {
+    drafts: HashMap<SessionTarget, CommitDraft>,
+}
+
+impl CommitDraftStore {
+    #[must_use]
+    pub fn draft(&self, target: SessionTarget) -> Option<&CommitDraft> {
+        self.drafts.get(&target)
+    }
+
+    pub fn set_message(&mut self, target: SessionTarget, message: impl Into<String>) {
+        let draft = self
+            .drafts
+            .entry(target)
+            .or_insert_with(|| CommitDraft::empty(target));
+        let message = message.into();
+        if draft.message != message {
+            draft.message = message;
+            draft.touch();
+        }
+    }
+
+    pub fn set_amend(&mut self, target: SessionTarget, amend: bool) {
+        let draft = self
+            .drafts
+            .entry(target)
+            .or_insert_with(|| CommitDraft::empty(target));
+        if draft.amend != amend {
+            draft.amend = amend;
+            draft.touch();
+        }
+    }
+
+    pub fn set_selection(
+        &mut self,
+        target: SessionTarget,
+        selected_changes: Vec<ChangeSelection>,
+    ) -> Result<(), String> {
+        if selected_changes
+            .iter()
+            .any(|selection| selection.target() != target)
+        {
+            return Err("commit selection belongs to another repository session".to_owned());
+        }
+        let draft = self
+            .drafts
+            .entry(target)
+            .or_insert_with(|| CommitDraft::empty(target));
+        if draft.selected_changes != selected_changes {
+            draft.selected_changes = selected_changes;
+            draft.touch();
+        }
+        Ok(())
+    }
+}
+
+/// Snapshot projection plus the repository-scoped editable Commit Panel state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommitPanelViewModel {
+    pub target: SessionTarget,
+    pub revision: SnapshotRevision,
+    pub changes: Vec<ChangeTreeGroup>,
+    pub selected: Vec<ChangeSelection>,
+    pub message: String,
+    pub amend: bool,
+    pub draft_revision: u64,
+    pub submission: CommitSubmissionState,
+}
+
+impl CommitPanelViewModel {
+    #[must_use]
+    pub fn from_changes(changes: &ChangesTreeModel, drafts: &CommitDraftStore) -> Option<Self> {
+        let target = changes.target?;
+        let revision = changes.revision?;
+        let draft = drafts
+            .draft(target)
+            .cloned()
+            .unwrap_or_else(|| CommitDraft::empty(target));
+        Some(Self {
+            target,
+            revision,
+            changes: changes.groups.clone(),
+            selected: draft.selected_changes,
+            message: draft.message,
+            amend: draft.amend,
+            draft_revision: draft.draft_revision,
+            submission: CommitSubmissionState::Idle,
+        })
     }
 }
 
@@ -468,6 +609,91 @@ mod tests {
 
     fn oid() -> ObjectId {
         ObjectId::from_bytes(ObjectFormat::Sha1, &[1; 20]).expect("test OID should be valid")
+    }
+
+    fn test_target() -> SessionTarget {
+        SessionTarget::worktree(
+            git_domain::RepositoryId::new(),
+            git_domain::WorktreeId::new(),
+            1,
+        )
+    }
+
+    fn whole_file(target: SessionTarget, path: &str) -> ChangeSelection {
+        ChangeSelection::WholeFile {
+            file: git_domain::FileIdentity {
+                target,
+                path: RepoPath::try_from(path).expect("valid repository path"),
+                previous_path: None,
+                kind: git_domain::FileKind::Regular,
+            },
+        }
+    }
+
+    #[test]
+    fn commit_drafts_remain_isolated_when_switching_repositories() {
+        let first = test_target();
+        let second = test_target();
+        let mut drafts = CommitDraftStore::default();
+
+        drafts.set_message(first, "first message");
+        drafts.set_amend(first, true);
+        drafts
+            .set_selection(first, vec![whole_file(first, "first.txt")])
+            .expect("selection should match first repository");
+        drafts.set_message(second, "second message");
+
+        let first_draft = drafts.draft(first).expect("first draft should remain");
+        assert_eq!(first_draft.message, "first message");
+        assert!(first_draft.amend);
+        assert_eq!(first_draft.selected_changes.len(), 1);
+        assert_eq!(
+            drafts
+                .draft(second)
+                .expect("second draft should remain")
+                .message,
+            "second message"
+        );
+    }
+
+    #[test]
+    fn commit_panel_projection_preserves_draft_across_snapshot_refresh() {
+        let target = test_target();
+        let mut drafts = CommitDraftStore::default();
+        drafts.set_message(target, "keep after failure");
+        let initial_revision = drafts
+            .draft(target)
+            .expect("draft should exist")
+            .draft_revision;
+        let changes = ChangesTreeModel {
+            target: Some(target),
+            revision: Some(SnapshotRevision::new(9)),
+            ..ChangesTreeModel::default()
+        };
+
+        let panel = CommitPanelViewModel::from_changes(&changes, &drafts)
+            .expect("complete snapshot should project");
+
+        assert_eq!(panel.message, "keep after failure");
+        assert_eq!(panel.revision, SnapshotRevision::new(9));
+        assert_eq!(panel.draft_revision, initial_revision);
+    }
+
+    #[test]
+    fn commit_draft_rejects_cross_repository_selection() {
+        let target = test_target();
+        let foreign = test_target();
+        let mut drafts = CommitDraftStore::default();
+
+        let error = drafts
+            .set_selection(target, vec![whole_file(foreign, "foreign.txt")])
+            .expect_err("foreign selection must fail closed");
+
+        assert_eq!(
+            error,
+            "commit selection belongs to another repository session"
+        );
+        assert!(drafts.draft(target).is_none());
     }
 
     #[test]
