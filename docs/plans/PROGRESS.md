@@ -39,7 +39,14 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 
 ## 下一步
 
-按依赖 DAG 进入 M2 的 RECOVERY-000 / CORE-011 前置链路；仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+按依赖 DAG 进入 M2 的 CORE-012 Operation Journal / RECOVERY-000 前置链路；仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+
+## CORE-011 Resource Lock Manager（2026-11-07）
+
+- `git-operations` 新增 `ResourceKey`、`ResourceScope`、`ResourceKind` 与 RAII `ResourceLock`；CommonGitDir 只承载共享 Refs，Worktree 承载 Index/WorktreeFiles/Sequencer。
+- 多资源按稳定 scope UUID 与 kind 顺序获取，避免锁顺序死锁；重复键自动去重；取消等待返回结构化 `LockError::Cancelled`。
+- 锁是应用内协调锁，不占用或伪造真实 `.git/index.lock`；独立仓库资源可并发，真实 Git 锁竞争仍由 Git 命令和后续恢复门禁处理。
+- 本机 Workspace 全量门禁已通过；三平台 Runner 将在本任务提交推送后执行。
 
 ## CORE-010 Operation Coordinator（2026-11-07）
 
