@@ -460,6 +460,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - bridge 与写执行器共享 probe/write guard，避免只读 `git write-tree` 与真实 Index lock 竞争；该竞态曾导致 Stage 以 exit 128 失败，现由测试稳定覆盖。
 - Commit 使用 bridge 提供的真实 HEAD/Index 指纹；Log 断言新提交 subject 经 bridge 重新读取后可见，补齐 M2 §5.9 的 GUI action wiring 证据。
 
+## M2 §5.9 门禁关闭（2026-11-08）
+
+- Rust CI #70（Runner `42395007860`）在 Ubuntu、Windows、macOS 三个平台通过；本地 `cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings` 与 `cargo test --workspace --locked` 均通过。
+- 真实生产 bridge 已验证 Open → Status → Stage → Commit → Create/Checkout Branch → Log，并以 Journal 与权威 HEAD/Index 指纹确认终态；跨平台 fixture 写入仓库本地 Git 身份，避免依赖 Runner 全局配置。
+- M2 §5.9 “Stage、Commit、Branch 与 Log” 门禁现已关闭；Branch Popup 当前只投影当前分支，完整 BranchReader 分支列表留待后续节点，不虚构未交付能力。
+
 ## M2 UI-009 Git Log Table 基础列（2026-11-08）
 
 - Workbench Git Log panel 现在展示 Graph lane/OID、Subject、Author、Timestamp 四列，复用 `git-log-ui::LogRow` 纯投影，不为每个 Commit 创建长期 GPUI Entity。
