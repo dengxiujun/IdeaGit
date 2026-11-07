@@ -482,6 +482,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `credential-broker` 新增无 Shell 的 `AskPassCredentialBroker`：受限输出、超时、显式 Host Confirmation、拒绝/取消/无效提示分类；凭据内容不进入诊断或 Journal。
 - Rust CI #71（Runner `42396300265`）在 Ubuntu、Windows、macOS 三个平台通过；本地 workspace check/clippy/test 全部通过。
 
+## M3 REMOTE-001 Remote Config / Fetch（2026-11-08）
+
+- `git-ports` 新增 `RemoteReader` 与 `RemoteWriter`；`git-domain` 新增不含凭据的 `RemoteConfig`，保留原始 URL 字节语义。
+- `git-cli` 新增 typed `GitCliRemoteAdapter`：通过 `git config --null --get-regexp` 读取 remote URL，并通过无 Shell 的 `git fetch --no-prune` 执行 Fetch；Push 在该节点明确返回 `UnsupportedFeature`。
+- 真实 fixture 覆盖本地 bare remote 的 Remote Config 读取与 Fetch；Rust CI #72（Runner `42397556262`）三平台通过。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。
