@@ -57,11 +57,13 @@ impl<R: ProcessRunner> RemoteWriter for GitCliRemoteAdapter<R> {
         command: RemoteCommand,
         context: ExecutionContext,
     ) -> GitResult<()> {
-        let RemoteCommand::Fetch { remote } = command else {
-            return Err(GitError::new(
-                GitErrorKind::UnsupportedFeature,
-                "Git remote writer does not support Push yet",
-            ));
+        let (remote, branch, force_with_lease, push) = match command {
+            RemoteCommand::Fetch { remote } => (remote, None, false, false),
+            RemoteCommand::Push {
+                remote,
+                branch,
+                force_with_lease,
+            } => (remote, branch, force_with_lease, true),
         };
         let cwd = self
             .location
@@ -70,7 +72,16 @@ impl<R: ProcessRunner> RemoteWriter for GitCliRemoteAdapter<R> {
             .to_path_buf();
         let output = self
             .executor
-            .execute(RemoteMutation { cwd, remote }, context)
+            .execute(
+                RemoteMutation {
+                    cwd,
+                    remote,
+                    branch,
+                    force_with_lease,
+                    push,
+                },
+                context,
+            )
             .await?;
         if output.success {
             Ok(())
@@ -158,14 +169,29 @@ impl sealed::Sealed for RemoteConfigCommand {
 struct RemoteMutation {
     cwd: PathBuf,
     remote: Option<RefName>,
+    branch: Option<RefName>,
+    force_with_lease: bool,
+    push: bool,
 }
 impl GitCliCommand for RemoteMutation {}
 impl sealed::Sealed for RemoteMutation {
     fn into_invocation(self) -> GitCliInvocation {
-        let mut args = vec![OsString::from("fetch"), OsString::from("--no-prune")];
+        let is_push = self.push;
+        let mut args = if is_push {
+            vec![OsString::from("push")]
+        } else {
+            vec![OsString::from("fetch"), OsString::from("--no-prune")]
+        };
+        if self.force_with_lease {
+            args.push(OsString::from("--force-with-lease"));
+        }
         match self.remote {
             Some(remote) => args.push(OsString::from(remote.display_lossy().into_owned())),
+            None if is_push => {}
             None => args.push(OsString::from("--all")),
+        }
+        if let Some(branch) = self.branch {
+            args.push(OsString::from(branch.display_lossy().into_owned()));
         }
         GitCliInvocation::new(None, args).with_cwd(self.cwd)
     }
@@ -240,5 +266,37 @@ mod tests {
             )
             .await
             .expect("fetch should succeed");
+    }
+
+    #[tokio::test]
+    async fn pushes_a_real_local_commit_without_force() {
+        let fixture = TestRepository::init().expect("fixture should initialize");
+        fixture.commit_file("base.txt", b"base\n").expect("commit");
+        let remote = fixture
+            .create_local_remote()
+            .expect("local remote should initialize");
+        fixture
+            .commit_file("next.txt", b"next\n")
+            .expect("local commit should succeed");
+        let (progress, _) = mpsc::channel(4);
+        let context = ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress);
+        let location = GitCliRepositoryReader::new(TokioProcessRunner)
+            .discover(fixture.worktree.clone(), context.clone())
+            .await
+            .expect("repository should be discovered");
+        let adapter = GitCliRemoteAdapter::new(TokioProcessRunner, location);
+        adapter
+            .apply(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                RemoteCommand::Push {
+                    remote: Some(RefName::new(b"origin".to_vec()).expect("remote name")),
+                    branch: Some(RefName::new(b"main".to_vec()).expect("branch name")),
+                    force_with_lease: false,
+                },
+                context,
+            )
+            .await
+            .expect("push should succeed");
+        assert!(remote.path().is_dir());
     }
 }
