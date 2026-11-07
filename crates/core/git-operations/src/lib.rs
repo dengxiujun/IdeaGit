@@ -365,8 +365,8 @@ pub enum CoordinatorError {
 mod tests {
     use super::*;
     use git_domain::{
-        CommitOptions, RepoPath, RepositoryId, SessionTarget, SigningMode, SnapshotRevision,
-        StandardCommitRequest, WorktreeId,
+        BranchCommand, CommitOptions, RefName, RepoPath, RepositoryId, SessionTarget, SigningMode,
+        SnapshotRevision, StandardCommitRequest, WorktreeId,
     };
     use git_ports::IndexMutation;
     use std::sync::Arc;
@@ -409,6 +409,23 @@ mod tests {
                     .expect("test OID should be valid"),
                 parents: Vec::new(),
             })
+        }
+    }
+
+    struct RecordingBranchWriter {
+        seen: Arc<std::sync::Mutex<usize>>,
+    }
+
+    #[async_trait]
+    impl BranchWriter for RecordingBranchWriter {
+        async fn apply(
+            &self,
+            _target: SessionTarget,
+            _command: BranchCommand,
+            _context: ExecutionContext,
+        ) -> GitResult<()> {
+            *self.seen.lock().expect("test mutex should not poison") += 1;
+            Ok(())
         }
     }
 
@@ -589,6 +606,28 @@ mod tests {
             )
             .await
             .expect("commit should map");
+        assert_eq!(*seen.lock().expect("test mutex should not poison"), 1);
+    }
+
+    #[tokio::test]
+    async fn branch_executor_maps_typed_branch_command() {
+        let seen = Arc::new(std::sync::Mutex::new(0));
+        let executor = BranchOperationExecutor::new(RecordingBranchWriter {
+            seen: Arc::clone(&seen),
+        });
+        let (progress, _) = mpsc::channel(2);
+        executor
+            .execute(
+                GitCommand::Branch {
+                    target: target(),
+                    command: BranchCommand::Create {
+                        name: RefName::new(b"feature".to_vec()).expect("valid branch name"),
+                    },
+                },
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect("branch should map");
         assert_eq!(*seen.lock().expect("test mutex should not poison"), 1);
     }
 }
