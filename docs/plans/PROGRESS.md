@@ -492,7 +492,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 
 - `GitCliRemoteAdapter` 已支持 typed `RemoteCommand::Push`，参数仅由已验证的 remote/branch `RefName` 生成，并保留 `--force-with-lease` 语义；失败映射为结构化 `NetworkFailure`，不泄露远端 stderr。
 - 真实 fixture 覆盖本地 bare remote 的正常 Push；Rust CI #73（Runner `42398537373`）三平台通过。
-- Push Preview、远端 OID 预期值和 outgoing CommitSummary 尚未宣称完成，作为 REMOTE-003 的后续小切片继续实现。
+
+## M3 REMOTE-003 Push Preview（2026-11-08）
+
+- `PushPreviewReader` 通过 typed `git push --dry-run --porcelain` 生成 Push 预览，支持 `Normal` 与 `ForceWithLease` 模式，并保留 remote/source/destination ref 身份。
+- 真实 fixture 验证预览不会执行 Push，且能识别本地分支与远端目标；Rust CI #74（Runner `42399662026`）在 Ubuntu、Windows、macOS 三个平台通过。
+- 当前安全限制已明确：Git porcelain 输出的旧 OID 可能是缩写值，解析器不会把缩写误当作完整预期 OID；`outgoing` 暂为空，完整 CommitSummary 列表与远端完整 OID 读取仍需后续切片补齐。
 
 ## GIT-001 Stage / Unstage（2026-11-07）
 
