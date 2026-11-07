@@ -2,7 +2,7 @@
 
 - 日期：2026-11-07
 - 任务：UI-004
-- 当前状态：当前 macOS 实现及 Workspace 全量门禁通过；本提交三平台 CI 待执行
+- 当前状态：本机 Workspace 全量门禁与 Rust CI #20 三平台门禁均通过
 
 ## 1. 范围与架构边界
 
@@ -51,4 +51,4 @@ Repository Discovery → Registry.open → Session view
 - 当前只投影一个显式打开的 repository；多 repository tab 生命周期、切换/关闭由后续 UI 工作补齐。
 - 这一次刷新不持有持续 Scheduler/Watcher；UI-005 与 §4.7 E2E 会将 CORE-008 的 Watcher/Refresh 持续绑定到打开会话。
 - 没有实现 Stage/Unstage 或 Commit，不能以本任务声称 M2 写操作就绪。
-- Windows/Linux 的实际 Git 路径 discovery、窗口 smoke 与 projection 仍等待本提交 CI；真实多显示器、IME、DPI 属于平台 QA。
+- [Rust CI #20](https://github.com/dengxiujun/IdeaGit/actions/runs/42343244836) 已在 Windows Server 2022、macOS 15 与 Ubuntu 24.04 完成 Format、locked check、Clippy 与 Workspace tests；真实多显示器、IME、DPI 仍属于平台 QA。

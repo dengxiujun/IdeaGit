@@ -62,21 +62,21 @@ fn main() -> ExitCode {
 
             if let Some(path) = initial_repository {
                 let controller = opened.controller;
-                let (sender, receiver) = tokio::sync::oneshot::channel();
+                let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
                 std::thread::spawn(move || {
                     let result = tokio::runtime::Builder::new_multi_thread()
                         .enable_all()
                         .build()
                         .map_err(|error| format!("failed to start Git runtime: {error}"))
-                        .and_then(|runtime| runtime.block_on(load_repository_chrome(path)));
-                    let _ = sender.send(result);
-                });
-                cx.spawn(async move |cx| match receiver.await {
-                    Ok(Ok(model)) => {
-                        cx.update(|cx| controller.set_repository_chrome(model, cx));
+                        .and_then(|runtime| runtime.block_on(run_repository_bridge(path, sender)));
+                    if let Err(error) = result {
+                        eprintln!("IdeaGit repository bridge stopped: {error}");
                     }
-                    Ok(Err(error)) => eprintln!("failed to open IdeaGit repository: {error}"),
-                    Err(_) => eprintln!("IdeaGit repository loader stopped unexpectedly"),
+                });
+                cx.spawn(async move |cx| {
+                    while let Some(model) = receiver.recv().await {
+                        cx.update(|cx| controller.set_repository_model(model, cx));
+                    }
                 })
                 .detach();
             }
@@ -111,16 +111,17 @@ fn main() -> ExitCode {
     }
 }
 
-async fn load_repository_chrome(
+async fn run_repository_bridge(
     path: PathBuf,
-) -> Result<git_ui_model::RepositoryChromeModel, String> {
+    sender: tokio::sync::mpsc::UnboundedSender<git_ui_model::RepositoryWorkbenchModel>,
+) -> Result<(), String> {
     use git_ports::RepositoryReader as _;
 
-    let cancellation = tokio_util::sync::CancellationToken::new();
+    let discovery_cancellation = tokio_util::sync::CancellationToken::new();
     let (progress, _progress_receiver) = tokio::sync::mpsc::channel(16);
     let context = git_ports::ExecutionContext::new(
         git_domain::OperationId::new(),
-        cancellation.clone(),
+        discovery_cancellation,
         progress,
     );
     let location = git_cli::GitCliRepositoryReader::new(git_cli::TokioProcessRunner)
@@ -134,27 +135,54 @@ async fn load_repository_chrome(
     let session = registry
         .session(handle.target())
         .map_err(|error| error.to_string())?;
-    let snapshot = git_application::SnapshotRefreshService::new(
-        git_cli::GitCliHeadReader::new(git_cli::TokioProcessRunner),
-        git_cli::GitCliStatusReader::new(git_cli::TokioProcessRunner),
-    )
-    .refresh(
+    let cancellation = registry
+        .cancellation_token(handle.target())
+        .map_err(|error| error.to_string())?;
+    let scheduler = git_application::RefreshScheduler::start(
+        git_application::SnapshotRefreshService::new(
+            git_cli::GitCliHeadReader::new(git_cli::TokioProcessRunner),
+            git_cli::GitCliStatusReader::new(git_cli::TokioProcessRunner),
+        ),
         handle.target(),
-        &location,
-        git_domain::SnapshotRevision::INITIAL,
-        cancellation,
+        location.clone(),
+        cancellation.clone(),
+        git_application::RefreshSchedulerConfig::default(),
     )
-    .await
     .map_err(|error| error.to_string())?;
-    let refresh = git_application::RefreshState {
-        target: handle.target(),
-        health: git_application::RefreshHealth::Ready,
-        snapshot: Some(Arc::new(snapshot)),
-        last_error: None,
+    let mut refresh = scheduler.subscribe();
+    let mut watcher = repository_watcher::RepositoryWatch::start(&location, 32)
+        .map_err(|error| error.to_string())?;
+    let result = loop {
+        let model =
+            git_ui_model::RepositoryWorkbenchModel::single_session(&session, &refresh.borrow());
+        if sender.send(model).is_err() {
+            break Ok(());
+        }
+        tokio::select! {
+            changed = refresh.changed() => {
+                if changed.is_err() {
+                    break Ok(());
+                }
+            }
+            signal = watcher.recv() => match signal {
+                Some(repository_watcher::WatchSignal::Changed) => {
+                    scheduler.request(git_application::RefreshTrigger::FilesystemChanged);
+                }
+                Some(repository_watcher::WatchSignal::RescanRequired) | None => {
+                    scheduler.request(git_application::RefreshTrigger::RescanRequired);
+                }
+            },
+            () = sender.closed() => break Ok(()),
+            () = cancellation.cancelled() => break Ok(()),
+        }
     };
-    Ok(git_ui_model::RepositoryChromeModel::single_session(
-        &session, &refresh,
-    ))
+    cancellation.cancel();
+    scheduler
+        .join()
+        .await
+        .map_err(|error| format!("repository refresh task failed: {error}"))?;
+    drop(handle);
+    result
 }
 
 fn load_layout(path: &Path) -> Option<git_workbench::WorkbenchLayout> {
@@ -275,20 +303,100 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn real_repository_projects_current_branch_into_workbench_chrome() {
+    async fn external_git_edit_refreshes_the_workbench_changes_model() {
         let repository =
             git_fixture::TestRepository::init().expect("real Git fixture should initialize");
         repository
             .commit_file("tracked.txt", b"content\n")
             .expect("fixture commit should succeed");
+        repository
+            .write_file("unstaged.txt", b"worktree\n")
+            .expect("worktree file should be written");
+        repository
+            .stage_file("unstaged.txt")
+            .expect("new file should be staged");
+        repository
+            .write_file("mixed.txt", b"index version\n")
+            .expect("mixed file should be written");
+        repository
+            .stage_file("mixed.txt")
+            .expect("mixed file should be staged");
+        repository
+            .write_file("mixed.txt", b"worktree version\n")
+            .expect("mixed file should change after staging");
+        repository
+            .write_file("untracked.txt", b"untracked\n")
+            .expect("untracked file should be written");
 
-        let model = load_repository_chrome(repository.worktree.clone())
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let bridge = tokio::spawn(run_repository_bridge(repository.worktree.clone(), sender));
+        let model = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let model = receiver
+                    .recv()
+                    .await
+                    .expect("bridge should publish a model");
+                if model.chrome.status.message == "Ready" {
+                    break model;
+                }
+            }
+        })
+        .await
+        .expect("initial snapshot should reach the workbench");
+        assert_eq!(model.chrome.tabs.len(), 1);
+        assert_eq!(model.chrome.tabs[0].title, "worktree");
+        assert_eq!(model.chrome.tabs[0].branch, "main");
+        assert_eq!(model.chrome.status.message, "Ready");
+        assert!(model.chrome.status.revision.is_some());
+        let paths = |group| {
+            model
+                .changes
+                .group(group)
+                .expect("fixed group should exist")
+                .entries
+                .iter()
+                .map(|entry| entry.path.display_lossy().into_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            paths(git_ui_model::ChangeGroup::Staged),
+            vec!["mixed.txt", "unstaged.txt"]
+        );
+        assert_eq!(
+            paths(git_ui_model::ChangeGroup::Unstaged),
+            vec!["mixed.txt"]
+        );
+        assert_eq!(
+            paths(git_ui_model::ChangeGroup::Untracked),
+            vec!["untracked.txt"]
+        );
+        repository
+            .write_file("external.txt", b"external edit\n")
+            .expect("external Git edit should be written");
+        let refreshed = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let model = receiver.recv().await.expect("bridge should remain live");
+                let untracked = model
+                    .changes
+                    .group(git_ui_model::ChangeGroup::Untracked)
+                    .expect("fixed group should exist");
+                if untracked
+                    .entries
+                    .iter()
+                    .any(|entry| entry.path.display_lossy() == "external.txt")
+                {
+                    break model;
+                }
+            }
+        })
+        .await
+        .expect("watcher refresh should reach the workbench");
+        assert_eq!(refreshed.chrome.status.message, "Ready");
+        drop(receiver);
+        tokio::time::timeout(Duration::from_secs(10), bridge)
             .await
-            .expect("repository should open and refresh");
-        assert_eq!(model.tabs.len(), 1);
-        assert_eq!(model.tabs[0].title, "worktree");
-        assert_eq!(model.tabs[0].branch, "main");
-        assert_eq!(model.status.message, "Ready");
-        assert!(model.status.revision.is_some());
+            .expect("bridge should stop after UI receiver closes")
+            .expect("bridge task should not panic")
+            .expect("bridge should stop cleanly");
     }
 }

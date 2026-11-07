@@ -1,7 +1,152 @@
 //! Shared UI projections, selections, actions, and asynchronous request identities.
 
 use git_application::{RefreshHealth, RefreshState, RepositorySessionView};
-use git_domain::{HeadState, SessionTarget, SnapshotRevision};
+use git_domain::{
+    ChangeKind, HeadState, RepoPath, RepositorySnapshot, SessionTarget, SnapshotRevision,
+};
+
+/// Immutable source selected by a read-only change-tree entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ChangeContentSource {
+    /// The Index differs from `HEAD`.
+    Index,
+    /// The worktree differs from the Index.
+    Worktree,
+}
+
+/// A top-level section of the read-only Changes tree.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ChangeGroup {
+    Staged,
+    Unstaged,
+    Untracked,
+}
+
+impl ChangeGroup {
+    /// Localized section title rendered by the first workbench slice.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Staged => "Staged",
+            Self::Unstaged => "Unstaged",
+            Self::Untracked => "Untracked",
+        }
+    }
+}
+
+/// One file entry in a Changes tree section.
+///
+/// The raw [`RepoPath`] is retained so later selection and action slices do not have to recover
+/// repository identity from a lossy display string.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChangeTreeEntry {
+    pub path: RepoPath,
+    pub original_path: Option<RepoPath>,
+    pub source: ChangeContentSource,
+    pub change_kind: ChangeKind,
+    pub conflicted: bool,
+}
+
+/// One stable group and its Git-output-order entries.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChangeTreeGroup {
+    pub kind: ChangeGroup,
+    pub entries: Vec<ChangeTreeEntry>,
+}
+
+/// Read-only projection of one immutable repository snapshot.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChangesTreeModel {
+    pub target: Option<SessionTarget>,
+    pub revision: Option<SnapshotRevision>,
+    pub groups: Vec<ChangeTreeGroup>,
+}
+
+impl Default for ChangesTreeModel {
+    fn default() -> Self {
+        Self {
+            target: None,
+            revision: None,
+            groups: [
+                ChangeGroup::Staged,
+                ChangeGroup::Unstaged,
+                ChangeGroup::Untracked,
+            ]
+            .into_iter()
+            .map(|kind| ChangeTreeGroup {
+                kind,
+                entries: Vec::new(),
+            })
+            .collect(),
+        }
+    }
+}
+
+impl ChangesTreeModel {
+    /// Projects Index, worktree, and untracked state without changing any Git state.
+    ///
+    /// A path modified on both sides deliberately occurs in both the Staged and Unstaged groups:
+    /// they compare different Git content sources and are not interchangeable check states.
+    #[must_use]
+    pub fn from_snapshot(target: SessionTarget, snapshot: &RepositorySnapshot) -> Self {
+        let mut model = Self {
+            target: Some(target),
+            revision: Some(snapshot.revision),
+            ..Self::default()
+        };
+        for change in &snapshot.changes {
+            if change.is_staged()
+                && let Some(group) = model.group_mut(ChangeGroup::Staged)
+            {
+                group.entries.push(ChangeTreeEntry {
+                    path: change.path.clone(),
+                    original_path: change.original_path.clone(),
+                    source: ChangeContentSource::Index,
+                    change_kind: change.index_status,
+                    conflicted: change.is_conflicted(),
+                });
+            }
+            if change.is_unstaged()
+                && let Some(group) = model.group_mut(ChangeGroup::Unstaged)
+            {
+                group.entries.push(ChangeTreeEntry {
+                    path: change.path.clone(),
+                    original_path: change.original_path.clone(),
+                    source: ChangeContentSource::Worktree,
+                    change_kind: change.worktree_status,
+                    conflicted: change.is_conflicted(),
+                });
+            }
+        }
+        if let Some(untracked) = model.group_mut(ChangeGroup::Untracked) {
+            untracked
+                .entries
+                .extend(
+                    snapshot
+                        .untracked
+                        .iter()
+                        .cloned()
+                        .map(|path| ChangeTreeEntry {
+                            path,
+                            original_path: None,
+                            source: ChangeContentSource::Worktree,
+                            change_kind: ChangeKind::Added,
+                            conflicted: false,
+                        }),
+                );
+        }
+        model
+    }
+
+    #[must_use]
+    pub fn group(&self, kind: ChangeGroup) -> Option<&ChangeTreeGroup> {
+        self.groups.iter().find(|group| group.kind == kind)
+    }
+
+    fn group_mut(&mut self, kind: ChangeGroup) -> Option<&mut ChangeTreeGroup> {
+        self.groups.iter_mut().find(|group| group.kind == kind)
+    }
+}
 
 /// One repository/worktree tab rendered by the workbench shell.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,6 +174,31 @@ pub struct RepositoryChromeModel {
     pub tabs: Vec<RepositoryTabModel>,
     pub active_target: Option<SessionTarget>,
     pub status: RepositoryStatusModel,
+}
+
+/// All first-slice repository data consumed by the Workbench window.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct RepositoryWorkbenchModel {
+    pub chrome: RepositoryChromeModel,
+    pub changes: ChangesTreeModel,
+}
+
+impl RepositoryWorkbenchModel {
+    /// Projects one session's latest refresh state into all currently visible read-only regions.
+    #[must_use]
+    pub fn single_session(session: &RepositorySessionView, refresh: &RefreshState) -> Self {
+        let target = session.target();
+        let changes = refresh
+            .snapshot
+            .as_ref()
+            .map_or_else(ChangesTreeModel::default, |snapshot| {
+                ChangesTreeModel::from_snapshot(target, snapshot)
+            });
+        Self {
+            chrome: RepositoryChromeModel::single_session(session, refresh),
+            changes,
+        }
+    }
 }
 
 impl Default for RepositoryChromeModel {
@@ -120,8 +290,8 @@ mod tests {
     use git_application::RefreshState;
     use git_application::RepositoryRegistry;
     use git_domain::{
-        ObjectFormat, ObjectId, RefName, RepositorySnapshot, SnapshotConsistency,
-        WorktreeSnapshotState,
+        ChangeKind, FileChange, ObjectFormat, ObjectId, RefName, RepoPath, RepositorySnapshot,
+        SnapshotConsistency, SubmoduleState, WorktreeSnapshotState,
     };
     use git_ports::RepositoryLocation;
 
@@ -200,5 +370,72 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn changes_tree_keeps_mixed_paths_in_both_content_source_groups() {
+        let target = SessionTarget::worktree(
+            git_domain::RepositoryId::new(),
+            git_domain::WorktreeId::new(),
+            1,
+        );
+        let mixed = RepoPath::try_from("mixed.txt").expect("valid repository path");
+        let unstaged = RepoPath::try_from("unstaged.txt").expect("valid repository path");
+        let untracked = RepoPath::try_from("untracked.txt").expect("valid repository path");
+        let change = |path, index_status, worktree_status| FileChange {
+            path,
+            original_path: None,
+            index_status,
+            worktree_status,
+            head_oid: None,
+            index_oid: None,
+            head_mode: None,
+            index_mode: None,
+            worktree_mode: None,
+            submodule: SubmoduleState::NOT_SUBMODULE,
+            similarity: None,
+            conflict: None,
+        };
+        let snapshot = RepositorySnapshot {
+            repository: target.repository(),
+            worktree: target.worktree_id(),
+            revision: SnapshotRevision::new(7),
+            head: HeadState::Detached { oid: oid() },
+            operation: None,
+            changes: vec![
+                change(mixed.clone(), ChangeKind::Modified, ChangeKind::Modified),
+                change(unstaged, ChangeKind::Unmodified, ChangeKind::Deleted),
+            ],
+            untracked: vec![untracked],
+            ahead: None,
+            behind: None,
+            worktree_state: WorktreeSnapshotState::Available,
+            consistency: SnapshotConsistency::Consistent,
+        };
+
+        let model = ChangesTreeModel::from_snapshot(target, &snapshot);
+        let paths = |group| {
+            model
+                .group(group)
+                .expect("fixed group should exist")
+                .entries
+                .iter()
+                .map(|entry| entry.path.display_lossy().into_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(paths(ChangeGroup::Staged), vec!["mixed.txt"]);
+        assert_eq!(
+            paths(ChangeGroup::Unstaged),
+            vec!["mixed.txt", "unstaged.txt"]
+        );
+        assert_eq!(paths(ChangeGroup::Untracked), vec!["untracked.txt"]);
+        assert_eq!(
+            model
+                .group(ChangeGroup::Staged)
+                .expect("fixed group should exist")
+                .entries[0]
+                .source,
+            ChangeContentSource::Index
+        );
     }
 }

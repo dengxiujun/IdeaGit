@@ -2,7 +2,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use git_ui_model::RepositoryChromeModel;
+use git_ui_model::{ChangesTreeModel, RepositoryWorkbenchModel};
 use git_workbench::{PanelKind, WorkbenchLayout};
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::dock::{
@@ -68,16 +68,20 @@ pub struct OpenedWorkbench {
     pub controller: WorkbenchController,
 }
 
-/// Sends Repository Tab/StatusBar projections to the workbench entity.
+/// Sends repository projections to the workbench entity on the UI thread.
 #[derive(Clone)]
 pub struct WorkbenchController {
     view: Entity<WorkbenchWindow>,
 }
 
 impl WorkbenchController {
-    pub fn set_repository_chrome(&self, model: RepositoryChromeModel, cx: &mut App) {
+    pub fn set_repository_model(&self, model: RepositoryWorkbenchModel, cx: &mut App) {
         self.view.update(cx, |view, cx| {
-            view.repository_chrome = model;
+            view.repository_chrome = model.chrome;
+            view.commit_panel.update(cx, |panel, cx| {
+                panel.changes = model.changes;
+                cx.notify();
+            });
             cx.notify();
         });
     }
@@ -123,7 +127,8 @@ struct WorkbenchWindow {
     layout_save: Arc<dyn Fn(WorkbenchLayout) + Send + Sync>,
     layout_generation: u64,
     _layout_subscription: Subscription,
-    repository_chrome: RepositoryChromeModel,
+    repository_chrome: git_ui_model::RepositoryChromeModel,
+    commit_panel: Entity<WorkbenchPanel>,
 }
 
 impl WorkbenchWindow {
@@ -139,7 +144,7 @@ impl WorkbenchWindow {
         dock_area.update(cx, |area, cx| {
             area.set_center(
                 DockLayout::tabs()
-                    .panel_view(panel_handle(commit), cx)
+                    .panel_view(panel_handle(commit.clone()), cx)
                     .panel_view(panel_handle(log), cx)
                     .panel_view(panel_handle(diff), cx),
                 window,
@@ -195,7 +200,8 @@ impl WorkbenchWindow {
             layout_save: layout_io.save,
             layout_generation: 0,
             _layout_subscription: layout_subscription,
-            repository_chrome: RepositoryChromeModel::default(),
+            repository_chrome: git_ui_model::RepositoryChromeModel::default(),
+            commit_panel: commit,
         }
     }
 }
@@ -276,6 +282,7 @@ impl Render for WorkbenchWindow {
 struct WorkbenchPanel {
     kind: PanelKind,
     focus: FocusHandle,
+    changes: ChangesTreeModel,
 }
 
 impl WorkbenchPanel {
@@ -283,6 +290,7 @@ impl WorkbenchPanel {
         cx.new(|cx| Self {
             kind,
             focus: cx.focus_handle(),
+            changes: ChangesTreeModel::default(),
         })
     }
 }
@@ -313,6 +321,42 @@ impl Focusable for WorkbenchPanel {
 
 impl Render for WorkbenchPanel {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        if self.kind == PanelKind::Commit {
+            return div()
+                .flex()
+                .flex_col()
+                .size_full()
+                .p_3()
+                .gap_2()
+                .child(div().font_semibold().child("Changes"))
+                .children(self.changes.groups.iter().map(|group| {
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(div().text_sm().font_semibold().child(format!(
+                            "{} ({})",
+                            group.kind.label(),
+                            group.entries.len()
+                        )))
+                        .children(group.entries.iter().map(|entry| {
+                            let original = entry
+                                .original_path
+                                .as_ref()
+                                .map_or_else(String::new, |path| {
+                                    format!(" ← {}", path.display_lossy())
+                                });
+                            let conflict = if entry.conflicted { " · conflict" } else { "" };
+                            div().pl_3().text_sm().child(format!(
+                                "{} · {:?}{}{}",
+                                entry.path.display_lossy(),
+                                entry.change_kind,
+                                original,
+                                conflict
+                            ))
+                        }))
+                }));
+        }
         div()
             .flex()
             .size_full()

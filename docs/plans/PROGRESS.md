@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003/004/005/006/007/008、UI-003 已完成当前平台及三平台 CI 验证；UI-004 Repository Tabs / StatusBar 已在当前 macOS 通过专项及 Workspace 全量门禁，等待本提交三平台 CI。Read-only Changes Tree 继续由 UI-005 实施。
+M0 已完成。M1 Git Read Core 与 Workbench 的实现、真实 Git 端到端验证及本机全量门禁已完成：CORE-001/002/003/004/005/006/007/008、UI-003/004 已完成三平台 CI 验证；UI-005 与 M1 §4.7 等待本提交三平台 CI 关闭最终平台门禁。
 
 ## 已完成的文档工作
 
@@ -39,14 +39,22 @@ M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003/00
 
 ## 下一步
 
-UI-004 三平台 CI 通过后，按依赖 DAG 实施 UI-005 Read-only Changes Tree；完成后执行 M1 §4.7 首条端到端门禁。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+等待 UI-005 三平台 CI 后关闭 M1。之后按依赖 DAG 进入 M2 的 CORE-009 强类型 GitCommand；仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+
+## UI-005 Read-only Changes Tree / M1 §4.7（2026-11-07）
+
+- `git-ui-model` 新增固定 Staged、Unstaged、Untracked 分组的只读 Changes projection，保留 `SessionTarget`、Snapshot revision 与原始 `RepoPath`。同一文件的 Index 与 Worktree 均变化时同时进入两个分组，未将真实 Index 语义伪装为 Checkbox。
+- Commit Dock panel 使用 `WorkbenchController` 接收模型并显示三组文件及状态；Shell 不依赖 `git-cli`，不会发起 Stage/Unstage 或其他写入。
+- desktop composition root 将 Discovery、Registry Session、RepositoryWatch 与 RefreshScheduler 连成持续 bridge。每次最新 Snapshot 都回送 GPUI UI 线程；UI receiver 关闭时取消 session 并收束 scheduler。
+- 真实 Git fixture 覆盖 staged、unstaged、mixed、untracked 的投影，以及外部写入 `external.txt` 后 Watcher → Refresh → Workbench 模型更新，满足 IP-001 §4.7 的应用数据链路。
+- 本机专项检查、Workspace 全量 fmt/check/clippy/test 与原生窗口 smoke 已通过；本提交三平台 CI 仍待推送后验证。详见 [UI-005-VERIFICATION-001](../reviews/UI-005-VERIFICATION-001.md)。
 
 ## UI-004 Repository Tabs / StatusBar（2026-11-07）
 
 - `git-ui-model` 新增从 `RepositorySessionView + RefreshState` 到 Repository Tab/StatusBar 的纯投影：仓库显示名、SessionTarget、当前分支、ahead/behind、Snapshot revision 与 Pending/Ready/Degraded 均保留且不猜测成功。
 - Shell 增加 typed `WorkbenchController`；后台结果只通过 GPUI 调度更新窗口 Entity，UI crate 不依赖 `git-cli`。
 - desktop composition root 支持 `IDEAGIT_OPEN_REPOSITORY` 打开路径：在后台 Tokio runtime 执行 CORE-002 Discovery、CORE-007 Session、CORE-008 guarded refresh，再投影到 Shell；该变量同时用于自动化 E2E，默认不擅自打开目录。
-- 当前 macOS 已通过 2 个 projection 测试、真实隔离 Git fixture 集成测试、实际桌面窗口 smoke 与专项 Clippy；三平台 CI 待本提交推送后执行。
+- 当前 macOS 已通过 2 个 projection 测试、真实隔离 Git fixture 集成测试、实际桌面窗口 smoke 与专项 Clippy；[Rust CI #20](https://github.com/dengxiujun/IdeaGit/actions/runs/42343244836) 已在 Windows Server 2022、macOS 15 与 Ubuntu 24.04 全部通过。
 - UI-004 不实现多 tab 交互/关闭、持续 Watcher 订阅或 Changes Tree，分别留给后续 UI/M1 集成。详细结果见 [UI-004-VERIFICATION-001](../reviews/UI-004-VERIFICATION-001.md)。
 
 ## UI-003 Workbench Shell / DockArea（2026-11-07）
