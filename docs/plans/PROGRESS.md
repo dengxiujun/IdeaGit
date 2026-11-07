@@ -238,3 +238,10 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 未知结果不会自动重试或修改 Git 状态；调用方必须进入人工检查/后续恢复流程，符合“不确定结果不得自动重试”的安全约束。
 - 新增 3 个正常/失败路径测试，覆盖未执行、提交后 Index 需要协调和冲突状态；专项 `git-operations` 测试已通过。
 - 详细结果见 [RECOVERY-000-VERIFICATION-001](../reviews/RECOVERY-000-VERIFICATION-001.md)；下一步进入 `GIT-001` Stage/Unstage。
+
+## GIT-001 Stage / Unstage（2026-11-07）
+
+- `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。
+- 空路径在进程启动前拒绝；普通路径和包含 glob 字符的路径均作为 literal `RepoPath` 传递，后续 CLI 适配器必须使用 `--` 和 literal pathspec 策略。
+- 新增正常/失败路径端口测试；当前专项测试通过。真实 Git `add`/`restore --staged`、锁与 Snapshot reconcile 将在本任务后续切片接入。
+- 详细结果见 [GIT-001-VERIFICATION-001](../reviews/GIT-001-VERIFICATION-001.md)。
