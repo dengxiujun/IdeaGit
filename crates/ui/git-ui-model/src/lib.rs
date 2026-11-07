@@ -251,6 +251,27 @@ pub trait ActionDispatcher: Send + Sync {
     fn dispatch(&self, request: ActionRequest) -> Result<(), String>;
 }
 
+/// Small composition-root adapter for forwarding actions to a background consumer.
+#[derive(Clone)]
+pub struct ChannelActionDispatcher {
+    sender: std::sync::mpsc::Sender<ActionRequest>,
+}
+
+impl ChannelActionDispatcher {
+    #[must_use]
+    pub fn new(sender: std::sync::mpsc::Sender<ActionRequest>) -> Self {
+        Self { sender }
+    }
+}
+
+impl ActionDispatcher for ChannelActionDispatcher {
+    fn dispatch(&self, request: ActionRequest) -> Result<(), String> {
+        self.sender
+            .send(request)
+            .map_err(|_| "action consumer is unavailable".to_owned())
+    }
+}
+
 /// Converts the file-based first-slice actions into the shared Git command contract.
 pub fn to_git_command(request: &ActionRequest) -> Result<GitCommand, String> {
     let target = request
@@ -636,5 +657,24 @@ mod tests {
             to_git_command(&request),
             Ok(GitCommand::StageFiles { target: actual, .. }) if actual == target
         ));
+    }
+
+    #[test]
+    fn channel_dispatcher_reports_closed_consumer() {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let dispatcher = ChannelActionDispatcher::new(sender);
+        let request = ActionRequest {
+            action: ActionId::Stage,
+            context: ActionContext::default(),
+        };
+        assert!(dispatcher.dispatch(request.clone()).is_ok());
+        assert_eq!(receiver.recv().expect("request should arrive"), request);
+        drop(receiver);
+        assert_eq!(
+            dispatcher
+                .dispatch(request)
+                .expect_err("closed channel should fail"),
+            "action consumer is unavailable"
+        );
     }
 }
