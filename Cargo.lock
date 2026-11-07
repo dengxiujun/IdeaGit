@@ -2120,8 +2120,13 @@ dependencies = [
 name = "git-operations"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "git-commit",
+ "git-domain",
  "git-ports",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
