@@ -6,11 +6,12 @@ use git_domain::{
     GitError, GitErrorKind, GitResult, OperationId, RepositorySnapshot, SessionTarget,
     SnapshotBuilder, SnapshotRead, SnapshotRevision,
 };
+use git_operations::SnapshotRebuilder;
 use git_ports::{
     BranchReader, ExecutionContext, HeadReader, RepositoryLocation, StatusOptions, StatusReader,
 };
 use tokio::{
-    sync::{mpsc, watch},
+    sync::{mpsc, oneshot, watch},
     task::JoinHandle,
     time::{Instant, MissedTickBehavior},
 };
@@ -131,9 +132,89 @@ where
 /// Handle for a running coalescing refresh loop.
 #[derive(Debug)]
 pub struct RefreshScheduler {
-    trigger: mpsc::Sender<RefreshTrigger>,
+    trigger: mpsc::Sender<RefreshRequest>,
     state: watch::Receiver<RefreshState>,
     task: JoinHandle<()>,
+}
+
+struct RefreshRequest {
+    _trigger: RefreshTrigger,
+    completion: Option<oneshot::Sender<GitResult<RepositorySnapshot>>>,
+}
+
+/// Operation-scoped handle that completes only after its requested authoritative refresh.
+#[derive(Clone, Debug)]
+pub struct ScheduledSnapshotRebuilder {
+    target: SessionTarget,
+    trigger: mpsc::Sender<RefreshRequest>,
+}
+
+#[async_trait::async_trait]
+impl SnapshotRebuilder for ScheduledSnapshotRebuilder {
+    #[allow(clippy::result_large_err)]
+    async fn rebuild(
+        &self,
+        target: SessionTarget,
+        context: ExecutionContext,
+    ) -> GitResult<RepositorySnapshot> {
+        if target != self.target {
+            return Err(GitError::new(
+                GitErrorKind::InvalidRepository,
+                "snapshot rebuilder target does not match its repository session",
+            )
+            .with_target(target)
+            .with_operation(context.operation_id));
+        }
+        let (completion, result) = oneshot::channel();
+        let request = RefreshRequest {
+            _trigger: RefreshTrigger::Manual,
+            completion: Some(completion),
+        };
+        tokio::select! {
+            () = context.cancellation.cancelled() => {
+                return Err(rebuild_cancelled(target, context.operation_id));
+            }
+            queued = self.trigger.send(request) => {
+                if queued.is_err() {
+                    return Err(GitError::new(
+                        GitErrorKind::Internal,
+                        "repository refresh scheduler is unavailable",
+                    )
+                    .with_target(target)
+                    .with_operation(context.operation_id));
+                }
+            }
+        }
+        tokio::select! {
+            () = context.cancellation.cancelled() => {
+                Err(rebuild_cancelled(target, context.operation_id))
+            }
+            completed = result => {
+                completed.unwrap_or_else(|_| {
+                    Err(GitError::new(
+                        GitErrorKind::Internal,
+                        "repository refresh scheduler stopped before reconciliation",
+                    )
+                    .with_target(target)
+                    .with_operation(context.operation_id))
+                })
+                .map_err(|error| {
+                    error
+                        .with_target(target)
+                        .with_operation(context.operation_id)
+                })
+            }
+        }
+    }
+}
+
+fn rebuild_cancelled(target: SessionTarget, operation: OperationId) -> GitError {
+    GitError::new(
+        GitErrorKind::Cancelled,
+        "repository reconciliation was cancelled",
+    )
+    .with_target(target)
+    .with_operation(operation)
 }
 
 impl RefreshScheduler {
@@ -172,7 +253,10 @@ impl RefreshScheduler {
             state_sender,
         ));
         task_trigger
-            .try_send(RefreshTrigger::Initial)
+            .try_send(RefreshRequest {
+                _trigger: RefreshTrigger::Initial,
+                completion: None,
+            })
             .map_err(|_| {
                 GitError::new(
                     GitErrorKind::Internal,
@@ -188,13 +272,25 @@ impl RefreshScheduler {
 
     /// Queues a possible-change signal. A full channel is collapsed into the already queued work.
     pub fn request(&self, trigger: RefreshTrigger) {
-        let _ = self.trigger.try_send(trigger);
+        let _ = self.trigger.try_send(RefreshRequest {
+            _trigger: trigger,
+            completion: None,
+        });
     }
 
     /// Subscribes to the latest state only; this is not an event log.
     #[must_use]
     pub fn subscribe(&self) -> watch::Receiver<RefreshState> {
         self.state.clone()
+    }
+
+    /// Creates an operation-scoped writer reconciliation handle for this repository session.
+    #[must_use]
+    pub fn rebuilder(&self) -> ScheduledSnapshotRebuilder {
+        ScheduledSnapshotRebuilder {
+            target: self.state.borrow().target,
+            trigger: self.trigger.clone(),
+        }
     }
 
     /// Waits for the scheduler task after its session cancellation token is cancelled.
@@ -209,7 +305,7 @@ async fn run_scheduler<H, S>(
     location: RepositoryLocation,
     cancellation: CancellationToken,
     config: RefreshSchedulerConfig,
-    mut triggers: mpsc::Receiver<RefreshTrigger>,
+    mut triggers: mpsc::Receiver<RefreshRequest>,
     state: watch::Sender<RefreshState>,
 ) where
     H: HeadReader + BranchReader,
@@ -224,16 +320,31 @@ async fn run_scheduler<H, S>(
     verification.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     loop {
+        let mut completions = Vec::new();
         tokio::select! {
             () = cancellation.cancelled() => break,
             _ = verification.tick() => {},
-            trigger = triggers.recv() => {
-                if trigger.is_none() { break; }
-                tokio::select! {
-                    () = cancellation.cancelled() => break,
-                    () = tokio::time::sleep(config.debounce) => {}
+            request = triggers.recv() => {
+                let Some(request) = request else { break; };
+                if let Some(completion) = request.completion {
+                    completions.push(completion);
                 }
-                while triggers.try_recv().is_ok() {}
+                let cancelled = tokio::select! {
+                    () = cancellation.cancelled() => true,
+                    () = tokio::time::sleep(config.debounce) => false,
+                };
+                if cancelled {
+                    let error = rebuild_cancelled(target, OperationId::new());
+                    for completion in completions {
+                        let _ = completion.send(Err(error.clone()));
+                    }
+                    break;
+                }
+                while let Ok(request) = triggers.try_recv() {
+                    if let Some(completion) = request.completion {
+                        completions.push(completion);
+                    }
+                }
             }
         }
 
@@ -243,6 +354,9 @@ async fn run_scheduler<H, S>(
         {
             Ok(snapshot) => {
                 revision = snapshot.revision;
+                for completion in completions {
+                    let _ = completion.send(Ok(snapshot.clone()));
+                }
                 current = Some(Arc::new(snapshot));
                 state.send_replace(RefreshState {
                     target,
@@ -252,9 +366,15 @@ async fn run_scheduler<H, S>(
                 });
             }
             Err(error) if error.kind == GitErrorKind::Cancelled && cancellation.is_cancelled() => {
+                for completion in completions {
+                    let _ = completion.send(Err(error.clone()));
+                }
                 break;
             }
             Err(error) => {
+                for completion in completions {
+                    let _ = completion.send(Err(error.clone()));
+                }
                 state.send_replace(RefreshState {
                     target,
                     health: RefreshHealth::Degraded,
@@ -470,6 +590,92 @@ mod tests {
             state.borrow().last_error.as_ref().map(|error| error.kind),
             Some(GitErrorKind::InvalidRepository)
         );
+
+        cancellation.cancel();
+        scheduler
+            .join()
+            .await
+            .expect("scheduler should stop cleanly");
+    }
+
+    #[tokio::test]
+    async fn scheduled_rebuilder_waits_for_its_own_authoritative_refresh() {
+        let cancellation = CancellationToken::new();
+        let target = target();
+        let scheduler = RefreshScheduler::start(
+            SnapshotRefreshService::new(
+                FakeHead {
+                    calls: Arc::new(AtomicUsize::new(0)),
+                    fail: false,
+                },
+                FakeStatus {
+                    calls: Arc::new(AtomicUsize::new(0)),
+                },
+            ),
+            target,
+            RepositoryLocation::worktree("repo", "repo/.git", "repo/.git"),
+            cancellation.clone(),
+            config(),
+        )
+        .expect("scheduler should start");
+        let mut state = scheduler.subscribe();
+        tokio::time::timeout(Duration::from_secs(1), state.changed())
+            .await
+            .expect("initial refresh should finish")
+            .expect("state sender should remain open");
+        assert_eq!(
+            state.borrow().snapshot.as_ref().map(|value| value.revision),
+            Some(SnapshotRevision::new(1))
+        );
+
+        let (progress, _receiver) = mpsc::channel(1);
+        let rebuilt = scheduler
+            .rebuilder()
+            .rebuild(
+                target,
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect("scheduled reconciliation should succeed");
+        assert_eq!(rebuilt.revision, SnapshotRevision::new(2));
+
+        cancellation.cancel();
+        scheduler
+            .join()
+            .await
+            .expect("scheduler should stop cleanly");
+    }
+
+    #[tokio::test]
+    async fn scheduled_rebuilder_preserves_refresh_failure() {
+        let cancellation = CancellationToken::new();
+        let target = target();
+        let scheduler = RefreshScheduler::start(
+            SnapshotRefreshService::new(
+                FakeHead {
+                    calls: Arc::new(AtomicUsize::new(0)),
+                    fail: true,
+                },
+                FakeStatus {
+                    calls: Arc::new(AtomicUsize::new(0)),
+                },
+            ),
+            target,
+            RepositoryLocation::worktree("repo", "repo/.git", "repo/.git"),
+            cancellation.clone(),
+            config(),
+        )
+        .expect("scheduler should start");
+        let (progress, _receiver) = mpsc::channel(1);
+        let error = scheduler
+            .rebuilder()
+            .rebuild(
+                target,
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect_err("failed authoritative refresh must fail reconciliation");
+        assert_eq!(error.kind, GitErrorKind::InvalidRepository);
 
         cancellation.cancel();
         scheduler

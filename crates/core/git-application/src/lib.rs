@@ -9,7 +9,7 @@ mod session;
 
 pub use refresh::{
     RefreshHealth, RefreshScheduler, RefreshSchedulerConfig, RefreshState, RefreshTrigger,
-    SnapshotRefreshService,
+    ScheduledSnapshotRebuilder, SnapshotRefreshService,
 };
 pub use session::{
     RepositoryRegistry, RepositorySessionHandle, RepositorySessionView, SessionRegistryError,

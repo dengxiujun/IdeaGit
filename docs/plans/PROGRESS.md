@@ -89,6 +89,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 三类装饰器都只在底层写入与 `SnapshotRebuilder` 权威重读同时成功后返回成功；Commit 保留并返回原始 `CommitOutcome`。
 - 失败路径测试覆盖“Git 写入已成功但重读失败”，三类操作均保留重读器的结构化失败，不向 Coordinator 伪报成功。
 
+## M2 CORE-0015 Scheduler Reconcile Handle（2026-11-07）
+
+- `RefreshScheduler::rebuilder` 派生 operation-scoped `ScheduledSnapshotRebuilder`；写后请求携带一次性响应，只有该请求对应的权威 refresh 完成后才返回 Snapshot。
+- 当已有 refresh 正在执行时，Reconcile 请求留在有界队列等待下一轮，避免把写入前启动的旧 snapshot 错认作写后结果；普通文件系统触发仍按原策略合并。
+- Reconcile 保留 target 校验、取消和底层结构化读取错误；测试覆盖成功产生下一 revision 及权威读取失败透传。
+
 ## UI-006 Desktop Action Queue（2026-11-07）
 
 - desktop 新增 `DesktopActionDispatcher`：将 UI `ActionRequest` 转换为共享 `GitCommand`，通过 Tokio runtime 异步提交 `OperationCoordinator`，避免阻塞 GPUI 线程。
