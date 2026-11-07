@@ -149,6 +149,14 @@ pub enum RemoteCommand {
     },
 }
 
+/// A configured remote without exposing credentials or human-formatted diagnostics.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteConfig {
+    pub name: RefName,
+    pub fetch_url: Vec<u8>,
+    pub push_url: Vec<u8>,
+}
+
 /// Sequencer operation kept separate from ordinary command state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SequencerCommand {

@@ -17,8 +17,9 @@ mod status;
 
 pub use command::{
     BranchCommand, ChangeSelection, CommandValidationError, CommitOptions, EditedIndexSessionId,
-    FileIdentity, FileKind, GitCommand, LineSpan, RemoteCommand, SelectionCommitRequest,
-    SelectionFingerprint, SequencerCommand, SigningMode, StandardCommitRequest,
+    FileIdentity, FileKind, GitCommand, LineSpan, RemoteCommand, RemoteConfig,
+    SelectionCommitRequest, SelectionFingerprint, SequencerCommand, SigningMode,
+    StandardCommitRequest,
 };
 pub use error::{GitError, GitErrorKind, GitResult, RecoveryAction};
 pub use head::{BranchTracking, HeadState};
