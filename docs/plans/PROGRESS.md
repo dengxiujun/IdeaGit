@@ -265,5 +265,6 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 真实 fixture 覆盖创建 feature 分支后切回 main；bare 仓库显式拒绝 Branch 写入。
 - 详细结果见 [GIT-003-VERIFICATION-001](../reviews/GIT-003-VERIFICATION-001.md)。
 - `git-operations` 新增 `CoordinatedBranchWriter`，以 CommonGitDir Refs 锁串行化分支变更；`ReconciledBranchWriter` 在写后重建 Snapshot。
+- `JournaledBranchWriter` 在分支变更前记录 CommitInProgress，随后持久化 Completed 或 RecoveryRequired，保留崩溃审计线索。
 - `ReconciledCommitWriter` 只有在实际提交成功且权威 RepositorySnapshot 重建成功后才返回完整成功结果。
 - 详细结果见 [GIT-001-VERIFICATION-001](../reviews/GIT-001-VERIFICATION-001.md)。

@@ -9,7 +9,7 @@ mod index;
 mod lock;
 mod recovery;
 
-pub use branch::{CoordinatedBranchWriter, ReconciledBranchWriter};
+pub use branch::{CoordinatedBranchWriter, JournaledBranchWriter, ReconciledBranchWriter};
 pub use commit::{
     CommitPreflightState, CommitStateReader, CoordinatedCommitWriter, JournaledCommitWriter,
     PreflightCommitWriter, ReconciledCommitWriter,

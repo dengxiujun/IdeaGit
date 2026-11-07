@@ -2,9 +2,10 @@
 
 use async_trait::async_trait;
 use git_domain::{
-    BranchCommand, GitError, GitErrorKind, GitResult, RepositorySnapshot, SessionTarget,
+    BranchCommand, GitCommand, GitError, GitErrorKind, GitResult, JournalPhase, JournalRecord,
+    JournalResult, RepositorySnapshot, SessionTarget,
 };
-use git_ports::{BranchWriter, ExecutionContext};
+use git_ports::{BranchWriter, ExecutionContext, JournalStore};
 
 use crate::{ResourceKey, ResourceKind, ResourceLockManager, ResourceScope, SnapshotRebuilder};
 
@@ -18,6 +19,54 @@ impl<W> CoordinatedBranchWriter<W> {
     #[must_use]
     pub fn new(writer: W, locks: ResourceLockManager) -> Self {
         Self { writer, locks }
+    }
+}
+
+#[derive(Debug)]
+pub struct JournaledBranchWriter<W, J> {
+    writer: W,
+    journal: J,
+}
+
+impl<W, J> JournaledBranchWriter<W, J> {
+    #[must_use]
+    pub fn new(writer: W, journal: J) -> Self {
+        Self { writer, journal }
+    }
+}
+
+#[async_trait]
+impl<W: BranchWriter, J: JournalStore> BranchWriter for JournaledBranchWriter<W, J> {
+    #[allow(clippy::result_large_err)]
+    async fn apply(
+        &self,
+        target: SessionTarget,
+        command: BranchCommand,
+        context: ExecutionContext,
+    ) -> GitResult<()> {
+        let mut record = JournalRecord::intent(
+            context.operation_id,
+            GitCommand::Branch {
+                target,
+                command: command.clone(),
+            },
+        );
+        record.phase = JournalPhase::CommitInProgress;
+        self.journal.append(record.clone()).await?;
+        let result = self.writer.apply(target, command, context).await;
+        record.phase = if result.is_ok() {
+            JournalPhase::Completed
+        } else {
+            JournalPhase::RecoveryRequired
+        };
+        record.result = Some(match &result {
+            Ok(()) => JournalResult::Completed,
+            Err(error) => JournalResult::RecoveryRequired {
+                reason: error.to_string(),
+            },
+        });
+        self.journal.replace(record).await?;
+        result
     }
 }
 

@@ -24,3 +24,5 @@ git diff --check
 后续将接入 Branch 的 Refs 锁、Journal、preflight 和 Snapshot reconcile。
 
 当前已接入 Refs 锁和写后 Snapshot reconcile；Journal 与 preflight 仍待后续切片。
+
+Branch Journal 已接入，分支操作失败或取消不会静默丢失意图；preflight 仍待后续切片。
