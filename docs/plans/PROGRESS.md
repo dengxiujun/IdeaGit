@@ -247,4 +247,5 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 非 UTF-8 RepoPath 在当前跨平台 CLI 参数边界显式返回 `UnsupportedEncoding`；真实 Git fixture 已覆盖带 glob 字符文件的 Stage/Unstage 往返，Index 锁与 Snapshot reconcile 仍待后续切片。
 - `git-operations` 新增 `CoordinatedIndexWriter`，在调用适配器前按 Worktree 获取 `ResourceKind::Index`，并把取消传递到锁等待；不持有锁时不会预占 Git 的 `.git/index.lock`。
 - `JournaledIndexWriter` 在执行前追加 Intent 记录，成功写入 Completed，失败/取消写入 RecoveryRequired；新增持久记录终态测试。
+- `ReconciledIndexWriter` 要求写入成功后调用 `SnapshotRebuilder` 重新读取并返回权威 `RepositorySnapshot`，避免把 Index 写成功误报为 UI 已同步。
 - 详细结果见 [GIT-001-VERIFICATION-001](../reviews/GIT-001-VERIFICATION-001.md)。

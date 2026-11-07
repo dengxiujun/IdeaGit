@@ -7,7 +7,9 @@ mod index;
 mod lock;
 mod recovery;
 
-pub use index::{CoordinatedIndexWriter, JournaledIndexWriter};
+pub use index::{
+    CoordinatedIndexWriter, JournaledIndexWriter, ReconciledIndexWriter, SnapshotRebuilder,
+};
 pub use lock::{
     LockError, ResourceKey, ResourceKind, ResourceLock, ResourceLockManager, ResourceScope,
 };

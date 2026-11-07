@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use git_domain::{
     GitCommand, GitError, GitErrorKind, GitResult, JournalPhase, JournalRecord, JournalResult,
+    RepositorySnapshot, SessionTarget,
 };
 use git_ports::{ExecutionContext, IndexMutation, IndexWriter, JournalStore};
 
@@ -13,6 +14,45 @@ use crate::{ResourceKey, ResourceKind, ResourceLockManager, ResourceScope};
 pub struct CoordinatedIndexWriter<W> {
     inner: W,
     locks: ResourceLockManager,
+}
+
+/// Read-after-write boundary used to publish authoritative state after Index mutation.
+#[async_trait]
+pub trait SnapshotRebuilder: Send + Sync {
+    async fn rebuild(
+        &self,
+        target: SessionTarget,
+        context: ExecutionContext,
+    ) -> GitResult<RepositorySnapshot>;
+}
+
+/// Composes a journaled/locked Index writer with an authoritative post-write rebuild.
+#[derive(Debug)]
+pub struct ReconciledIndexWriter<W, R> {
+    writer: W,
+    rebuilder: R,
+}
+
+impl<W, R> ReconciledIndexWriter<W, R> {
+    #[must_use]
+    pub fn new(writer: W, rebuilder: R) -> Self {
+        Self { writer, rebuilder }
+    }
+
+    #[allow(clippy::result_large_err)]
+    pub async fn apply_and_rebuild(
+        &self,
+        mutation: IndexMutation,
+        context: ExecutionContext,
+    ) -> GitResult<RepositorySnapshot>
+    where
+        W: IndexWriter,
+        R: SnapshotRebuilder,
+    {
+        let target = mutation.target();
+        self.writer.apply(mutation, context.clone()).await?;
+        self.rebuilder.rebuild(target, context).await
+    }
 }
 
 /// Journal decorator that records Index intent before execution and terminal outcome afterwards.

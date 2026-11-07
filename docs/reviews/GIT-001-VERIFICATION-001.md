@@ -13,6 +13,7 @@
 - 真实 `git-fixture` 测试覆盖已提交文件修改、文件名含 glob 字符的 Stage/Unstage 往返。
 - `CoordinatedIndexWriter` 在适配器调用前获取 Worktree Index 资源锁，取消可中断等待；该锁是进程内协调锁，不替代 Git 的文件锁。
 - `JournaledIndexWriter` 在 Index 写入前追加 Intent，随后以 Completed 或 RecoveryRequired 替换记录；成功终态已由内存 Journal 测试覆盖。
+- `ReconciledIndexWriter` 将写操作与写后 Snapshot 重建绑定；重建失败向调用方返回错误，不发布虚假的成功状态。
 
 已执行并通过：
 
