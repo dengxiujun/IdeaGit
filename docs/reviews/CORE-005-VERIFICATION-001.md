@@ -25,7 +25,7 @@
 - `for-each-ref --format=%(upstream)` 读取完整 upstream ref；未配置 upstream 返回 `None`。
 - `rev-list --left-right --count HEAD...<upstream>` 计算 ahead/behind。
 
-所有命令均设置 `--no-optional-locks`、禁用终端提示、复用有界且可取消的 `GitCliExecutor`。Ref 保持原始字节并经 `RefName` 校验，OID 经 `ObjectId` 校验；非法或多记录输出不会被静默接受。Bare repository 使用已发现的 `git_dir` 作为 `GIT_DIR`，不伪造 worktree。
+所有命令均设置 `--no-optional-locks`、禁用终端提示、复用有界且可取消的 `GitCliExecutor`。Ref 保持原始字节并经 `RefName` 校验，OID 经 `ObjectId` 校验；非法或多记录输出不会被静默接受。Bare repository 使用已发现的 `git_dir` 作为工作目录，让 Git 自行识别 bare repository，不伪造 worktree，也避免把 Windows verbatim path 重复注入 `GIT_DIR`。
 
 ## 3. 当前平台实际验证
 

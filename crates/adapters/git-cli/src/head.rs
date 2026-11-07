@@ -213,15 +213,10 @@ impl<R: ProcessRunner> GitCliHeadReader<R> {
             EnvironmentVariable::public("GIT_OPTIONAL_LOCKS", "0"),
             EnvironmentVariable::public("GIT_TERMINAL_PROMPT", "0"),
         ];
-        let cwd = if let Some(worktree) = location.worktree_root() {
-            worktree.to_path_buf()
-        } else {
-            environment.push(EnvironmentVariable::public(
-                "GIT_DIR",
-                location.git_dir().as_os_str(),
-            ));
-            location.git_dir().to_path_buf()
-        };
+        let cwd = location
+            .worktree_root()
+            .unwrap_or_else(|| location.git_dir())
+            .to_path_buf();
         environment.extend(self.environment.iter().cloned());
         self.executor
             .execute(
