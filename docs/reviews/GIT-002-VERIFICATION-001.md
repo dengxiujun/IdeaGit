@@ -13,6 +13,7 @@
 - `PreflightCommitWriter` 在 CLI 启动前比较 expected HEAD/Index，变化分别返回 `HeadChangedExternally` 或 `IndexChangedExternally`。
 - `CoordinatedCommitWriter` 保护共享 Refs 与具体 Worktree Index，使用既有稳定排序和取消感知锁管理器。
 - `JournaledCommitWriter` 持久化 CommitInProgress、实际 OID/parents 和 Completed/RecoveryRequired 终态，避免 Hook/进程异常后丢失结果。
+- `ReconciledCommitWriter` 将实际 CommitOutcome 与写后 Snapshot 绑定；Snapshot 重建失败不会发布完整成功。
 
 已执行并通过：
 

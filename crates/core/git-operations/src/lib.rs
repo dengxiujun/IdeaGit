@@ -10,7 +10,7 @@ mod recovery;
 
 pub use commit::{
     CommitPreflightState, CommitStateReader, CoordinatedCommitWriter, JournaledCommitWriter,
-    PreflightCommitWriter,
+    PreflightCommitWriter, ReconciledCommitWriter,
 };
 pub use index::{
     CoordinatedIndexWriter, JournaledIndexWriter, ReconciledIndexWriter, SnapshotRebuilder,

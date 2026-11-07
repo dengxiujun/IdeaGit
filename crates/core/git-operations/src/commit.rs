@@ -7,7 +7,7 @@ use git_domain::{
 };
 use git_ports::{CommitOutcome, CommitWriter, ExecutionContext, JournalStore};
 
-use crate::{ResourceKey, ResourceKind, ResourceLockManager, ResourceScope};
+use crate::{ResourceKey, ResourceKind, ResourceLockManager, ResourceScope, SnapshotRebuilder};
 
 /// Authoritative state needed before starting a real commit process.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -91,6 +91,36 @@ impl<W: CommitWriter, J: JournalStore> CommitWriter for JournaledCommitWriter<W,
 pub struct CoordinatedCommitWriter<W> {
     writer: W,
     locks: ResourceLockManager,
+}
+
+/// Commit composition that only publishes success after authoritative snapshot rebuild.
+#[derive(Debug)]
+pub struct ReconciledCommitWriter<W, R> {
+    writer: W,
+    rebuilder: R,
+}
+
+impl<W, R> ReconciledCommitWriter<W, R> {
+    #[must_use]
+    pub fn new(writer: W, rebuilder: R) -> Self {
+        Self { writer, rebuilder }
+    }
+
+    #[allow(clippy::result_large_err)]
+    pub async fn commit_and_rebuild(
+        &self,
+        target: SessionTarget,
+        request: StandardCommitRequest,
+        context: ExecutionContext,
+    ) -> GitResult<(CommitOutcome, git_domain::RepositorySnapshot)>
+    where
+        W: CommitWriter,
+        R: SnapshotRebuilder,
+    {
+        let outcome = self.writer.commit(target, request, context.clone()).await?;
+        let snapshot = self.rebuilder.rebuild(target, context).await?;
+        Ok((outcome, snapshot))
+    }
 }
 
 impl<W> CoordinatedCommitWriter<W> {
