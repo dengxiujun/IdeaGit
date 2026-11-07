@@ -352,7 +352,9 @@ App Start → Open Repository → Discover → Session
 
 ### 5.2.1 RECOVERY-000：最小写操作恢复
 
-在 M2 写功能开放前，按 Journal 和真实 HEAD/Index 区分未执行、已提交、已提交待恢复和未知结果。该任务不依赖 GIT-002 的完成，使用受控 Git fixture 模拟副作用，避免 GIT-002→Recovery→GIT-002 环。CORE-010/011/012 可分层构建，但写命令的最终验收必须包含完整协调器、锁、Journal 和恢复。
+在 M2 写功能开放前，按 Journal 和真实 HEAD/Index 区分未执行、已提交、已提交待恢复和未知结果。跨进程记录按 [ADR-RECOVERY-IDENTITY-001](../architecture/adr/ADR-RECOVERY-IDENTITY-001.md) 的独立 `RecoveryScope` 匹配，不使用重启后会变化的 `SessionTarget`；Journal v1 未完成记录作为 orphaned 保留并要求人工检查。该任务不依赖 GIT-002 的完成，使用受控 Git fixture 模拟副作用，避免 GIT-002→Recovery→GIT-002 环。CORE-010/011/012 可分层构建，但写命令的最终验收必须包含完整协调器、锁、Journal 和恢复。
+
+**验收补充**：跨 registry/runtime 重启后仍能定位同仓库记录；linked worktree 不串 Index 记录；损坏/未知 schema、`Unknown` 与 `CommittedNeedsReconcile` 均关闭当前仓库写入口；恢复检查不启动 Git 写命令、不修改 HEAD/Index/refs。
 
 ### 5.3 CORE-011：资源锁
 

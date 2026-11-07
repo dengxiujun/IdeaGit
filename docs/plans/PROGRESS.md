@@ -361,6 +361,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 恢复读取继承 `SessionTarget` 绑定校验，过期或跨仓库 session 在执行 Git 前拒绝；输出保留 unborn HEAD 与真实 Index tree OID。
 - 真实仓库测试验证 Commit preflight 与恢复读取获得同一权威状态，并保留 foreign session 失败路径。
 
+## M2 RECOVERY-000 跨进程恢复身份决策（2026-11-07）
+
+- 项目负责人已在聊天明确批准 `ADR-RECOVERY-IDENTITY-001` 方案 C：保持 `SessionTarget` 为进程内执行身份，Journal 另存由规范化仓库位置生成的持久 `RecoveryScope`。
+- Git Core LLD 与 IP-001 已同步 Journal v2、linked worktree 隔离、v1 未完成记录 orphaned 处理及未知状态关闭写入口的约束。
+- 批准仅授权实现，不代表 `RECOVERY-000` 已完成；后续按 RecoveryScope → Journal v2 迁移 → desktop 启动门禁 → 真实重启/linked-worktree/损坏 Journal 测试顺序交付。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。

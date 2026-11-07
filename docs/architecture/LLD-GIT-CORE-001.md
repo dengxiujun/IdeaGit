@@ -110,7 +110,7 @@ cat-file --batch
 
 ## 6. Repository Session、Snapshot 与 Watcher
 
-每个 Worktree 一个 RepositorySession；Registry 以 repository/worktree 组合和会话世代定位，返回引用计数句柄。同一 common_dir 共享 RepositoryId 及公共资源锁。bare 会话无 WorktreeId，仅暴露可用读取能力。
+每个 Worktree 一个 RepositorySession；Registry 以 repository/worktree 组合和会话世代定位，返回引用计数句柄。同一 common_dir 共享 RepositoryId 及公共资源锁。bare 会话无 WorktreeId，仅暴露可用读取能力。`SessionTarget` 是进程内、世代限定的执行身份，不作为跨进程 Journal 匹配键；跨进程恢复使用 [ADR-RECOVERY-IDENTITY-001](adr/ADR-RECOVERY-IDENTITY-001.md) 批准的独立 `RecoveryScope`。
 
 共享类型及接口以 [Git Core §18 统一契约](LLD-GIT-CORE-001.md) 为准；此处不再重复定义。
 
@@ -122,7 +122,7 @@ Watcher 只产生“可能变化”信号，不直接修改领域状态。事件
 
 资源键至少包括 `common_dir`、`worktree`、`index`、`refs`、`network(remote)`。同一 Index 的写操作互斥；只读 Status 可并行但必须在写操作结束后重新校验。Preflight 检查 Git 版本、仓库位置、Index lock、当前 sequencer、目标 ref 和路径合法性。
 
-Journal 的字段、耐久化和恢复协议统一见 §18.5。mtime/size 只能辅助诊断，不能替代强指纹或内容备份。重启依据实际 Git 状态恢复；已提交但待恢复须保留 OID，未知结果不得自动重试。
+Journal 的字段、耐久化和恢复协议统一见 §18.5。mtime/size 只能辅助诊断，不能替代强指纹或内容备份。重启按 Git discovery 得到的规范化 common dir 与具体 worktree/git dir 构造 `RecoveryScope`，定位旧 Journal 后依据实际 Git 状态恢复；已提交但待恢复须保留 OID，未知结果不得自动重试。
 
 命令转移表和持久 Sequencer 状态见 §18.5；所有可能已有副作用的失败均先 Reconciling，不使用 Running → Failed 的捷径。
 
@@ -309,7 +309,9 @@ ContentSource：Head/Index/Worktree/Commit(OID)/Tree(OID)/ConflictStage(1..3)。
 
 Sequencer 状态与命令状态分开：冲突命令结束为 Conflict，仓库维持 AwaitingConflictResolution；Continue/Skip/Abort 创建关联 Operation，重新获锁，不让等待用户的旧命令占队列。UI 的 Saved Result 不等于 Resolved，Stage 后仍需检查是否允许 Continue。
 
-Journal 统一 schema、目标身份、command、预期 HEAD、原 Index 强指纹/备份、候选 Tree、已观察 commit OID/父提交、phase、reconcile 结果；敏感信息不得入日志。PartialCommitPhase 统一为 IntentRecorded、SnapshotCaptured、TempIndexPrepared、PreviewReady、PreflightRevalidated、CommitInProgress、CommitObserved、ReconcilingIndex、Completed、RecoveryRequired；它是持久子阶段，不与 OperationPhase 混用。写前耐久化、提交后响应丢失和截断日志都要有恢复测试；不自动重试 Commit，不自动覆盖当前 Index。
+Journal 统一 schema、会话目标、独立持久 `RecoveryScope`、command、预期 HEAD、原 Index 强指纹/备份、候选 Tree、已观察 commit OID/父提交、phase、reconcile 结果；敏感信息不得入日志。`RecoveryScope` 由 Git 报告并规范化的 common dir 与具体 worktree/git dir 生成，使用平台无损路径编码或版本化强指纹，不得复用随机 `SessionTarget` 或展示路径。linked worktree 必须各自隔离 Index 恢复记录，bare 使用独立形态。PartialCommitPhase 统一为 IntentRecorded、SnapshotCaptured、TempIndexPrepared、PreviewReady、PreflightRevalidated、CommitInProgress、CommitObserved、ReconcilingIndex、Completed、RecoveryRequired；它是持久子阶段，不与 OperationPhase 混用。写前耐久化、提交后响应丢失和截断日志都要有恢复测试；不自动重试 Commit，不自动覆盖当前 Index。
+
+Journal schema v2 增加 `RecoveryScope`。v1 已完成记录允许保留读取；v1 未完成记录因无法证明仓库归属，必须保留为 orphaned/人工检查，不能绑定当前仓库、自动删除或自动重试。当前 scope 存在 `Unknown`、`CommittedNeedsReconcile`、损坏或不支持的 Journal 时，对应仓库写 capability 保持关闭。
 
 M2 仅标准 Index Commit。高级候选 Index 发布需单独证明锁内比较/发布协议：应用资源锁不是外部锁；不得占有真实 index.lock 又调用争用该锁的 Git。标准命令由 Git 自行获锁。高级写入协议未证明前关闭该 capability。Git 自有锁不提供跨 HEAD/Index/Worktree/Hooks 原子事务。
 
