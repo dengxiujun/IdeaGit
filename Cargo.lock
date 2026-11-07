@@ -1251,8 +1251,12 @@ dependencies = [
  "git-cli",
  "git-commit-ui",
  "git-diff-ui",
+ "git-domain",
+ "git-fixture",
  "git-log-ui",
  "git-merge-ui",
+ "git-ports",
+ "git-ui-model",
  "git-workbench",
  "gpui-kit",
  "idea-shell",
@@ -1262,6 +1266,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
 ]
@@ -2135,6 +2140,8 @@ name = "git-ui-model"
 version = "0.1.0"
 dependencies = [
  "git-application",
+ "git-domain",
+ "git-ports",
 ]
 
 [[package]]

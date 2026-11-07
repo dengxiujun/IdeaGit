@@ -17,6 +17,7 @@ use std::{
 };
 
 const SMOKE_DURATION_ENV: &str = "IDEAGIT_UI_SMOKE_DURATION_MS";
+const OPEN_REPOSITORY_ENV: &str = "IDEAGIT_OPEN_REPOSITORY";
 
 fn main() -> ExitCode {
     let smoke_duration = match smoke_duration_from_environment() {
@@ -31,6 +32,7 @@ fn main() -> ExitCode {
     let startup_failed_in_app = Arc::clone(&startup_failed);
     let layout_path = desktop_platform::workbench_layout_path();
     let initial_layout = layout_path.as_deref().and_then(load_layout);
+    let initial_repository = std::env::var_os(OPEN_REPOSITORY_ENV).map(PathBuf::from);
 
     gpui_kit::application()
         .with_quit_mode(QuitMode::LastWindowClosed)
@@ -47,8 +49,8 @@ fn main() -> ExitCode {
                     }
                 });
             });
-            let window = match idea_shell::open_main_window_with_layout(cx, layout_io) {
-                Ok(window) => window,
+            let opened = match idea_shell::open_workbench_window(cx, layout_io) {
+                Ok(opened) => opened,
                 Err(error) => {
                     startup_failed_in_app.store(true, Ordering::Relaxed);
                     eprintln!("failed to open IdeaGit window: {error}");
@@ -56,6 +58,28 @@ fn main() -> ExitCode {
                     return;
                 }
             };
+            let window = opened.window;
+
+            if let Some(path) = initial_repository {
+                let controller = opened.controller;
+                let (sender, receiver) = tokio::sync::oneshot::channel();
+                std::thread::spawn(move || {
+                    let result = tokio::runtime::Builder::new_multi_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(|error| format!("failed to start Git runtime: {error}"))
+                        .and_then(|runtime| runtime.block_on(load_repository_chrome(path)));
+                    let _ = sender.send(result);
+                });
+                cx.spawn(async move |cx| match receiver.await {
+                    Ok(Ok(model)) => {
+                        cx.update(|cx| controller.set_repository_chrome(model, cx));
+                    }
+                    Ok(Err(error)) => eprintln!("failed to open IdeaGit repository: {error}"),
+                    Err(_) => eprintln!("IdeaGit repository loader stopped unexpectedly"),
+                })
+                .detach();
+            }
 
             eprintln!("IdeaGit native window opened");
             cx.activate(true);
@@ -85,6 +109,52 @@ fn main() -> ExitCode {
     } else {
         ExitCode::SUCCESS
     }
+}
+
+async fn load_repository_chrome(
+    path: PathBuf,
+) -> Result<git_ui_model::RepositoryChromeModel, String> {
+    use git_ports::RepositoryReader as _;
+
+    let cancellation = tokio_util::sync::CancellationToken::new();
+    let (progress, _progress_receiver) = tokio::sync::mpsc::channel(16);
+    let context = git_ports::ExecutionContext::new(
+        git_domain::OperationId::new(),
+        cancellation.clone(),
+        progress,
+    );
+    let location = git_cli::GitCliRepositoryReader::new(git_cli::TokioProcessRunner)
+        .discover(path, context)
+        .await
+        .map_err(|error| error.to_string())?;
+    let registry = git_application::RepositoryRegistry::new();
+    let handle = registry
+        .open(location.clone())
+        .map_err(|error| error.to_string())?;
+    let session = registry
+        .session(handle.target())
+        .map_err(|error| error.to_string())?;
+    let snapshot = git_application::SnapshotRefreshService::new(
+        git_cli::GitCliHeadReader::new(git_cli::TokioProcessRunner),
+        git_cli::GitCliStatusReader::new(git_cli::TokioProcessRunner),
+    )
+    .refresh(
+        handle.target(),
+        &location,
+        git_domain::SnapshotRevision::INITIAL,
+        cancellation,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    let refresh = git_application::RefreshState {
+        target: handle.target(),
+        health: git_application::RefreshHealth::Ready,
+        snapshot: Some(Arc::new(snapshot)),
+        last_error: None,
+    };
+    Ok(git_ui_model::RepositoryChromeModel::single_session(
+        &session, &refresh,
+    ))
 }
 
 fn load_layout(path: &Path) -> Option<git_workbench::WorkbenchLayout> {
@@ -202,5 +272,23 @@ mod tests {
         assert_eq!(load_layout(&path), None);
         fs::write(&path, b"not json").expect("invalid fixture should be written");
         assert_eq!(load_layout(&path), None);
+    }
+
+    #[tokio::test]
+    async fn real_repository_projects_current_branch_into_workbench_chrome() {
+        let repository =
+            git_fixture::TestRepository::init().expect("real Git fixture should initialize");
+        repository
+            .commit_file("tracked.txt", b"content\n")
+            .expect("fixture commit should succeed");
+
+        let model = load_repository_chrome(repository.worktree.clone())
+            .await
+            .expect("repository should open and refresh");
+        assert_eq!(model.tabs.len(), 1);
+        assert_eq!(model.tabs[0].title, "worktree");
+        assert_eq!(model.tabs[0].branch, "main");
+        assert_eq!(model.status.message, "Ready");
+        assert!(model.status.revision.is_some());
     }
 }

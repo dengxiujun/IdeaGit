@@ -2,6 +2,7 @@
 
 use std::{sync::Arc, time::Duration};
 
+use git_ui_model::RepositoryChromeModel;
 use git_workbench::{PanelKind, WorkbenchLayout};
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::dock::{
@@ -58,6 +59,35 @@ pub fn open_main_window_with_layout(
     cx: &mut App,
     layout_io: WorkbenchLayoutIo,
 ) -> gpui_kit::Result<AnyWindowHandle> {
+    open_workbench_window(cx, layout_io).map(|opened| opened.window)
+}
+
+/// Opened native workbench and its typed, UI-thread update controller.
+pub struct OpenedWorkbench {
+    pub window: AnyWindowHandle,
+    pub controller: WorkbenchController,
+}
+
+/// Sends Repository Tab/StatusBar projections to the workbench entity.
+#[derive(Clone)]
+pub struct WorkbenchController {
+    view: Entity<WorkbenchWindow>,
+}
+
+impl WorkbenchController {
+    pub fn set_repository_chrome(&self, model: RepositoryChromeModel, cx: &mut App) {
+        self.view.update(cx, |view, cx| {
+            view.repository_chrome = model;
+            cx.notify();
+        });
+    }
+}
+
+/// Opens a native workbench and retains a typed controller for async Git projections.
+pub fn open_workbench_window(
+    cx: &mut App,
+    layout_io: WorkbenchLayoutIo,
+) -> gpui_kit::Result<OpenedWorkbench> {
     register_workbench_panels(cx);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::centered(size(px(1100.0), px(720.0)), cx)),
@@ -73,7 +103,10 @@ pub fn open_main_window_with_layout(
     gpui_kit::open_window(options, cx, |window, cx| {
         cx.new(|cx| WorkbenchWindow::new(window, layout_io, cx))
     })
-    .map(|(window, _)| window)
+    .map(|(window, view)| OpenedWorkbench {
+        window,
+        controller: WorkbenchController { view },
+    })
 }
 
 fn register_workbench_panels(cx: &mut App) {
@@ -90,6 +123,7 @@ struct WorkbenchWindow {
     layout_save: Arc<dyn Fn(WorkbenchLayout) + Send + Sync>,
     layout_generation: u64,
     _layout_subscription: Subscription,
+    repository_chrome: RepositoryChromeModel,
 }
 
 impl WorkbenchWindow {
@@ -161,6 +195,7 @@ impl WorkbenchWindow {
             layout_save: layout_io.save,
             layout_generation: 0,
             _layout_subscription: layout_subscription,
+            repository_chrome: RepositoryChromeModel::default(),
         }
     }
 }
@@ -194,14 +229,27 @@ impl Render for WorkbenchWindow {
                     .border_b_1()
                     .border_color(rgb(colors.border.as_rgb()))
                     .child(div().font_semibold().child(APP_NAME))
-                    .child(
-                        div()
-                            .ml_4()
-                            .px_2()
-                            .py_1()
-                            .bg(rgb(colors.selection_background.as_rgb()))
-                            .child("No repository"),
-                    ),
+                    .child(div().flex().ml_4().gap_1().children(
+                        self.repository_chrome.tabs.iter().map(|tab| {
+                            div()
+                                .px_2()
+                                .py_1()
+                                .when(tab.active, |element| {
+                                    element.bg(rgb(colors.selection_background.as_rgb()))
+                                })
+                                .child(format!("{} · {}", tab.title, tab.branch))
+                        }),
+                    ))
+                    .when(self.repository_chrome.tabs.is_empty(), |element| {
+                        element.child(
+                            div()
+                                .ml_4()
+                                .px_2()
+                                .py_1()
+                                .bg(rgb(colors.selection_background.as_rgb()))
+                                .child("No repository"),
+                        )
+                    }),
             )
             .child(div().flex_1().min_h_0().child(self.dock_area.clone()))
             .child(
@@ -215,8 +263,11 @@ impl Render for WorkbenchWindow {
                     .border_color(rgb(colors.border.as_rgb()))
                     .text_sm()
                     .text_color(rgb(colors.text_secondary.as_rgb()))
-                    .child("Ready")
-                    .child("No branch"),
+                    .child(self.repository_chrome.status.message.clone())
+                    .child(format!(
+                        "{} {}",
+                        self.repository_chrome.status.branch, self.repository_chrome.status.sync
+                    )),
             )
             .child(div().id("workbench-overlay-host").absolute().inset_0())
     }

@@ -12,10 +12,14 @@ tracing-subscriber.workspace = true
 serde_json.workspace = true
 git-application.workspace = true
 git-cli.workspace = true
+git-domain.workspace = true
+git-ports.workspace = true
+git-ui-model.workspace = true
 repository-watcher.workspace = true
 credential-broker.workspace = true
 persistence.workspace = true
 desktop-platform.workspace = true
+tokio-util.workspace = true
 idea-shell.workspace = true
 git-workbench.workspace = true
 git-commit-ui.workspace = true
@@ -25,5 +29,6 @@ git-diff-ui.workspace = true
 git-merge-ui.workspace = true
 
 [dev-dependencies]
+git-fixture = { path = "../../tests/fixtures" }
 tempfile.workspace = true
 proptest.workspace = true

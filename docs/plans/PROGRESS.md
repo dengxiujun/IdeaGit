@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003/004/005/006/007/008 已完成当前平台及三平台 CI 验证；UI-003 Workbench Shell 已在当前 macOS 通过专项及 Workspace 全量门禁，等待本提交三平台 CI。Repository Tabs 的真实 Git 数据和 Changes Tree 继续由 UI-004/005 实施。
+M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003/004/005/006/007/008、UI-003 已完成当前平台及三平台 CI 验证；UI-004 Repository Tabs / StatusBar 已在当前 macOS 通过专项及 Workspace 全量门禁，等待本提交三平台 CI。Read-only Changes Tree 继续由 UI-005 实施。
 
 ## 已完成的文档工作
 
@@ -39,7 +39,15 @@ M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003/00
 
 ## 下一步
 
-UI-003 三平台 CI 通过后，按依赖 DAG 进入 UI-004 Repository Tabs / StatusBar，再实施 UI-005 Read-only Changes Tree。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+UI-004 三平台 CI 通过后，按依赖 DAG 实施 UI-005 Read-only Changes Tree；完成后执行 M1 §4.7 首条端到端门禁。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+
+## UI-004 Repository Tabs / StatusBar（2026-11-07）
+
+- `git-ui-model` 新增从 `RepositorySessionView + RefreshState` 到 Repository Tab/StatusBar 的纯投影：仓库显示名、SessionTarget、当前分支、ahead/behind、Snapshot revision 与 Pending/Ready/Degraded 均保留且不猜测成功。
+- Shell 增加 typed `WorkbenchController`；后台结果只通过 GPUI 调度更新窗口 Entity，UI crate 不依赖 `git-cli`。
+- desktop composition root 支持 `IDEAGIT_OPEN_REPOSITORY` 打开路径：在后台 Tokio runtime 执行 CORE-002 Discovery、CORE-007 Session、CORE-008 guarded refresh，再投影到 Shell；该变量同时用于自动化 E2E，默认不擅自打开目录。
+- 当前 macOS 已通过 2 个 projection 测试、真实隔离 Git fixture 集成测试、实际桌面窗口 smoke 与专项 Clippy；三平台 CI 待本提交推送后执行。
+- UI-004 不实现多 tab 交互/关闭、持续 Watcher 订阅或 Changes Tree，分别留给后续 UI/M1 集成。详细结果见 [UI-004-VERIFICATION-001](../reviews/UI-004-VERIFICATION-001.md)。
 
 ## UI-003 Workbench Shell / DockArea（2026-11-07）
 
@@ -47,7 +55,7 @@ UI-003 三平台 CI 通过后，按依赖 DAG 进入 UI-004 Repository Tabs / St
 - `idea-shell` 将 UI-001 启动占位替换为 GPUI-Kit 0.9.0 `DockArea`：中心 Commit/Git Log/Diff 标签、左侧 Repository、底部 Git Console，并提供 Titlebar 区、Repository Tab 占位、StatusBar 与最后绘制的 OverlayHost。
 - 所有面板经 PanelRegistry 注册，可拖拽、关闭、隐藏与恢复；未知/已移除面板按 GPUI-Kit DockArea 的占位语义安全保留，不在一次保存后静默丢失。
 - DockArea `LayoutChanged` 以 250ms 世代防抖，只发布最终布局；desktop 在后台线程写入平台配置目录，启动前读取并验证 schema。UI 线程不执行文件 IO。
-- 当前 macOS 已连续两次运行真实窗口烟雾：首次生成布局，第二次加载同一布局并成功绘制/关闭；专项 9 个测试、fmt 与 Clippy 通过。三平台 CI 待本提交推送后执行。
+- 当前 macOS 已连续两次运行真实窗口烟雾：首次生成布局，第二次加载同一布局并成功绘制/关闭；专项 9 个测试、fmt 与 Clippy 通过。[Rust CI #19](https://github.com/dengxiujun/IdeaGit/actions/runs/42341427891) 已在 Windows Server 2022、macOS 15 和 Ubuntu 24.04 全部通过；UI-003 三平台验收关闭。
 - UI-003 不伪造真实 Repository/HEAD/Changes；这些属于 UI-004/005。详细结果见 [UI-003-VERIFICATION-001](../reviews/UI-003-VERIFICATION-001.md)。
 
 ## CORE-008 Watcher + Refresh Scheduler（2026-11-07）
