@@ -224,3 +224,10 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 纯 `SnapshotBuilder` 为整个结果分配同一个下一代 revision，并核对前后 HEAD guard、porcelain branch header 与独立 tracking；不一致生成带原因的 stale Snapshot，不伪装为原子 Git 状态。
 - Status 投影保留 raw path、original path、双状态、OID/mode、Submodule、Rename/Copy score 与全部 conflict stages；Untracked 独立，Ignored 不进入批准的 Snapshot 合约。
 - 当前 macOS / Rust 1.99.1 已通过专项格式、53 个相关单元测试、2 个真实 Git Snapshot 集成测试，以及包含 71 个测试的 Workspace 全量门禁；三平台 CI 尚待执行。详细记录见 [CORE-006-VERIFICATION-001](../reviews/CORE-006-VERIFICATION-001.md)。
+
+## CORE-012 Operation Journal（2026-11-07）
+
+- `git-domain` 定义版本化 `JournalRecord`、阶段枚举及完成/恢复结果，记录操作目标、期望 HEAD/Index、Index 备份、候选 Tree、实际提交 OID/父提交和恢复状态。
+- `git-ports` 新增异步 `JournalStore` 契约；`persistence` 提供带进程内写锁的 JSON 存储、schema 校验、追加/替换/查询/按目标筛选待恢复记录，并使用临时文件加原子替换持久化。
+- 覆盖重启后恢复、目标过滤、重复操作 ID 和缺失替换记录等正常/失败路径；当前 macOS 已通过 fmt、locked check、Clippy、Workspace tests 与 diff 检查。
+- 详细结果见 [CORE-012-VERIFICATION-001](../reviews/CORE-012-VERIFICATION-001.md)；下一步进入 `RECOVERY-000` 前置链路。

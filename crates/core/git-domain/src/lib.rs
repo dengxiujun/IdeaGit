@@ -7,6 +7,7 @@ mod command;
 mod error;
 mod head;
 mod id;
+mod journal;
 mod object_id;
 mod path;
 mod snapshot;
@@ -20,6 +21,7 @@ pub use command::{
 pub use error::{GitError, GitErrorKind, GitResult, RecoveryAction};
 pub use head::{BranchTracking, HeadState};
 pub use id::{OperationId, RepositoryId, SessionTarget, SnapshotRevision, WorktreeId};
+pub use journal::{JOURNAL_SCHEMA_VERSION, JournalPhase, JournalRecord, JournalResult};
 pub use object_id::{ObjectFormat, ObjectId, ObjectIdError};
 pub use path::{LocalPath, RepoPath, RepoPathError};
 pub use snapshot::{
