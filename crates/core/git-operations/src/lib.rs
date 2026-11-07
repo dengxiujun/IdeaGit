@@ -26,7 +26,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use git_domain::{GitCommand, GitError, GitErrorKind, GitResult, OperationId, SessionTarget};
-use git_ports::{ExecutionContext, ProcessProgress};
+use git_ports::{ExecutionContext, IndexMutation, IndexWriter, ProcessProgress};
 use thiserror::Error;
 use tokio::sync::{Mutex, mpsc, watch};
 use tokio_util::sync::CancellationToken;
@@ -85,6 +85,36 @@ impl OperationSnapshot {
 #[async_trait]
 pub trait OperationExecutor: Send + Sync + 'static {
     async fn execute(&self, command: GitCommand, context: ExecutionContext) -> GitResult<()>;
+}
+
+/// Bridges file-based Stage/Unstage commands to the coordinated Index writer stack.
+#[derive(Debug)]
+pub struct IndexOperationExecutor<W> {
+    writer: W,
+}
+
+impl<W> IndexOperationExecutor<W> {
+    #[must_use]
+    pub fn new(writer: W) -> Self {
+        Self { writer }
+    }
+}
+
+#[async_trait]
+impl<W: IndexWriter + Send + Sync + 'static> OperationExecutor for IndexOperationExecutor<W> {
+    async fn execute(&self, command: GitCommand, context: ExecutionContext) -> GitResult<()> {
+        let mutation = match command {
+            GitCommand::StageFiles { target, paths } => IndexMutation::Stage { target, paths },
+            GitCommand::UnstageFiles { target, paths } => IndexMutation::Unstage { target, paths },
+            other => {
+                return Err(GitError::new(
+                    GitErrorKind::UnsupportedFeature,
+                    format!("operation executor does not support {other:?}"),
+                ));
+            }
+        };
+        self.writer.apply(mutation, context).await
+    }
 }
 
 struct OperationEntry {
@@ -272,8 +302,28 @@ pub enum CoordinatorError {
 mod tests {
     use super::*;
     use git_domain::{RepoPath, RepositoryId, SessionTarget, WorktreeId};
+    use git_ports::IndexMutation;
     use std::sync::Arc;
     use tokio::sync::Notify;
+
+    struct RecordingIndexWriter {
+        seen: Arc<std::sync::Mutex<Vec<IndexMutation>>>,
+    }
+
+    #[async_trait]
+    impl IndexWriter for RecordingIndexWriter {
+        async fn apply(
+            &self,
+            mutation: IndexMutation,
+            _context: ExecutionContext,
+        ) -> GitResult<()> {
+            self.seen
+                .lock()
+                .expect("test mutex should not poison")
+                .push(mutation);
+            Ok(())
+        }
+    }
 
     #[derive(Clone)]
     struct FakeExecutor {
@@ -385,5 +435,40 @@ mod tests {
             Some(OperationOutcome::Failed(_))
         ));
         coordinator.join().await.expect("worker should stop");
+    }
+
+    #[tokio::test]
+    async fn index_executor_maps_stage_and_rejects_other_commands() {
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let writer = RecordingIndexWriter {
+            seen: Arc::clone(&seen),
+        };
+        let executor = IndexOperationExecutor::new(writer);
+        let target = target();
+        let path = RepoPath::try_from("file.txt").expect("valid path");
+        let (progress, _) = mpsc::channel(2);
+        executor
+            .execute(
+                GitCommand::StageFiles {
+                    target,
+                    paths: vec![path],
+                },
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect("stage should map");
+        assert_eq!(seen.lock().expect("test mutex should not poison").len(), 1);
+        let (progress, _) = mpsc::channel(2);
+        let error = executor
+            .execute(
+                GitCommand::Remote {
+                    target,
+                    command: git_domain::RemoteCommand::Fetch { remote: None },
+                },
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect_err("unsupported command should fail");
+        assert_eq!(error.kind, GitErrorKind::UnsupportedFeature);
     }
 }

@@ -62,6 +62,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `WorkbenchController` 支持注入应用组合根提供的 `ActionDispatcher`，所有动作共享同一 dispatcher 句柄；未配置 dispatcher 时安全失败并保留失败反馈。
 - 注入边界不持有 Git 适配器、不在 GPUI 线程执行进程，下一步由 desktop 将其连接到 `OperationCoordinator`。
 
+## CORE-010 Index Operation Executor（2026-11-07）
+
+- `git-operations::IndexOperationExecutor` 将 `GitCommand::StageFiles/UnstageFiles` 转换为 `IndexMutation` 并交给既有 IndexWriter 装饰器链；不支持的 Commit/Branch/Remote 命令显式返回 `UnsupportedFeature`。
+- 测试覆盖 Stage 映射及不支持命令失败；该适配器不绕过锁、Journal 或 Reconcile，desktop 仍需注入具体 writer 和快照恢复器。
+
 ## CORE-011 Resource Lock Manager（2026-11-07）
 
 - `git-operations` 新增 `ResourceKey`、`ResourceScope`、`ResourceKind` 与 RAII `ResourceLock`；CommonGitDir 只承载共享 Refs，Worktree 承载 Index/WorktreeFiles/Sequencer。
