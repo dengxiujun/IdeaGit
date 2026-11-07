@@ -15,7 +15,7 @@ pub use commit::{CommitOutcome, CommitWriter};
 pub use head::{BranchReader, HeadReader};
 pub use history::HistoryReader;
 pub use index::{IndexMutation, IndexMutationError, IndexWriter};
-pub use journal::{JournalError, JournalStore};
+pub use journal::{JournalError, JournalStore, PendingJournalRecords};
 pub use process::{
     DEFAULT_OUTPUT_LIMIT, EnvironmentVariable, ExecutionContext, ProcessOutput, ProcessProgress,
     ProcessRunner, ProcessSpec, ProcessStdin, ProcessStream, Sensitivity,

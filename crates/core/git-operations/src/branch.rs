@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use git_domain::{
     BranchCommand, GitCommand, GitError, GitErrorKind, GitResult, JournalPhase, JournalRecord,
-    JournalResult, RepositorySnapshot, SessionTarget,
+    JournalResult, RecoveryScope, RepositorySnapshot, SessionTarget,
 };
 use git_ports::{BranchWriter, ExecutionContext, JournalStore};
 
@@ -26,12 +26,17 @@ impl<W> CoordinatedBranchWriter<W> {
 pub struct JournaledBranchWriter<W, J> {
     writer: W,
     journal: J,
+    recovery_scope: RecoveryScope,
 }
 
 impl<W, J> JournaledBranchWriter<W, J> {
     #[must_use]
-    pub fn new(writer: W, journal: J) -> Self {
-        Self { writer, journal }
+    pub fn new(writer: W, journal: J, recovery_scope: RecoveryScope) -> Self {
+        Self {
+            writer,
+            journal,
+            recovery_scope,
+        }
     }
 }
 
@@ -50,6 +55,7 @@ impl<W: BranchWriter, J: JournalStore> BranchWriter for JournaledBranchWriter<W,
                 target,
                 command: command.clone(),
             },
+            self.recovery_scope.clone(),
         );
         record.phase = JournalPhase::CommitInProgress;
         self.journal.append(record.clone()).await?;

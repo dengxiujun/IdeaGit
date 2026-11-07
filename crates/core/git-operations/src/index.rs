@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use git_domain::{
     GitCommand, GitError, GitErrorKind, GitResult, JournalPhase, JournalRecord, JournalResult,
-    RepositorySnapshot, SessionTarget,
+    RecoveryScope, RepositorySnapshot, SessionTarget,
 };
 use git_ports::{ExecutionContext, IndexMutation, IndexWriter, JournalStore};
 
@@ -68,12 +68,17 @@ impl<W: IndexWriter, R: SnapshotRebuilder> IndexWriter for ReconciledIndexWriter
 pub struct JournaledIndexWriter<W, J> {
     inner: W,
     journal: J,
+    recovery_scope: RecoveryScope,
 }
 
 impl<W, J> JournaledIndexWriter<W, J> {
     #[must_use]
-    pub fn new(inner: W, journal: J) -> Self {
-        Self { inner, journal }
+    pub fn new(inner: W, journal: J, recovery_scope: RecoveryScope) -> Self {
+        Self {
+            inner,
+            journal,
+            recovery_scope,
+        }
     }
 }
 
@@ -94,7 +99,8 @@ impl<W: IndexWriter, J: JournalStore> IndexWriter for JournaledIndexWriter<W, J>
                 paths: paths.clone(),
             },
         };
-        let mut record = JournalRecord::intent(context.operation_id, command);
+        let mut record =
+            JournalRecord::intent(context.operation_id, command, self.recovery_scope.clone());
         self.journal.append(record.clone()).await?;
         let result = self.inner.apply(mutation, context).await;
         record.phase = if result.is_ok() {
@@ -119,8 +125,10 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
-    use git_domain::{GitResult, OperationId, RepoPath, RepositoryId, SessionTarget, WorktreeId};
-    use git_ports::JournalStore;
+    use git_domain::{
+        GitResult, OperationId, RecoveryPath, RepoPath, RepositoryId, SessionTarget, WorktreeId,
+    };
+    use git_ports::{JournalStore, PendingJournalRecords};
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 
@@ -153,15 +161,18 @@ mod tests {
                 .find(|item| item.operation_id == id)
                 .cloned())
         }
-        async fn pending(&self, target: SessionTarget) -> GitResult<Vec<JournalRecord>> {
-            Ok(self
-                .0
-                .lock()
-                .expect("journal lock")
-                .iter()
-                .filter(|item| item.target == target)
-                .cloned()
-                .collect())
+        async fn pending(&self, scope: &RecoveryScope) -> GitResult<PendingJournalRecords> {
+            Ok(PendingJournalRecords {
+                scoped: self
+                    .0
+                    .lock()
+                    .expect("journal lock")
+                    .iter()
+                    .filter(|item| item.recovery_scope.as_ref() == Some(scope))
+                    .cloned()
+                    .collect(),
+                orphaned: Vec::new(),
+            })
         }
     }
 
@@ -185,7 +196,11 @@ mod tests {
     #[tokio::test]
     async fn journal_records_completed_index_operation() {
         let journal = MemoryJournal::default();
-        let writer = JournaledIndexWriter::new(SuccessWriter, journal.clone());
+        let scope = RecoveryScope::worktree(
+            RecoveryPath::unix(b"/repo/.git".to_vec()).expect("scope path"),
+            RecoveryPath::unix(b"/repo/.git".to_vec()).expect("scope path"),
+        );
+        let writer = JournaledIndexWriter::new(SuccessWriter, journal.clone(), scope.clone());
         let target = SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1);
         writer
             .apply(
@@ -201,6 +216,7 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].phase, JournalPhase::Completed);
         assert_eq!(records[0].result, Some(JournalResult::Completed));
+        assert_eq!(records[0].recovery_scope, Some(scope));
     }
 }
 

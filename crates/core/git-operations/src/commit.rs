@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use git_domain::{
     GitCommand, GitError, GitErrorKind, GitResult, JournalPhase, JournalRecord, JournalResult,
-    ObjectId, SessionTarget, StandardCommitRequest,
+    ObjectId, RecoveryScope, SessionTarget, StandardCommitRequest,
 };
 use git_ports::{CommitOutcome, CommitWriter, ExecutionContext, JournalStore};
 
@@ -37,12 +37,17 @@ pub struct PreflightCommitWriter<W, R> {
 pub struct JournaledCommitWriter<W, J> {
     writer: W,
     journal: J,
+    recovery_scope: RecoveryScope,
 }
 
 impl<W, J> JournaledCommitWriter<W, J> {
     #[must_use]
-    pub fn new(writer: W, journal: J) -> Self {
-        Self { writer, journal }
+    pub fn new(writer: W, journal: J, recovery_scope: RecoveryScope) -> Self {
+        Self {
+            writer,
+            journal,
+            recovery_scope,
+        }
     }
 }
 
@@ -61,6 +66,7 @@ impl<W: CommitWriter, J: JournalStore> CommitWriter for JournaledCommitWriter<W,
                 target,
                 request: request.clone(),
             },
+            self.recovery_scope.clone(),
         );
         record.expected_head = request.expected_head;
         record.expected_index = request.expected_index;

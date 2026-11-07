@@ -2,10 +2,11 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{GitCommand, ObjectId, OperationId, SessionTarget};
+use crate::{GitCommand, ObjectId, OperationId, RecoveryScope, SessionTarget};
 
 /// Current journal schema written to durable storage.
-pub const JOURNAL_SCHEMA_VERSION: u32 = 1;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 2;
+pub const LEGACY_JOURNAL_SCHEMA_VERSION: u32 = 1;
 
 /// Durable sub-phase for recovery; intentionally separate from public operation lifecycle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,6 +36,8 @@ pub struct JournalRecord {
     pub schema_version: u32,
     pub operation_id: OperationId,
     pub target: SessionTarget,
+    #[serde(default)]
+    pub recovery_scope: Option<RecoveryScope>,
     pub command: GitCommand,
     pub expected_head: Option<ObjectId>,
     pub expected_index: Option<ObjectId>,
@@ -49,10 +52,15 @@ pub struct JournalRecord {
 impl JournalRecord {
     /// Creates a new intent record. It is not complete until storage confirms the write.
     #[must_use]
-    pub fn intent(operation_id: OperationId, command: GitCommand) -> Self {
+    pub fn intent(
+        operation_id: OperationId,
+        command: GitCommand,
+        recovery_scope: RecoveryScope,
+    ) -> Self {
         Self {
             schema_version: JOURNAL_SCHEMA_VERSION,
             target: command.target(),
+            recovery_scope: Some(recovery_scope),
             operation_id,
             command,
             expected_head: None,
@@ -70,5 +78,10 @@ impl JournalRecord {
     #[must_use]
     pub const fn needs_recovery(&self) -> bool {
         !matches!(self.phase, JournalPhase::Completed) || self.result.is_none()
+    }
+
+    #[must_use]
+    pub const fn is_legacy(&self) -> bool {
+        self.schema_version == LEGACY_JOURNAL_SCHEMA_VERSION
     }
 }

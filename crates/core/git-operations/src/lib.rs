@@ -22,7 +22,7 @@ pub use lock::{
 };
 pub use recovery::{
     RecoveryDisposition, RecoveryInspection, RecoveryObservation, RecoveryStateReader,
-    StartupRecoveryInspector, classify as classify_recovery,
+    StartupRecoveryInspector, StartupRecoveryReport, classify as classify_recovery,
 };
 
 use std::{collections::HashMap, sync::Arc};

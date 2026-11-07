@@ -1,7 +1,9 @@
 //! Minimal startup recovery inspection for journaled write operations.
 
 use async_trait::async_trait;
-use git_domain::{GitError, GitErrorKind, GitResult, JournalRecord, ObjectId, SessionTarget};
+use git_domain::{
+    GitError, GitErrorKind, GitResult, JournalRecord, ObjectId, RecoveryScope, SessionTarget,
+};
 use git_ports::{ExecutionContext, JournalStore};
 
 /// Repository state observed while inspecting a pending journal record.
@@ -38,7 +40,28 @@ pub trait RecoveryStateReader: Send + Sync {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecoveryInspection {
     pub record: JournalRecord,
+    pub current_target: SessionTarget,
     pub disposition: RecoveryDisposition,
+}
+
+/// Complete startup result, including legacy records whose repository identity is unprovable.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StartupRecoveryReport {
+    pub inspections: Vec<RecoveryInspection>,
+    pub orphaned: Vec<JournalRecord>,
+}
+
+impl StartupRecoveryReport {
+    #[must_use]
+    pub fn blocks_writes(&self) -> bool {
+        !self.orphaned.is_empty()
+            || self.inspections.iter().any(|inspection| {
+                matches!(
+                    inspection.disposition,
+                    RecoveryDisposition::CommittedNeedsReconcile | RecoveryDisposition::Unknown
+                )
+            })
+    }
 }
 
 /// Read-only startup recovery service for one repository session.
@@ -61,31 +84,45 @@ impl<J: JournalStore, R: RecoveryStateReader> StartupRecoveryInspector<J, R> {
     pub async fn inspect(
         &self,
         target: SessionTarget,
+        scope: &RecoveryScope,
         context: ExecutionContext,
-    ) -> GitResult<Vec<RecoveryInspection>> {
-        let records = self.journal.pending(target).await?;
-        if records.is_empty() {
-            return Ok(Vec::new());
+    ) -> GitResult<StartupRecoveryReport> {
+        let pending = self.journal.pending(scope).await?;
+        if pending.scoped.is_empty() {
+            return Ok(StartupRecoveryReport {
+                inspections: Vec::new(),
+                orphaned: pending.orphaned,
+            });
         }
-        if records.iter().any(|record| record.target != target) {
+        if pending
+            .scoped
+            .iter()
+            .any(|record| record.recovery_scope.as_ref() != Some(scope) || record.is_legacy())
+        {
             return Err(GitError::new(
                 GitErrorKind::Internal,
-                "Journal returned a recovery record for another repository session",
+                "Journal returned a recovery record for another persistent scope",
             )
             .with_target(target)
             .with_operation(context.operation_id));
         }
         let observed = self.reader.read(target, context).await?;
-        Ok(records
+        let inspections = pending
+            .scoped
             .into_iter()
             .map(|record| {
                 let disposition = classify(&record, &observed);
                 RecoveryInspection {
                     record,
+                    current_target: target,
                     disposition,
                 }
             })
-            .collect())
+            .collect();
+        Ok(StartupRecoveryReport {
+            inspections,
+            orphaned: pending.orphaned,
+        })
     }
 }
 
@@ -116,9 +153,10 @@ mod tests {
 
     use super::*;
     use git_domain::{
-        GitCommand, JournalRecord, ObjectFormat, OperationId, RepositoryId, SessionTarget,
-        WorktreeId,
+        GitCommand, JournalRecord, ObjectFormat, OperationId, RecoveryPath, RepositoryId,
+        SessionTarget, WorktreeId,
     };
+    use git_ports::PendingJournalRecords;
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 
@@ -154,15 +192,22 @@ mod tests {
                 .cloned())
         }
 
-        async fn pending(&self, target: SessionTarget) -> GitResult<Vec<JournalRecord>> {
-            Ok(self
-                .0
-                .lock()
-                .expect("journal lock")
-                .iter()
-                .filter(|item| item.target == target && item.needs_recovery())
-                .cloned()
-                .collect())
+        async fn pending(&self, scope: &RecoveryScope) -> GitResult<PendingJournalRecords> {
+            let records = self.0.lock().expect("journal lock");
+            Ok(PendingJournalRecords {
+                scoped: records
+                    .iter()
+                    .filter(|item| {
+                        item.recovery_scope.as_ref() == Some(scope) && item.needs_recovery()
+                    })
+                    .cloned()
+                    .collect(),
+                orphaned: records
+                    .iter()
+                    .filter(|item| item.is_legacy() && item.needs_recovery())
+                    .cloned()
+                    .collect(),
+            })
         }
     }
 
@@ -192,6 +237,14 @@ mod tests {
                 target,
                 paths: Vec::new(),
             },
+            scope(),
+        )
+    }
+
+    fn scope() -> RecoveryScope {
+        RecoveryScope::worktree(
+            RecoveryPath::unix(b"/repo/.git".to_vec()).expect("scope path"),
+            RecoveryPath::unix(b"/repo/.git".to_vec()).expect("scope path"),
         )
     }
 
@@ -213,6 +266,7 @@ mod tests {
                 target,
                 paths: Vec::new(),
             },
+            scope(),
         );
         second.expected_head = Some(
             git_domain::ObjectId::from_bytes(ObjectFormat::Sha1, &[7; 20]).expect("valid OID"),
@@ -230,14 +284,22 @@ mod tests {
             },
         );
 
-        let inspections = inspector
-            .inspect(target, context())
+        let report = inspector
+            .inspect(target, &scope(), context())
             .await
             .expect("inspection should succeed");
 
-        assert_eq!(inspections.len(), 2);
-        assert_eq!(inspections[0].disposition, RecoveryDisposition::NotExecuted);
-        assert_eq!(inspections[1].disposition, RecoveryDisposition::Unknown);
+        assert_eq!(report.inspections.len(), 2);
+        assert_eq!(
+            report.inspections[0].disposition,
+            RecoveryDisposition::NotExecuted
+        );
+        assert_eq!(
+            report.inspections[1].disposition,
+            RecoveryDisposition::Unknown
+        );
+        assert_eq!(report.inspections[0].current_target, target);
+        assert!(report.blocks_writes());
         assert_eq!(*calls.lock().expect("reader lock"), vec![target]);
     }
 
@@ -256,13 +318,13 @@ mod tests {
             },
         );
 
-        assert!(
-            inspector
-                .inspect(target, context())
-                .await
-                .expect("empty inspection should succeed")
-                .is_empty()
-        );
+        let report = inspector
+            .inspect(target, &scope(), context())
+            .await
+            .expect("empty inspection should succeed");
+        assert!(report.inspections.is_empty());
+        assert!(report.orphaned.is_empty());
+        assert!(!report.blocks_writes());
         assert!(calls.lock().expect("reader lock").is_empty());
     }
 

@@ -134,13 +134,21 @@ pub type DesktopM2Executor = git_operations::M2OperationExecutor<
 >;
 
 /// Builds the production M2 writer stack without opening any GUI write capability by itself.
-#[must_use]
+#[allow(clippy::result_large_err)]
 pub fn build_m2_executor(
     target: git_domain::SessionTarget,
     location: git_ports::RepositoryLocation,
     journal_path: PathBuf,
     rebuilder: git_application::ScheduledSnapshotRebuilder,
-) -> DesktopM2Executor {
+) -> git_domain::GitResult<DesktopM2Executor> {
+    let recovery_scope = location.recovery_scope().map_err(|error| {
+        git_domain::GitError::new(
+            git_domain::GitErrorKind::InvalidRepository,
+            "repository has no usable persistent recovery scope",
+        )
+        .with_diagnostic(error.to_string())
+        .with_target(target)
+    })?;
     let locks = git_operations::ResourceLockManager::new();
     let journal = persistence::JsonJournalStore::new(journal_path);
     let index = git_operations::ReconciledIndexWriter::new(
@@ -148,6 +156,7 @@ pub fn build_m2_executor(
             git_operations::JournaledIndexWriter::new(
                 git_cli::GitCliIndexWriter::new(git_cli::TokioProcessRunner, location.clone()),
                 journal.clone(),
+                recovery_scope.clone(),
             ),
             locks.clone(),
         ),
@@ -159,6 +168,7 @@ pub fn build_m2_executor(
                 git_operations::JournaledCommitWriter::new(
                     git_cli::GitCliCommitWriter::new(git_cli::TokioProcessRunner, location.clone()),
                     journal.clone(),
+                    recovery_scope.clone(),
                 ),
                 DesktopCommitStateReader::new(
                     target,
@@ -177,12 +187,15 @@ pub fn build_m2_executor(
             git_operations::JournaledBranchWriter::new(
                 git_cli::GitCliBranchWriter::new(git_cli::TokioProcessRunner, location),
                 journal,
+                recovery_scope,
             ),
             locks,
         ),
         rebuilder,
     );
-    git_operations::M2OperationExecutor::new(index, commit, branch)
+    Ok(git_operations::M2OperationExecutor::new(
+        index, commit, branch,
+    ))
 }
 
 /// Composition-root dispatcher that queues typed UI actions without blocking GPUI.
@@ -763,7 +776,8 @@ mod tests {
             location,
             journal_path.clone(),
             scheduler.rebuilder(),
-        );
+        )
+        .expect("fixture should have a recovery scope");
         let operation_id = git_domain::OperationId::new();
         let (progress, _receiver) = tokio::sync::mpsc::channel(8);
         executor

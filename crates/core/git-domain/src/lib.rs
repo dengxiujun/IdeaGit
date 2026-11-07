@@ -23,7 +23,10 @@ pub use command::{
 pub use error::{GitError, GitErrorKind, GitResult, RecoveryAction};
 pub use head::{BranchTracking, HeadState};
 pub use id::{OperationId, RepositoryId, SessionTarget, SnapshotRevision, WorktreeId};
-pub use journal::{JOURNAL_SCHEMA_VERSION, JournalPhase, JournalRecord, JournalResult};
+pub use journal::{
+    JOURNAL_SCHEMA_VERSION, JournalPhase, JournalRecord, JournalResult,
+    LEGACY_JOURNAL_SCHEMA_VERSION,
+};
 pub use log::{CommitPage, CommitSummary, LogQuery};
 pub use object_id::{ObjectFormat, ObjectId, ObjectIdError};
 pub use path::{LocalPath, RepoPath, RepoPathError};

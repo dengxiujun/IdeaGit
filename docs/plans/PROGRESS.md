@@ -373,6 +373,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `RepositoryLocation::recovery_scope` 只从 Git discovery 已规范化的 common dir 与具体 git dir 构造 scope；worktree/bare 分型，linked worktree 因 git dir 不同而隔离。
 - 测试覆盖 JSON 往返、非 UTF-8 Unix 路径、linked worktree、bare 和空路径拒绝；本切片尚未修改 Journal schema。
 
+## M2 RECOVERY-000 Journal v2 安全迁移（2026-11-07）
+
+- Journal schema 升至 v2，新写入的 Stage/Commit/Branch intent 必须携带 `RecoveryScope`；desktop executor 构造失败时不会退回无 scope 写入。
+- `JsonJournalStore` 同时读取 v1/v2：v2 缺 scope 或未知 schema 拒绝；v1 未完成记录保留为 orphaned，追加 v2 记录不会删除旧数据；按 scope 查询不会串 linked worktree。
+- 启动检查报告将旧 target 与当前 target 分离，并汇总 scoped 分类与 orphaned 记录；orphaned、Unknown、CommittedNeedsReconcile 都明确阻止写入口。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。
