@@ -349,6 +349,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 新增 3 个正常/失败路径测试，覆盖未执行、提交后 Index 需要协调和冲突状态；专项 `git-operations` 测试已通过。
 - 详细结果见 [RECOVERY-000-VERIFICATION-001](../reviews/RECOVERY-000-VERIFICATION-001.md)；下一步进入 `GIT-001` Stage/Unstage。
 
+## M2 RECOVERY-000 启动 Journal 检查器（2026-11-07）
+
+- `StartupRecoveryInspector` 按当前 `SessionTarget` 读取全部 pending Journal，并通过 `RecoveryStateReader` 只做一次权威 HEAD/Index 观测，避免同批记录基于不同瞬时状态分类。
+- 每条记录返回原始 Journal 与 `NotExecuted`、`Committed`、`CommittedNeedsReconcile` 或 `Unknown`；检查器只读，不自动重试 Commit、不覆盖 Index。
+- 测试覆盖同一观测批量分类以及无 pending 记录时不访问仓库；后续仍需接入真实 Git reader 和 desktop 启动流程，才满足写入口开放条件。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。

@@ -20,7 +20,10 @@ pub use index::{
 pub use lock::{
     LockError, ResourceKey, ResourceKind, ResourceLock, ResourceLockManager, ResourceScope,
 };
-pub use recovery::{RecoveryDisposition, RecoveryObservation, classify as classify_recovery};
+pub use recovery::{
+    RecoveryDisposition, RecoveryInspection, RecoveryObservation, RecoveryStateReader,
+    StartupRecoveryInspector, classify as classify_recovery,
+};
 
 use std::{collections::HashMap, sync::Arc};
 
