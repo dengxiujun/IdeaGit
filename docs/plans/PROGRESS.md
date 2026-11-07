@@ -46,7 +46,7 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `git-operations` 新增 `ResourceKey`、`ResourceScope`、`ResourceKind` 与 RAII `ResourceLock`；CommonGitDir 只承载共享 Refs，Worktree 承载 Index/WorktreeFiles/Sequencer。
 - 多资源按稳定 scope UUID 与 kind 顺序获取，避免锁顺序死锁；重复键自动去重；取消等待返回结构化 `LockError::Cancelled`。
 - 锁是应用内协调锁，不占用或伪造真实 `.git/index.lock`；独立仓库资源可并发，真实 Git 锁竞争仍由 Git 命令和后续恢复门禁处理。
-- 本机 Workspace 全量门禁已通过；三平台 Runner 将在本任务提交推送后执行。
+- 本机 Workspace 全量门禁已通过；[Rust CI #24](https://github.com/dengxiujun/IdeaGit/actions/runs/42349017069) 已在 Windows Server 2022、macOS 15 与 Ubuntu 24.04 全部通过。
 
 ## CORE-010 Operation Coordinator（2026-11-07）
 

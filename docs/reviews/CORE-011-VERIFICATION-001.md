@@ -2,7 +2,7 @@
 
 - 日期：2026-11-07
 - 任务：CORE-011
-- 当前状态：本机专项与 Workspace 门禁待本提交完成后确认；本任务不执行真实 Git 写操作。
+- 当前状态：本机专项、Workspace 门禁与 Rust CI #24 三平台门禁均通过；本任务不执行真实 Git 写操作。
 
 ## 1. 锁模型
 
@@ -27,8 +27,9 @@
 - `cargo clippy --workspace --all-targets --locked -- -D warnings`
 - `cargo test --workspace --locked`
 - `git-operations` 新增 3 个锁专项测试：同资源串行/独立资源可用、取消等待、跨 scope/kind 全序。
+- [Rust CI #24](https://github.com/dengxiujun/IdeaGit/actions/runs/42349017069) 的 Format、locked check、Clippy、Workspace tests 已在 Windows Server 2022、macOS 15 与 Ubuntu 24.04 全部通过。
 
 ## 4. 遗留风险
 
 - Journal、恢复、真实 Git 写操作和外部进程锁竞争仍由 CORE-012、RECOVERY-000、GIT-001/002 验证。
-- 三平台 CI 需在本任务提交推送后确认。
+- 三平台构建已通过；真实外部 Git 锁竞争仍需在 GIT-001/002 与恢复门禁中验证。
