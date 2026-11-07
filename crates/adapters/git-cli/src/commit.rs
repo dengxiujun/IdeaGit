@@ -13,6 +13,83 @@ use git_ports::{
 
 use crate::executor::{GitCliCommand, GitCliExecutor, GitCliInvocation, sealed};
 
+/// Authoritative HEAD and Index tree identity observed immediately before a standard commit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GitCliCommitState {
+    pub head: Option<ObjectId>,
+    pub index: ObjectId,
+}
+
+/// Typed Git CLI probe used by the composition root to implement commit preflight.
+#[derive(Debug)]
+pub struct GitCliCommitStateProbe<R> {
+    executor: GitCliExecutor<R>,
+    location: RepositoryLocation,
+}
+
+impl<R> GitCliCommitStateProbe<R> {
+    #[must_use]
+    pub fn new(runner: R, location: RepositoryLocation) -> Self {
+        Self {
+            executor: GitCliExecutor::new(runner),
+            location,
+        }
+    }
+}
+
+impl<R: ProcessRunner> GitCliCommitStateProbe<R> {
+    /// Reads `HEAD` and the tree represented by the real Index without changing Index or refs.
+    #[allow(clippy::result_large_err)]
+    pub async fn read(&self, context: ExecutionContext) -> GitResult<GitCliCommitState> {
+        let cwd = self
+            .location
+            .worktree_root()
+            .ok_or_else(|| {
+                GitError::new(
+                    GitErrorKind::UnsupportedFeature,
+                    "commit preflight is unavailable for a bare repository",
+                )
+            })?
+            .to_path_buf();
+        let head = self
+            .executor
+            .execute(HeadOidCommand { cwd: cwd.clone() }, context.clone())
+            .await?;
+        let head = if head.success {
+            Some(parse_oid(&head.stdout, "Git returned an invalid HEAD OID")?)
+        } else if head.exit_code == Some(1) {
+            None
+        } else {
+            return Err(
+                GitError::new(GitErrorKind::InvalidRepository, "Git could not read HEAD")
+                    .with_diagnostic(format!("exit_code={:?}", head.exit_code)),
+            );
+        };
+        let index = self
+            .executor
+            .execute(IndexTreeCommand { cwd }, context)
+            .await?;
+        if !index.success {
+            return Err(GitError::new(
+                GitErrorKind::InvalidRepository,
+                "Git could not read the Index tree",
+            )
+            .with_diagnostic(format!("exit_code={:?}", index.exit_code)));
+        }
+        Ok(GitCliCommitState {
+            head,
+            index: parse_oid(&index.stdout, "Git returned an invalid Index tree OID")?,
+        })
+    }
+}
+
+#[allow(clippy::result_large_err)]
+fn parse_oid(bytes: &[u8], message: &'static str) -> GitResult<ObjectId> {
+    ObjectId::from_str(String::from_utf8_lossy(bytes).trim()).map_err(|error| {
+        GitError::new(GitErrorKind::Internal, message).with_diagnostic(error.to_string())
+    })
+}
+
 #[derive(Debug)]
 pub struct GitCliCommitWriter<R> {
     executor: GitCliExecutor<R>,
@@ -147,6 +224,35 @@ impl sealed::Sealed for CommitCommand {
 struct RevParseCommand {
     cwd: PathBuf,
 }
+
+struct HeadOidCommand {
+    cwd: PathBuf,
+}
+impl GitCliCommand for HeadOidCommand {}
+impl sealed::Sealed for HeadOidCommand {
+    fn into_invocation(self) -> GitCliInvocation {
+        GitCliInvocation::new(
+            None,
+            [
+                OsString::from("rev-parse"),
+                OsString::from("--verify"),
+                OsString::from("--quiet"),
+                OsString::from("HEAD"),
+            ],
+        )
+        .with_cwd(self.cwd)
+    }
+}
+
+struct IndexTreeCommand {
+    cwd: PathBuf,
+}
+impl GitCliCommand for IndexTreeCommand {}
+impl sealed::Sealed for IndexTreeCommand {
+    fn into_invocation(self) -> GitCliInvocation {
+        GitCliInvocation::new(None, [OsString::from("write-tree")]).with_cwd(self.cwd)
+    }
+}
 impl GitCliCommand for RevParseCommand {}
 impl sealed::Sealed for RevParseCommand {
     fn into_invocation(self) -> GitCliInvocation {
@@ -225,5 +331,61 @@ mod tests {
             .await
             .expect("commit should succeed");
         assert_eq!(outcome.parents.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn commit_state_probe_tracks_unborn_head_and_real_index_changes() {
+        let fixture = TestRepository::init().expect("fixture");
+        let probe = GitCliCommitStateProbe::new(
+            crate::TokioProcessRunner,
+            RepositoryLocation::worktree(
+                &fixture.worktree,
+                fixture.worktree.join(".git"),
+                fixture.worktree.join(".git"),
+            ),
+        );
+        let (progress, _receiver) = mpsc::channel(4);
+        let unborn = probe
+            .read(ExecutionContext::new(
+                OperationId::new(),
+                CancellationToken::new(),
+                progress,
+            ))
+            .await
+            .expect("unborn state should be readable");
+        assert_eq!(unborn.head, None);
+
+        fixture
+            .commit_file("one.txt", b"one\n")
+            .expect("first commit should succeed");
+        let (progress, _receiver) = mpsc::channel(4);
+        let committed = probe
+            .read(ExecutionContext::new(
+                OperationId::new(),
+                CancellationToken::new(),
+                progress,
+            ))
+            .await
+            .expect("committed state should be readable");
+        assert!(committed.head.is_some());
+        assert_ne!(committed.index, unborn.index);
+
+        fixture
+            .write_file("two.txt", b"two\n")
+            .expect("second file should be written");
+        fixture
+            .stage_file("two.txt")
+            .expect("second file should be staged");
+        let (progress, _receiver) = mpsc::channel(4);
+        let changed = probe
+            .read(ExecutionContext::new(
+                OperationId::new(),
+                CancellationToken::new(),
+                progress,
+            ))
+            .await
+            .expect("changed Index state should be readable");
+        assert_eq!(changed.head, committed.head);
+        assert_ne!(changed.index, committed.index);
     }
 }

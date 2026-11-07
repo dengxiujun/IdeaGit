@@ -77,23 +77,29 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `git-operations::BranchOperationExecutor` 将 `GitCommand::Branch` 转换为 `BranchWriter::apply`，保留 Create/Checkout/Rename/Delete 的 typed `BranchCommand`。
 - 非 Branch 命令显式拒绝；实际 Refs 锁、Journal、Reconcile 仍由既有 writer 装饰器承担。
 
-## M2 CORE-0013 统一写操作路由（2026-11-07）
+## M2 CORE-010 统一写操作路由（2026-11-07）
 
 - `M2OperationExecutor<I, C, B>` 将 Stage/Unstage、Standard Commit 与 Branch command 路由到 composition root 注入的三条 writer 装饰链，为单一 Workbench Coordinator 提供完整 M2 typed command 集。
 - executor 不构造裸 Git writer；Lock、Journal、Commit Preflight 与 Reconcile 仍必须由外层组合后注入，Remote/M3 command 明确返回 `UnsupportedFeature`。
 - 单元测试覆盖三类成功路由和 Remote 拒绝，确保不会因统一入口意外开放后续里程碑能力。
 
-## M2 CORE-0014 写后权威重读端口（2026-11-07）
+## M2 CORE-010 写后权威重读端口（2026-11-07）
 
 - `ReconciledIndexWriter`、`ReconciledCommitWriter` 与 `ReconciledBranchWriter` 现在直接实现对应写端口，可作为统一 M2 executor 的最外层 writer 注入。
 - 三类装饰器都只在底层写入与 `SnapshotRebuilder` 权威重读同时成功后返回成功；Commit 保留并返回原始 `CommitOutcome`。
 - 失败路径测试覆盖“Git 写入已成功但重读失败”，三类操作均保留重读器的结构化失败，不向 Coordinator 伪报成功。
 
-## M2 CORE-0015 Scheduler Reconcile Handle（2026-11-07）
+## M2 CORE-010 Scheduler Reconcile Handle（2026-11-07）
 
 - `RefreshScheduler::rebuilder` 派生 operation-scoped `ScheduledSnapshotRebuilder`；写后请求携带一次性响应，只有该请求对应的权威 refresh 完成后才返回 Snapshot。
 - 当已有 refresh 正在执行时，Reconcile 请求留在有界队列等待下一轮，避免把写入前启动的旧 snapshot 错认作写后结果；普通文件系统触发仍按原策略合并。
 - Reconcile 保留 target 校验、取消和底层结构化读取错误；测试覆盖成功产生下一 revision 及权威读取失败透传。
+
+## M2 GIT-002 Commit Preflight Probe（2026-11-07）
+
+- `GitCliCommitStateProbe` 通过 sealed typed command 读取 `rev-parse --verify --quiet HEAD` 与真实 Index 的 `write-tree` OID，为 composition root 提供强类型 HEAD/Index 身份。
+- Unborn HEAD 表示为 `None`；Index tree 始终为 `ObjectId`。探针不修改 Index 或 refs，进程仍继承 Operation 的取消、超时和输出上限。
+- 真实仓库测试覆盖 Unborn、首次 Commit 与外部 Stage 后的身份变化，证明 HEAD 不变时 Index 指纹仍可检测竞争。
 
 ## UI-006 Desktop Action Queue（2026-11-07）
 
@@ -110,18 +116,18 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `WorkbenchController::set_operation_snapshot` 将 `OperationCoordinator` 的 Running、Success、Failed、Cancelled、RecoveryRequired 映射为统一中文 UI feedback；Finished 无结果也按失败处理，不伪造成功。
 - 该映射只更新 UI 状态，不改变 Git 仓库；desktop 仍需订阅 coordinator 的 latest-only snapshot 并回送窗口实体。
 
-## M2 UI-0008 Coordinator 终态订阅（2026-11-07）
+## M2 UI-006 Coordinator 终态订阅（2026-11-07）
 
 - `DesktopActionDispatcher` 在成功提交 command 后订阅对应 `OperationId` 的 latest-only snapshot，并通过无界 UI 更新通道转发 Queued 至 Finished 的真实状态。
 - 订阅在 Finished、接收端关闭或 coordinator stream 关闭时终止，不重复执行 Git 命令；下一小节点将把 receiver 回送 `WorkbenchController::set_operation_snapshot`。
 
-## M2 UI-0009 Desktop 操作生命周期桥（2026-11-07）
+## M2 UI-006 Desktop 操作生命周期桥（2026-11-07）
 
 - `DesktopActionDispatcher` 显式持有应用层 Tokio runtime handle；GPUI UI 线程触发 Action 时不再依赖当前线程恰好进入 Tokio 上下文。
 - desktop 新增统一安装入口，将 Dispatcher 注入 `WorkbenchController`，并通过弱 UI 句柄在 GPUI 任务中回送 coordinator snapshots；Workbench Entity 释放后终止反馈消费，不形成 controller/sender 保留环，也不重试 Git 命令。
 - 测试从不含 Tokio context 的独立线程派发 Stage Action，并验证真实 coordinator 终态经 receiver 转发为 Success；具体安全 writer 装配仍由后续小节点完成。
 
-## M2 UI-0010 真实 Git Log Bridge（2026-11-07）
+## M2 UI-009 真实 Git Log Bridge（2026-11-07）
 
 - desktop repository bridge 新增 typed UI update，在刷新得到新 HEAD 时通过 `GitCliHistoryReader` 读取默认首个分页并回送 `WorkbenchController::set_log_page`；普通工作区文件变化不会重复读取相同 HEAD 的历史。
 - Unborn HEAD 显示空 Log，不执行注定失败的 `git log`；历史读取失败以可见反馈返回 UI，不终止 Status/Changes 持续刷新。
