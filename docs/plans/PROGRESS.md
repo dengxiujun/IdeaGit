@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-M0 已完成。M1 Git Read Core 与 Workbench 的实现、真实 Git 端到端验证及本机全量门禁已完成：CORE-001/002/003/004/005/006/007/008、UI-003/004 已完成三平台 CI 验证；UI-005 与 M1 §4.7 等待本提交三平台 CI 关闭最终平台门禁。
+M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链路和 Rust CI #21 三平台门禁中验证：CORE-001/002/003/004/005/006/007/008、UI-003/004/005 均已完成三平台 CI 验证，IP-001 §4.7 最终门禁已关闭。
 
 ## 已完成的文档工作
 
@@ -39,7 +39,7 @@ M0 已完成。M1 Git Read Core 与 Workbench 的实现、真实 Git 端到端�
 
 ## 下一步
 
-等待 UI-005 三平台 CI 后关闭 M1。之后按依赖 DAG 进入 M2 的 CORE-009 强类型 GitCommand；仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+按依赖 DAG 进入 M2 的 CORE-009 强类型 GitCommand；仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
 
 ## UI-005 Read-only Changes Tree / M1 §4.7（2026-11-07）
 
@@ -47,7 +47,7 @@ M0 已完成。M1 Git Read Core 与 Workbench 的实现、真实 Git 端到端�
 - Commit Dock panel 使用 `WorkbenchController` 接收模型并显示三组文件及状态；Shell 不依赖 `git-cli`，不会发起 Stage/Unstage 或其他写入。
 - desktop composition root 将 Discovery、Registry Session、RepositoryWatch 与 RefreshScheduler 连成持续 bridge。每次最新 Snapshot 都回送 GPUI UI 线程；UI receiver 关闭时取消 session 并收束 scheduler。
 - 真实 Git fixture 覆盖 staged、unstaged、mixed、untracked 的投影，以及外部写入 `external.txt` 后 Watcher → Refresh → Workbench 模型更新，满足 IP-001 §4.7 的应用数据链路。
-- 本机专项检查、Workspace 全量 fmt/check/clippy/test 与原生窗口 smoke 已通过；本提交三平台 CI 仍待推送后验证。详见 [UI-005-VERIFICATION-001](../reviews/UI-005-VERIFICATION-001.md)。
+- 本机专项检查、Workspace 全量 fmt/check/clippy/test、原生窗口 smoke 与 [Rust CI #21](https://github.com/dengxiujun/IdeaGit/actions/runs/42344546518) 的 Windows Server 2022/macOS 15/Ubuntu 24.04 门禁均通过；M1 §4.7 已关闭。详见 [UI-005-VERIFICATION-001](../reviews/UI-005-VERIFICATION-001.md)。
 
 ## UI-004 Repository Tabs / StatusBar（2026-11-07）
 

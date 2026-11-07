@@ -2,7 +2,7 @@
 
 - 日期：2026-11-07
 - 任务：UI-005
-- 当前状态：本机专项与 Workspace 全量门禁通过；本提交三平台 CI 待执行。
+- 当前状态：本机专项、Workspace 全量门禁与 Rust CI #21 三平台门禁均通过。
 
 ## 1. 范围与架构边界
 
@@ -31,9 +31,9 @@
 - `cargo test --workspace --locked`
 - 真实隔离 Git fixture：初始 Snapshot 同时包含 staged、unstaged、mixed 和 untracked；mixed 文件在两个对应组中出现。随后通过 fixture 在应用外写入 `external.txt`，实际 Watcher 信号触发 Scheduler 刷新，并验证新的 Workbench 模型出现该文件。
 - 原生窗口 smoke：以 `IDEAGIT_OPEN_REPOSITORY` 打开真实仓库，并以 `IDEAGIT_UI_SMOKE_DURATION_MS` 绘制、关闭。
+- [Rust CI #21](https://github.com/dengxiujun/IdeaGit/actions/runs/42344546518) 已在 Windows Server 2022、macOS 15 与 Ubuntu 24.04 完成 Format、locked check、Clippy 与 Workspace tests。
 
 ## 5. 遗留风险
 
-- 三平台 CI 仍须验证本提交的 Watcher/桌面 bridge；本机成功不替代平台验收。
 - M1 不开放写操作。Stage/Unstage、Commit、Action Dispatcher、Draft 与 Log 属于 M2 任务，不能从只读投影推断其已就绪。
 - 真正的 Windows/Wayland 长时间 Watcher 行为、网络文件系统与多窗口多仓库交互仍属于后续平台 QA。
