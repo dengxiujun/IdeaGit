@@ -275,6 +275,7 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `git-log-ui` 新增纯 `LogRow` projection，复用 GraphRow，不创建长期 GPUI Entity；单行投影测试通过。
 - 新增真实 Git M2 核心闭环测试：Stage → Commit → Create/Checkout Branch → Log，验证新提交可在历史中读取。
 - M2 §5.9 的 GUI 端到端门禁仍未关闭：当前已验证 Git Core 真实闭环，Desktop Action/UI wiring 和失败态交互仍需后续集成。
+- `idea-shell::WorkbenchController` 现可接收 `CommitPage` 并更新 Git Log panel 的纯 `LogRow` projection，完成 Core→UI 的 Log 数据通路；Stage/Commit/Branch Action 仍需接入 UI 事件。
 - `git-operations` 新增 `CoordinatedBranchWriter`，以 CommonGitDir Refs 锁串行化分支变更；`ReconciledBranchWriter` 在写后重建 Snapshot。
 - `JournaledBranchWriter` 在分支变更前记录 CommitInProgress，随后持久化 Completed 或 RecoveryRequired，保留崩溃审计线索。
 - `ReconciledCommitWriter` 只有在实际提交成功且权威 RepositorySnapshot 重建成功后才返回完整成功结果。

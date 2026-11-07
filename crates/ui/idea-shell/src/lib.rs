@@ -85,6 +85,17 @@ impl WorkbenchController {
             cx.notify();
         });
     }
+
+    pub fn set_log_page(&self, page: git_domain::CommitPage, cx: &mut App) {
+        let rows = git_log_ui::project(&page);
+        self.view.update(cx, |view, cx| {
+            view.log_panel.update(cx, |panel, cx| {
+                panel.log_rows = rows;
+                cx.notify();
+            });
+            cx.notify();
+        });
+    }
 }
 
 /// Opens a native workbench and retains a typed controller for async Git projections.
@@ -129,6 +140,7 @@ struct WorkbenchWindow {
     _layout_subscription: Subscription,
     repository_chrome: git_ui_model::RepositoryChromeModel,
     commit_panel: Entity<WorkbenchPanel>,
+    log_panel: Entity<WorkbenchPanel>,
 }
 
 impl WorkbenchWindow {
@@ -139,6 +151,7 @@ impl WorkbenchWindow {
         let repository = WorkbenchPanel::new(PanelKind::RepositoryExplorer, cx);
         let commit = WorkbenchPanel::new(PanelKind::Commit, cx);
         let log = WorkbenchPanel::new(PanelKind::GitLog, cx);
+        let log_panel = log.clone();
         let diff = WorkbenchPanel::new(PanelKind::Diff, cx);
         let console = WorkbenchPanel::new(PanelKind::Console, cx);
         dock_area.update(cx, |area, cx| {
@@ -202,6 +215,7 @@ impl WorkbenchWindow {
             _layout_subscription: layout_subscription,
             repository_chrome: git_ui_model::RepositoryChromeModel::default(),
             commit_panel: commit,
+            log_panel,
         }
     }
 }
@@ -283,6 +297,7 @@ struct WorkbenchPanel {
     kind: PanelKind,
     focus: FocusHandle,
     changes: ChangesTreeModel,
+    log_rows: Vec<git_log_ui::LogRow>,
 }
 
 impl WorkbenchPanel {
@@ -291,6 +306,7 @@ impl WorkbenchPanel {
             kind,
             focus: cx.focus_handle(),
             changes: ChangesTreeModel::default(),
+            log_rows: Vec::new(),
         })
     }
 }
@@ -321,6 +337,22 @@ impl Focusable for WorkbenchPanel {
 
 impl Render for WorkbenchPanel {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        if self.kind == PanelKind::GitLog {
+            return div()
+                .flex()
+                .flex_col()
+                .size_full()
+                .p_3()
+                .gap_1()
+                .child(div().font_semibold().child("Git Log"))
+                .children(self.log_rows.iter().map(|row| {
+                    div().text_sm().child(format!(
+                        "{} · {}",
+                        row.id,
+                        String::from_utf8_lossy(&row.subject)
+                    ))
+                }));
+        }
         if self.kind == PanelKind::Commit {
             return div()
                 .flex()
