@@ -22,7 +22,7 @@ const SMOKE_DURATION_ENV: &str = "IDEAGIT_UI_SMOKE_DURATION_MS";
 const OPEN_REPOSITORY_ENV: &str = "IDEAGIT_OPEN_REPOSITORY";
 
 enum DesktopUiUpdate {
-    Repository(git_ui_model::RepositoryWorkbenchModel),
+    Repository(Box<git_ui_model::RepositoryWorkbenchModel>),
     Log(git_domain::CommitPage),
     LogFailed(String),
     RecoveryBlocked(String),
@@ -411,7 +411,7 @@ fn main() -> ExitCode {
                     while let Some(update) = receiver.recv().await {
                         cx.update(|cx| match update {
                             DesktopUiUpdate::Repository(model) => {
-                                controller.set_repository_model(model, cx);
+                                controller.set_repository_model(*model, cx);
                             }
                             DesktopUiUpdate::Log(page) => controller.set_log_page(page, cx),
                             DesktopUiUpdate::LogFailed(error) => {
@@ -574,12 +574,32 @@ async fn run_repository_bridge(
     }
     let mut watcher = repository_watcher::RepositoryWatch::start(&location, 32)
         .map_err(|error| error.to_string())?;
-    let history = git_cli::GitCliHistoryReader::new(git_cli::TokioProcessRunner, location);
+    let history = git_cli::GitCliHistoryReader::new(git_cli::TokioProcessRunner, location.clone());
+    let commit_probe =
+        git_cli::GitCliCommitStateProbe::new(git_cli::TokioProcessRunner, location.clone());
     let mut last_log_head = None;
     let result = loop {
         let state = refresh.borrow().clone();
-        let model = git_ui_model::RepositoryWorkbenchModel::single_session(&session, &state);
-        if sender.send(DesktopUiUpdate::Repository(model)).is_err() {
+        let commit_identity = {
+            let (progress, _progress_receiver) = tokio::sync::mpsc::channel(4);
+            commit_probe
+                .read(git_ports::ExecutionContext::new(
+                    git_domain::OperationId::new(),
+                    cancellation.clone(),
+                    progress,
+                ))
+                .await
+                .ok()
+        };
+        let mut model = git_ui_model::RepositoryWorkbenchModel::single_session(&session, &state);
+        if let Some(identity) = commit_identity {
+            model.expected_head = identity.head;
+            model.expected_index = Some(identity.index);
+        }
+        if sender
+            .send(DesktopUiUpdate::Repository(Box::new(model)))
+            .is_err()
+        {
             break Ok(());
         }
         if let Some(snapshot) = state.snapshot.as_ref()

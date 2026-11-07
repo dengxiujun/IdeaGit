@@ -433,6 +433,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Stage 只收集 Worktree 来源，Unstage 只收集 Index 来源，并由 Panel 发出 typed `ActionRequest`；Workbench 统一执行 `DefaultActionPolicy` 后交给生产 `ActionDispatcher`，GPUI 线程不运行 Git CLI。
 - 单元测试验证混合选择被正确拆分为 Stage/Unstage 请求；操作排队失败和终态继续复用 UI-006 的统一 Operation feedback。
 
+## M2 UI-007 Commit 事件与权威指纹（2026-11-07）
+
+- Desktop bridge 通过只读 `GitCliCommitStateProbe` 将当前 HEAD 与真实 Index tree OID 传入 `RepositoryWorkbenchModel`/`CommitPanelViewModel`；缺失 Index 指纹时 Commit 按钮保持禁用。
+- Commit 按钮仅在消息、staged 文件和权威 revision/HEAD/Index 齐备时发出 typed `StandardCommitRequest`，保留 Amend 与预期状态，随后由统一 dispatcher 排队并由 Operation feedback 展示终态。
+- 测试覆盖 Commit payload 的 revision、HEAD、Index 与消息传递；未以 Snapshot 猜测 Index 身份，也未绕过 preflight。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。

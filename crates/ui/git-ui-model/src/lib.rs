@@ -265,12 +265,19 @@ pub struct CommitPanelViewModel {
     pub message: String,
     pub amend: bool,
     pub draft_revision: u64,
+    pub expected_head: Option<ObjectId>,
+    pub expected_index: Option<ObjectId>,
     pub submission: CommitSubmissionState,
 }
 
 impl CommitPanelViewModel {
     #[must_use]
-    pub fn from_changes(changes: &ChangesTreeModel, drafts: &CommitDraftStore) -> Option<Self> {
+    pub fn from_changes(
+        changes: &ChangesTreeModel,
+        drafts: &CommitDraftStore,
+        expected_head: Option<ObjectId>,
+        expected_index: Option<ObjectId>,
+    ) -> Option<Self> {
         let target = changes.target?;
         let revision = changes.revision?;
         let draft = drafts
@@ -285,6 +292,8 @@ impl CommitPanelViewModel {
             message: draft.message,
             amend: draft.amend,
             draft_revision: draft.draft_revision,
+            expected_head,
+            expected_index,
             submission: CommitSubmissionState::Idle,
         })
     }
@@ -323,6 +332,8 @@ pub struct RepositoryChromeModel {
 pub struct RepositoryWorkbenchModel {
     pub chrome: RepositoryChromeModel,
     pub changes: ChangesTreeModel,
+    pub expected_head: Option<ObjectId>,
+    pub expected_index: Option<ObjectId>,
 }
 
 /// User intent routed through the workbench action registry.
@@ -507,6 +518,14 @@ impl RepositoryWorkbenchModel {
         Self {
             chrome: RepositoryChromeModel::single_session(session, refresh),
             changes,
+            expected_head: refresh
+                .snapshot
+                .as_ref()
+                .and_then(|snapshot| match snapshot.head {
+                    HeadState::Attached { oid, .. } | HeadState::Detached { oid } => Some(oid),
+                    HeadState::Unborn { .. } => None,
+                }),
+            expected_index: None,
         }
     }
 }
@@ -671,7 +690,7 @@ mod tests {
             ..ChangesTreeModel::default()
         };
 
-        let panel = CommitPanelViewModel::from_changes(&changes, &drafts)
+        let panel = CommitPanelViewModel::from_changes(&changes, &drafts, Some(oid()), None)
             .expect("complete snapshot should project");
 
         assert_eq!(panel.message, "keep after failure");

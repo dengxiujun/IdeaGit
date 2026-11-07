@@ -128,7 +128,7 @@ impl WorkbenchController {
         self.view.update(cx, |view, cx| {
             view.repository_chrome = model.chrome;
             view.commit_panel.update(cx, |panel, cx| {
-                panel.set_changes(model.changes);
+                panel.set_changes(model.changes, model.expected_head, model.expected_index);
                 cx.notify();
             });
             cx.notify();
@@ -531,7 +531,12 @@ impl WorkbenchPanel {
         })
     }
 
-    fn set_changes(&mut self, changes: ChangesTreeModel) {
+    fn set_changes(
+        &mut self,
+        changes: ChangesTreeModel,
+        expected_head: Option<git_domain::ObjectId>,
+        expected_index: Option<git_domain::ObjectId>,
+    ) {
         let same_target = self.changes.target == changes.target;
         self.changes = changes;
         if same_target {
@@ -546,7 +551,12 @@ impl WorkbenchPanel {
         } else {
             self.selected_changes.clear();
         }
-        self.commit_model = CommitPanelViewModel::from_changes(&self.changes, &self.commit_drafts);
+        self.commit_model = CommitPanelViewModel::from_changes(
+            &self.changes,
+            &self.commit_drafts,
+            expected_head,
+            expected_index,
+        );
         self.pending_message_sync = self
             .commit_model
             .as_ref()
@@ -557,6 +567,23 @@ impl WorkbenchPanel {
         if let Some(request) = file_action_request(&self.changes, &self.selected_changes, action) {
             cx.emit(request);
         }
+    }
+
+    fn emit_commit_action(&mut self, cx: &mut Context<Self>) {
+        let Some(model) = self.commit_model.as_ref() else {
+            return;
+        };
+        let staged_files = self
+            .changes
+            .group(git_ui_model::ChangeGroup::Staged)
+            .into_iter()
+            .flat_map(|group| group.entries.iter())
+            .map(|entry| entry.path.clone())
+            .collect::<Vec<_>>();
+        let Some(request) = commit_action_request(model, staged_files) else {
+            return;
+        };
+        cx.emit(request);
     }
 }
 
@@ -585,6 +612,38 @@ fn file_action_request(
             ..ActionContext::default()
         },
         payload: git_ui_model::ActionPayload::None,
+    })
+}
+
+fn commit_action_request(
+    model: &CommitPanelViewModel,
+    staged_files: Vec<git_domain::RepoPath>,
+) -> Option<ActionRequest> {
+    if model.message.trim().is_empty() || model.expected_index.is_none() {
+        return None;
+    }
+    Some(ActionRequest {
+        action: ActionId::Commit,
+        context: ActionContext {
+            target: Some(model.target),
+            selected_files: staged_files,
+            active_panel: git_ui_model::ActionPanel::Commit,
+            ..ActionContext::default()
+        },
+        payload: git_ui_model::ActionPayload::Commit(git_domain::StandardCommitRequest {
+            options: git_domain::CommitOptions {
+                message: model.message.as_bytes().to_vec(),
+                amend: model.amend,
+                allow_empty: false,
+                signoff: false,
+                author: None,
+                committer: None,
+                signing: git_domain::SigningMode::UseGitConfig,
+            },
+            expected_revision: model.revision,
+            expected_head: model.expected_head,
+            expected_index: model.expected_index,
+        }),
     })
 }
 
@@ -647,6 +706,7 @@ impl Render for WorkbenchPanel {
             let amend_panel = panel.clone();
             let stage_panel = panel.clone();
             let unstage_panel = panel.clone();
+            let commit_panel = panel.clone();
             let has_worktree_selection = selected
                 .iter()
                 .any(|(source, _)| *source == ChangeContentSource::Worktree);
@@ -765,6 +825,19 @@ impl Render for WorkbenchPanel {
                                 cx.notify();
                             });
                         }),
+                )
+                .child(
+                    Button::new("commit-selected")
+                        .primary()
+                        .label("Commit")
+                        .disabled(self.commit_model.as_ref().is_none_or(|model| {
+                            model.message.trim().is_empty() || model.expected_index.is_none()
+                        }))
+                        .on_click(move |_, _, cx| {
+                            let _ = commit_panel.update(cx, |panel, cx| {
+                                panel.emit_commit_action(cx);
+                            });
+                        }),
                 );
         }
         div()
@@ -827,5 +900,48 @@ mod tests {
         assert_eq!(stage.context.selected_files, vec![unstaged]);
         assert_eq!(unstage.context.selected_files, vec![staged]);
         assert_eq!(stage.context.target, Some(target));
+    }
+
+    #[test]
+    fn commit_request_carries_authoritative_revision_and_keeps_message() {
+        let target = git_domain::SessionTarget::worktree(
+            git_domain::RepositoryId::new(),
+            git_domain::WorktreeId::new(),
+            1,
+        );
+        let head = git_domain::ObjectId::from_bytes(git_domain::ObjectFormat::Sha1, &[1; 20])
+            .expect("valid head");
+        let index = git_domain::ObjectId::from_bytes(git_domain::ObjectFormat::Sha1, &[2; 20])
+            .expect("valid index");
+        let model = CommitPanelViewModel {
+            target,
+            revision: git_domain::SnapshotRevision::new(7),
+            changes: Vec::new(),
+            selected: Vec::new(),
+            message: "commit from panel".to_owned(),
+            amend: true,
+            draft_revision: 3,
+            expected_head: Some(head),
+            expected_index: Some(index),
+            submission: git_ui_model::CommitSubmissionState::Idle,
+        };
+        let path = git_domain::RepoPath::try_from("ready.txt").expect("valid path");
+        let request = commit_action_request(&model, vec![path.clone()])
+            .expect("complete commit identity should enable request");
+
+        assert_eq!(request.context.selected_files, vec![path]);
+        match request.payload {
+            git_ui_model::ActionPayload::Commit(commit) => {
+                assert_eq!(
+                    commit.expected_revision,
+                    git_domain::SnapshotRevision::new(7)
+                );
+                assert_eq!(commit.expected_head, Some(head));
+                assert_eq!(commit.expected_index, Some(index));
+                assert!(commit.options.amend);
+                assert_eq!(commit.options.message, b"commit from panel");
+            }
+            _ => panic!("commit action should carry typed commit payload"),
+        }
     }
 }
