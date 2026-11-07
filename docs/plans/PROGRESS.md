@@ -454,6 +454,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Workbench Git Log panel 现在展示 Graph lane/OID、Subject、Author、Timestamp 四列，复用 `git-log-ui::LogRow` 纯投影，不为每个 Commit 创建长期 GPUI Entity。
 - Log 数据仍由 `CommitPage → LogRow` 通路提供；新 Commit 后由 bridge 的 HEAD 变化触发重新读取，旧数据不会伪造为当前提交。
 
+## M2 UI-009 Git Log 选择与详情（2026-11-08）
+
+- Log 行现在支持受控选择，选中 OID 后展示 Subject/Author/Commit 摘要详情；刷新页面时若选中 OID 不再存在会清除旧选择，避免旧详情污染新仓库状态。
+- 点击处理只更新 Workbench UI 状态，数据仍来自 `LogRow`，没有为大历史列表创建长期 Entity。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。

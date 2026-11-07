@@ -139,7 +139,7 @@ impl WorkbenchController {
         let rows = git_log_ui::project(&page);
         self.view.update(cx, |view, cx| {
             view.log_panel.update(cx, |panel, cx| {
-                panel.log_rows = rows;
+                panel.set_log_rows(rows);
                 cx.notify();
             });
             cx.notify();
@@ -520,6 +520,7 @@ struct WorkbenchPanel {
     _commit_message_subscription: Option<Subscription>,
     selected_changes: Vec<(ChangeContentSource, git_domain::RepoPath)>,
     log_rows: Vec<git_log_ui::LogRow>,
+    selected_log: Option<git_domain::ObjectId>,
 }
 
 impl WorkbenchPanel {
@@ -567,6 +568,7 @@ impl WorkbenchPanel {
                 _commit_message_subscription: commit_message_subscription,
                 selected_changes: Vec::new(),
                 log_rows: Vec::new(),
+                selected_log: None,
             }
         })
     }
@@ -601,6 +603,16 @@ impl WorkbenchPanel {
             .commit_model
             .as_ref()
             .map(|model| SharedString::from(model.message.clone()));
+    }
+
+    fn set_log_rows(&mut self, rows: Vec<git_log_ui::LogRow>) {
+        if self
+            .selected_log
+            .is_some_and(|selected| !rows.iter().any(|row| row.id == selected))
+        {
+            self.selected_log = None;
+        }
+        self.log_rows = rows;
     }
 
     fn emit_file_action(&mut self, action: ActionId, cx: &mut Context<Self>) {
@@ -715,6 +727,10 @@ impl Focusable for WorkbenchPanel {
 impl Render for WorkbenchPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.kind == PanelKind::GitLog {
+            let selected_log = self.selected_log;
+            let panel = cx.entity().downgrade();
+            let selected_row = selected_log
+                .and_then(|selected| self.log_rows.iter().find(|row| row.id == selected));
             return div()
                 .flex()
                 .flex_col()
@@ -734,9 +750,21 @@ impl Render for WorkbenchPanel {
                         .child(div().w(px(110.0)).child("Timestamp")),
                 )
                 .children(self.log_rows.iter().map(|row| {
+                    let row_id = row.id;
+                    let panel = panel.clone();
                     div()
+                        .id(format!("log-row-{row_id}"))
                         .flex()
                         .gap_3()
+                        .when(selected_log == Some(row_id), |element| {
+                            element.bg(rgb(IdeaTheme::dark().colors.selection_background.as_rgb()))
+                        })
+                        .on_click(move |_, _, cx| {
+                            let _ = panel.update(cx, |panel, cx| {
+                                panel.selected_log = Some(row_id);
+                                cx.notify();
+                            });
+                        })
                         .text_sm()
                         .child(
                             div()
@@ -754,7 +782,15 @@ impl Render for WorkbenchPanel {
                                 .child(String::from_utf8_lossy(&row.author).into_owned()),
                         )
                         .child(div().w(px(110.0)).child(row.timestamp.to_string()))
-                }));
+                }))
+                .when_some(selected_row, |element, row| {
+                    element.child(div().mt_2().border_t_1().pt_2().text_sm().child(format!(
+                        "{} · {} · {}",
+                        row.id,
+                        String::from_utf8_lossy(&row.author),
+                        String::from_utf8_lossy(&row.subject)
+                    )))
+                });
         }
         if self.kind == PanelKind::Commit {
             if let (Some(message), Some(value)) = (
