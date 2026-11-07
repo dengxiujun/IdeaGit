@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003/004/005 已完成当前平台及三平台 CI 验证；CORE-006 Snapshot Builder 已在当前 macOS 通过专项及 Workspace 全量门禁，等待本提交三平台 CI。未执行的 Session、Watcher、Workbench 和其他高级场景继续明确保留。
+M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003/004/005/006 已完成当前平台及三平台 CI 验证；CORE-007 Repository Session / Registry 已在当前 macOS 通过专项及 Workspace 全量门禁，等待本提交三平台 CI。未执行的 Watcher、Workbench 和其他高级场景继续明确保留。
 
 ## 已完成的文档工作
 
@@ -39,7 +39,19 @@ M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003/00
 
 ## 下一步
 
-CORE-006 全量门禁和三平台 CI 通过后，按依赖 DAG 进入 CORE-007 Repository Session / Registry，再依次完成 Watcher 与 Workbench。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+CORE-007 三平台 CI 通过后，按依赖 DAG 进入 CORE-008 Watcher + Refresh Scheduler，再依次完成 Workbench。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+
+## CORE-007 Repository Session / Registry（2026-11-07）
+
+- `git-application` 新增线程安全 `RepositoryRegistry`、显式所有权 `RepositorySessionHandle` 和只读 `RepositorySessionView`；同一规范化 worktree 的多次打开共享同一 Session 与世代，最后一个句柄释放后才关闭。
+- 同一 `common_dir` 的 linked worktree 共享 `RepositoryId`，但各自拥有 `WorktreeId`、Session 和生命周期；不同仓库保持身份及事件目标隔离，bare Session 不伪造工作区。
+- Session 世代全局单调且关闭后不复用；旧 `SessionTarget` 被拒绝。每个 Session 提供取消令牌，最后关闭时取消，为 CORE-008 的 Watcher/Refresh 后台任务建立生命周期边界。
+- 当前 macOS 已通过 fmt、locked check、Clippy 和 Workspace tests；`git-application` 新增 6 个正常/失败路径测试。三平台 CI 待本提交推送后执行。
+- CORE-007 不提前实现 Watcher、刷新调度、Snapshot Store、Git Application Facade 或 UI；详细结果见 [CORE-007-VERIFICATION-001](../reviews/CORE-007-VERIFICATION-001.md)。
+
+## CORE-006 Snapshot Builder（2026-11-07）
+
+- [Rust CI #16](https://github.com/dengxiujun/IdeaGit/actions/runs/42337894961) 已对提交 `d456896` 完成三平台门禁并成功；CORE-006 三平台验收关闭。
 
 ## INFRA-004 架构与开发约束（2026-11-07）
 
