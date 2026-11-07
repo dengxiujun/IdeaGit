@@ -287,10 +287,10 @@ pub fn to_git_command(request: &ActionRequest) -> Result<GitCommand, String> {
         .context
         .target
         .ok_or_else(|| "action target is missing".to_owned())?;
-    if request.context.selected_files.is_empty() {
-        return Err("action requires at least one selected file".to_owned());
-    }
     match request.action {
+        ActionId::Stage | ActionId::Unstage if request.context.selected_files.is_empty() => {
+            Err("action requires at least one selected file".to_owned())
+        }
         ActionId::Stage => Ok(GitCommand::StageFiles {
             target,
             paths: request.context.selected_files.clone(),
@@ -700,5 +700,55 @@ mod tests {
                 .expect_err("closed channel should fail"),
             "action consumer is unavailable"
         );
+    }
+
+    #[test]
+    fn commit_and_branch_payloads_map_to_typed_commands() {
+        let target = SessionTarget::worktree(
+            git_domain::RepositoryId::new(),
+            git_domain::WorktreeId::new(),
+            1,
+        );
+        let commit = ActionRequest {
+            action: ActionId::Commit,
+            context: ActionContext {
+                target: Some(target),
+                selected_files: vec![RepoPath::try_from("a.txt").expect("valid path")],
+                ..Default::default()
+            },
+            payload: ActionPayload::Commit(StandardCommitRequest {
+                options: git_domain::CommitOptions {
+                    message: "提交消息".as_bytes().to_vec(),
+                    amend: false,
+                    allow_empty: false,
+                    signoff: false,
+                    author: None,
+                    committer: None,
+                    signing: git_domain::SigningMode::UseGitConfig,
+                },
+                expected_revision: SnapshotRevision::new(1),
+                expected_head: None,
+                expected_index: None,
+            }),
+        };
+        assert!(matches!(
+            to_git_command(&commit),
+            Ok(GitCommand::CommitIndex { target: actual, .. }) if actual == target
+        ));
+
+        let branch = ActionRequest {
+            action: ActionId::CreateBranch,
+            context: ActionContext {
+                target: Some(target),
+                ..Default::default()
+            },
+            payload: ActionPayload::Branch(git_domain::BranchCommand::Create {
+                name: git_domain::RefName::new(b"feature".to_vec()).expect("valid branch"),
+            }),
+        };
+        assert!(matches!(
+            to_git_command(&branch),
+            Ok(GitCommand::Branch { target: actual, .. }) if actual == target
+        ));
     }
 }
