@@ -30,7 +30,8 @@ use std::{collections::HashMap, sync::Arc};
 use async_trait::async_trait;
 use git_domain::{GitCommand, GitError, GitErrorKind, GitResult, OperationId, SessionTarget};
 use git_ports::{
-    BranchWriter, CommitWriter, ExecutionContext, IndexMutation, IndexWriter, ProcessProgress,
+    BranchWriter, CommitWriter, ExecutionContext, IndexMutation, IndexWriter, MergeWriter,
+    ProcessProgress,
 };
 use thiserror::Error;
 use tokio::sync::{Mutex, mpsc, watch};
@@ -225,6 +226,35 @@ impl<W: CommitWriter + Send + Sync + 'static> OperationExecutor for CommitOperat
 #[derive(Debug)]
 pub struct BranchOperationExecutor<W> {
     writer: W,
+}
+
+/// Bridges typed merge commands to the coordinated Merge writer stack.
+#[derive(Debug)]
+pub struct MergeOperationExecutor<W> {
+    writer: W,
+}
+
+impl<W> MergeOperationExecutor<W> {
+    #[must_use]
+    pub fn new(writer: W) -> Self {
+        Self { writer }
+    }
+}
+
+#[async_trait]
+impl<W: MergeWriter + Send + Sync + 'static> OperationExecutor for MergeOperationExecutor<W> {
+    async fn execute(&self, command: GitCommand, context: ExecutionContext) -> GitResult<()> {
+        let (target, merge) = match command {
+            GitCommand::Merge { target, command } => (target, command),
+            other => {
+                return Err(GitError::new(
+                    GitErrorKind::UnsupportedFeature,
+                    format!("merge executor does not support {other:?}"),
+                ));
+            }
+        };
+        self.writer.apply(target, merge, context).await
+    }
 }
 
 impl<W> BranchOperationExecutor<W> {

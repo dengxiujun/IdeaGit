@@ -136,6 +136,13 @@ pub enum BranchCommand {
     Delete { name: RefName, force: bool },
 }
 
+/// Merge operation requested against one session.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MergeCommand {
+    pub source: RefName,
+    pub no_ff: bool,
+}
+
 /// Remote operation placeholder with typed intent, not an arbitrary shell command.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RemoteCommand {
@@ -220,6 +227,10 @@ pub enum GitCommand {
         target: SessionTarget,
         command: BranchCommand,
     },
+    Merge {
+        target: SessionTarget,
+        command: MergeCommand,
+    },
     Remote {
         target: SessionTarget,
         command: RemoteCommand,
@@ -242,6 +253,7 @@ impl GitCommand {
             | Self::CommitIndex { target, .. }
             | Self::CommitSelection { target, .. }
             | Self::Branch { target, .. }
+            | Self::Merge { target, .. }
             | Self::Remote { target, .. }
             | Self::Sequencer { target, .. } => *target,
         }

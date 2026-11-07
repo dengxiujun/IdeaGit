@@ -499,6 +499,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 真实 fixture 验证预览不会执行 Push，且能识别本地分支与远端目标；Rust CI #74（Runner `42399662026`）在 Ubuntu、Windows、macOS 三个平台通过。
 - 当前安全限制已明确：Git porcelain 输出的旧 OID 可能是缩写值，解析器不会把缩写误当作完整预期 OID；`outgoing` 暂为空，完整 CommitSummary 列表与远端完整 OID 读取仍需后续切片补齐。
 
+## M3 GIT-005 Merge Executor（2026-11-08）
+
+- `git-domain` 新增 typed `MergeCommand` 与 `GitCommand::Merge`；`git-ports` 新增 `MergeWriter`，应用层可在 OperationCoordinator 中路由合并意图。
+- `git-cli` 新增无 Shell 的 `GitCliMergeWriter`，仅接受已验证的 `RefName`，支持 `--no-ff`，bare repository 安全拒绝；失败映射为 `MergeConflict` 并提供 Continue/Abort recovery actions，不泄露 stderr。
+- 真实 fixture 覆盖 feature branch 合并成功；本机 Workspace `fmt/check/clippy/test` 全量通过。Journal/Reconcile 装饰与冲突状态恢复留给 GIT-008/RECOVERY-001。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。
