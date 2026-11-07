@@ -4,10 +4,12 @@
 //! effect to an injected executor; resource locks, journaling, and recovery are later tasks.
 
 mod lock;
+mod recovery;
 
 pub use lock::{
     LockError, ResourceKey, ResourceKind, ResourceLock, ResourceLockManager, ResourceScope,
 };
+pub use recovery::{RecoveryDisposition, RecoveryObservation, classify as classify_recovery};
 
 use std::{collections::HashMap, sync::Arc};
 

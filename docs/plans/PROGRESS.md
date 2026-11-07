@@ -39,7 +39,7 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 
 ## 下一步
 
-按依赖 DAG 进入 M2 的 CORE-012 Operation Journal / RECOVERY-000 前置链路；仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+按依赖 DAG 进入 M2 的 RECOVERY-000 最小写操作恢复；仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
 
 ## CORE-011 Resource Lock Manager（2026-11-07）
 
@@ -231,3 +231,10 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `git-ports` 新增异步 `JournalStore` 契约；`persistence` 提供带进程内写锁的 JSON 存储、schema 校验、追加/替换/查询/按目标筛选待恢复记录，并使用临时文件加原子替换持久化。
 - 覆盖重启后恢复、目标过滤、重复操作 ID 和缺失替换记录等正常/失败路径；当前 macOS 已通过 fmt、locked check、Clippy、Workspace tests 与 diff 检查。
 - 详细结果见 [CORE-012-VERIFICATION-001](../reviews/CORE-012-VERIFICATION-001.md)；下一步进入 `RECOVERY-000` 前置链路。
+
+## RECOVERY-000 最小写操作恢复（2026-11-07）
+
+- `git-operations` 新增只读 `classify_recovery` 判定器，以 Journal 中的 expected HEAD/Index、observed commit 和当前真实观测区分未执行、已提交、已提交待 Index reconcile 与未知结果。
+- 未知结果不会自动重试或修改 Git 状态；调用方必须进入人工检查/后续恢复流程，符合“不确定结果不得自动重试”的安全约束。
+- 新增 3 个正常/失败路径测试，覆盖未执行、提交后 Index 需要协调和冲突状态；专项 `git-operations` 测试已通过。
+- 详细结果见 [RECOVERY-000-VERIFICATION-001](../reviews/RECOVERY-000-VERIFICATION-001.md)；下一步进入 `GIT-001` Stage/Unstage。
