@@ -511,6 +511,7 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `git-cli` 新增无 Shell 的 `GitCliSequencerWriter`，对 bare repository 安全拒绝，失败映射为结构化 MergeConflict 与 Continue/Abort recovery actions。
 - 真实 fixture 覆盖 Cherry-pick 提交；本机专项 clippy/test 通过。Rust CI #75（Runner `42423104481`）对 GIT-005 变更已在 Ubuntu、Windows、macOS 三平台通过。
 - Rust CI #76（Runner `42424330920`）暴露 Ubuntu/Windows 测试中的初始分支假设；测试已改为读取 fixture 实际分支名后再切回，待下一次三平台 Runner 验证。
+- Rust CI #77（Runner `42425323222`）显示 Ubuntu/Windows 仍失败而 macOS 通过；Sequencer invocation 现显式设置 `GIT_EDITOR=true`、`GIT_TERMINAL_PROMPT=0` 与 `GIT_OPTIONAL_LOCKS=0`，避免跨平台非交互阻塞，待再次验证。
 
 ## GIT-001 Stage / Unstage（2026-11-07）
 

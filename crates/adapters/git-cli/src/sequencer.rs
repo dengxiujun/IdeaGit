@@ -5,7 +5,9 @@ use async_trait::async_trait;
 use git_domain::{
     GitError, GitErrorKind, GitResult, RecoveryAction, SequencerCommand, SessionTarget,
 };
-use git_ports::{ExecutionContext, ProcessRunner, RepositoryLocation, SequencerWriter};
+use git_ports::{
+    EnvironmentVariable, ExecutionContext, ProcessRunner, RepositoryLocation, SequencerWriter,
+};
 use std::{ffi::OsString, path::PathBuf};
 
 #[derive(Debug)]
@@ -95,7 +97,13 @@ impl sealed::Sealed for SequencerMutation {
                 args.extend([OsString::from("cherry-pick"), OsString::from("--abort")])
             }
         }
-        GitCliInvocation::new(None, args).with_cwd(self.cwd)
+        GitCliInvocation::new(None, args)
+            .with_environment([
+                EnvironmentVariable::public("GIT_EDITOR", "true"),
+                EnvironmentVariable::public("GIT_TERMINAL_PROMPT", "0"),
+                EnvironmentVariable::public("GIT_OPTIONAL_LOCKS", "0"),
+            ])
+            .with_cwd(self.cwd)
     }
 }
 
