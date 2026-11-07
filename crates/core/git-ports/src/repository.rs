@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
-use git_domain::GitResult;
+use git_domain::{GitResult, RecoveryPath, RecoveryScope, RecoveryScopeError};
 
 use crate::ExecutionContext;
 
@@ -65,6 +65,36 @@ impl RepositoryLocation {
     pub const fn is_bare(&self) -> bool {
         self.is_bare
     }
+
+    /// Builds the persistent recovery identity from Git-discovered, normalized native paths.
+    pub fn recovery_scope(&self) -> Result<RecoveryScope, RecoveryScopeError> {
+        let common_dir = recovery_path(&self.common_dir)?;
+        let git_dir = recovery_path(&self.git_dir)?;
+        Ok(if self.is_bare {
+            RecoveryScope::bare(common_dir, git_dir)
+        } else {
+            RecoveryScope::worktree(common_dir, git_dir)
+        })
+    }
+}
+
+#[cfg(unix)]
+fn recovery_path(path: &Path) -> Result<RecoveryPath, RecoveryScopeError> {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    RecoveryPath::unix(path.as_os_str().as_bytes().to_vec())
+}
+
+#[cfg(windows)]
+fn recovery_path(path: &Path) -> Result<RecoveryPath, RecoveryScopeError> {
+    use std::os::windows::ffi::OsStrExt as _;
+
+    RecoveryPath::windows(path.as_os_str().encode_wide().collect::<Vec<_>>())
+}
+
+#[cfg(not(any(unix, windows)))]
+fn recovery_path(_path: &Path) -> Result<RecoveryPath, RecoveryScopeError> {
+    Err(RecoveryScopeError::UnsupportedPlatform)
 }
 
 /// Discovers repository paths through the configured Git implementation.
@@ -90,5 +120,35 @@ mod tests {
         let worktree = RepositoryLocation::worktree("work", "work/.git", "work/.git");
         assert!(!worktree.is_bare());
         assert_eq!(worktree.worktree_root(), Some(Path::new("work")));
+    }
+
+    #[test]
+    fn recovery_scope_uses_common_and_concrete_git_directories() {
+        let primary = RepositoryLocation::worktree("repo", "repo/.git", "repo/.git")
+            .recovery_scope()
+            .expect("primary scope");
+        let linked =
+            RepositoryLocation::worktree("linked", "repo/.git/worktrees/linked", "repo/.git")
+                .recovery_scope()
+                .expect("linked scope");
+        let bare = RepositoryLocation::bare("repo.git", "repo.git")
+            .recovery_scope()
+            .expect("bare scope");
+        assert_ne!(primary, linked);
+        assert_ne!(primary, bare);
+        assert!(bare.is_bare());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recovery_scope_preserves_non_utf8_native_paths() {
+        use std::{ffi::OsString, os::unix::ffi::OsStringExt as _, path::PathBuf};
+
+        let common = PathBuf::from(OsString::from_vec(vec![b'/', b'r', 0x80]));
+        let git_dir = PathBuf::from(OsString::from_vec(vec![b'/', b'g', 0xff]));
+        let location = RepositoryLocation::worktree("worktree", git_dir, common);
+        let scope = location.recovery_scope().expect("native scope");
+        let json = serde_json::to_vec(&scope).expect("scope should serialize");
+        assert!(!String::from_utf8_lossy(&json).contains('\u{fffd}'));
     }
 }

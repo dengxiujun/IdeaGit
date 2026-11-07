@@ -367,6 +367,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Git Core LLD 与 IP-001 已同步 Journal v2、linked worktree 隔离、v1 未完成记录 orphaned 处理及未知状态关闭写入口的约束。
 - 批准仅授权实现，不代表 `RECOVERY-000` 已完成；后续按 RecoveryScope → Journal v2 迁移 → desktop 启动门禁 → 真实重启/linked-worktree/损坏 Journal 测试顺序交付。
 
+## M2 RECOVERY-000 RecoveryScope 强类型（2026-11-07）
+
+- `git-domain` 新增独立于 `SessionTarget` 的 `RecoveryScope` 与 `RecoveryPath`：Unix 原始字节、Windows UTF-16 code units 均无损序列化，Debug 不输出本机路径内容。
+- `RepositoryLocation::recovery_scope` 只从 Git discovery 已规范化的 common dir 与具体 git dir 构造 scope；worktree/bare 分型，linked worktree 因 git dir 不同而隔离。
+- 测试覆盖 JSON 往返、非 UTF-8 Unix 路径、linked worktree、bare 和空路径拒绝；本切片尚未修改 Journal schema。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。

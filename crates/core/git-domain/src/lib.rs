@@ -11,6 +11,7 @@ mod journal;
 mod log;
 mod object_id;
 mod path;
+mod recovery;
 mod snapshot;
 mod status;
 
@@ -26,6 +27,7 @@ pub use journal::{JOURNAL_SCHEMA_VERSION, JournalPhase, JournalRecord, JournalRe
 pub use log::{CommitPage, CommitSummary, LogQuery};
 pub use object_id::{ObjectFormat, ObjectId, ObjectIdError};
 pub use path::{LocalPath, RepoPath, RepoPathError};
+pub use recovery::{RecoveryPath, RecoveryScope, RecoveryScopeError};
 pub use snapshot::{
     ConflictMetadata, FileChange, RepositorySnapshot, SnapshotBuildError, SnapshotBuilder,
     SnapshotConsistency, SnapshotRead, SnapshotStaleReason, WorktreeSnapshotState,
