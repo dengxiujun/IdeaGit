@@ -8,6 +8,7 @@ mod head;
 mod id;
 mod object_id;
 mod path;
+mod snapshot;
 mod status;
 
 pub use error::{GitError, GitErrorKind, GitResult, RecoveryAction};
@@ -15,6 +16,10 @@ pub use head::{BranchTracking, HeadState};
 pub use id::{OperationId, RepositoryId, SessionTarget, SnapshotRevision, WorktreeId};
 pub use object_id::{ObjectFormat, ObjectId, ObjectIdError};
 pub use path::{LocalPath, RepoPath, RepoPathError};
+pub use snapshot::{
+    ConflictMetadata, FileChange, RepositorySnapshot, SnapshotBuildError, SnapshotBuilder,
+    SnapshotConsistency, SnapshotRead, SnapshotStaleReason, WorktreeSnapshotState,
+};
 pub use status::{
     BranchHead, BranchOid, BranchStatus, ChangeKind, ConflictKind, FileMode, OrdinaryChange,
     RefName, RefNameError, RenamedChange, Similarity, SimilarityKind, StatusData, StatusEntry,

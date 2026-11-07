@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003/004/005 已完成当前平台及三平台 CI 验证。按用户要求当前在 CORE-005 小节点结束后暂停；未执行的 Snapshot、Session、Watcher、Workbench 和其他高级场景继续明确保留。
+M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003/004/005 已完成当前平台及三平台 CI 验证；CORE-006 Snapshot Builder 已在当前 macOS 通过专项及 Workspace 全量门禁，等待本提交三平台 CI。未执行的 Session、Watcher、Workbench 和其他高级场景继续明确保留。
 
 ## 已完成的文档工作
 
@@ -39,7 +39,7 @@ M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003/00
 
 ## 下一步
 
-当前暂停。恢复后按依赖 DAG 进入 CORE-006 Snapshot Builder，再依次完成 Session、Watcher 与 Workbench。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+CORE-006 全量门禁和三平台 CI 通过后，按依赖 DAG 进入 CORE-007 Repository Session / Registry，再依次完成 Watcher 与 Workbench。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
 
 ## INFRA-004 架构与开发约束（2026-11-07）
 
@@ -151,3 +151,10 @@ M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003/00
 - Fixture 显式固定隔离的 `main` 默认分支，并新增 detach、peer-only push 与 fetch 辅助；真实测试覆盖 Unborn/Attached/Detached、bare、upstream 0/0 和分叉 1/1。
 - 当前 macOS / Rust 1.99.1 的专项格式、53 个相关测试及包含 62 个测试的 Workspace 全量门禁已通过。
 - [Rust CI #14](https://github.com/dengxiujun/IdeaGit/actions/runs/42319097515) attempt 2 已在 Windows Server 2022、macOS 15 和 Ubuntu 24.04 通过 Format、locked check、Clippy、Workspace tests 与窗口烟雾测试。首次 Windows bare HEAD 的 verbatim `GIT_DIR` 兼容问题已修复，CORE-005 已完成。详细记录见 [CORE-005-VERIFICATION-001](../reviews/CORE-005-VERIFICATION-001.md)。
+
+## CORE-006 Snapshot Builder（2026-11-07）
+
+- `git-domain` 新增批准契约中的 `RepositorySnapshot`、统一 `FileChange`、冲突元数据、worktree 可用性和一致性/陈旧标记；bare 空集合不会被解释为干净工作区。
+- 纯 `SnapshotBuilder` 为整个结果分配同一个下一代 revision，并核对前后 HEAD guard、porcelain branch header 与独立 tracking；不一致生成带原因的 stale Snapshot，不伪装为原子 Git 状态。
+- Status 投影保留 raw path、original path、双状态、OID/mode、Submodule、Rename/Copy score 与全部 conflict stages；Untracked 独立，Ignored 不进入批准的 Snapshot 合约。
+- 当前 macOS / Rust 1.99.1 已通过专项格式、53 个相关单元测试、2 个真实 Git Snapshot 集成测试，以及包含 71 个测试的 Workspace 全量门禁；三平台 CI 尚待执行。详细记录见 [CORE-006-VERIFICATION-001](../reviews/CORE-006-VERIFICATION-001.md)。
