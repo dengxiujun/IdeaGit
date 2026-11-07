@@ -77,6 +77,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `git-operations::BranchOperationExecutor` 将 `GitCommand::Branch` 转换为 `BranchWriter::apply`，保留 Create/Checkout/Rename/Delete 的 typed `BranchCommand`。
 - 非 Branch 命令显式拒绝；实际 Refs 锁、Journal、Reconcile 仍由既有 writer 装饰器承担。
 
+## M2 CORE-0013 统一写操作路由（2026-11-07）
+
+- `M2OperationExecutor<I, C, B>` 将 Stage/Unstage、Standard Commit 与 Branch command 路由到 composition root 注入的三条 writer 装饰链，为单一 Workbench Coordinator 提供完整 M2 typed command 集。
+- executor 不构造裸 Git writer；Lock、Journal、Commit Preflight 与 Reconcile 仍必须由外层组合后注入，Remote/M3 command 明确返回 `UnsupportedFeature`。
+- 单元测试覆盖三类成功路由和 Remote 拒绝，确保不会因统一入口意外开放后续里程碑能力。
+
 ## UI-006 Desktop Action Queue（2026-11-07）
 
 - desktop 新增 `DesktopActionDispatcher`：将 UI `ActionRequest` 转换为共享 `GitCommand`，通过 Tokio runtime 异步提交 `OperationCoordinator`，避免阻塞 GPUI 线程。

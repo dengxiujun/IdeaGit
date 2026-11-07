@@ -89,6 +89,63 @@ pub trait OperationExecutor: Send + Sync + 'static {
     async fn execute(&self, command: GitCommand, context: ExecutionContext) -> GitResult<()>;
 }
 
+/// Routes the complete M2 write-command set into independently composed writer stacks.
+///
+/// The composition root remains responsible for wrapping each writer with the required resource
+/// lock, Journal, preflight, and reconciliation decorators before constructing this executor.
+#[derive(Debug)]
+pub struct M2OperationExecutor<I, C, B> {
+    index: I,
+    commit: C,
+    branch: B,
+}
+
+impl<I, C, B> M2OperationExecutor<I, C, B> {
+    #[must_use]
+    pub fn new(index: I, commit: C, branch: B) -> Self {
+        Self {
+            index,
+            commit,
+            branch,
+        }
+    }
+}
+
+#[async_trait]
+impl<I, C, B> OperationExecutor for M2OperationExecutor<I, C, B>
+where
+    I: IndexWriter + Send + Sync + 'static,
+    C: CommitWriter + Send + Sync + 'static,
+    B: BranchWriter + Send + Sync + 'static,
+{
+    async fn execute(&self, command: GitCommand, context: ExecutionContext) -> GitResult<()> {
+        match command {
+            GitCommand::StageFiles { target, paths } => {
+                self.index
+                    .apply(IndexMutation::Stage { target, paths }, context)
+                    .await
+            }
+            GitCommand::UnstageFiles { target, paths } => {
+                self.index
+                    .apply(IndexMutation::Unstage { target, paths }, context)
+                    .await
+            }
+            GitCommand::CommitIndex { target, request } => self
+                .commit
+                .commit(target, request, context)
+                .await
+                .map(|_| ()),
+            GitCommand::Branch { target, command } => {
+                self.branch.apply(target, command, context).await
+            }
+            other => Err(GitError::new(
+                GitErrorKind::UnsupportedFeature,
+                format!("M2 operation executor does not support {other:?}"),
+            )),
+        }
+    }
+}
+
 /// Bridges file-based Stage/Unstage commands to the coordinated Index writer stack.
 #[derive(Debug)]
 pub struct IndexOperationExecutor<W> {
@@ -629,5 +686,104 @@ mod tests {
             .await
             .expect("branch should map");
         assert_eq!(*seen.lock().expect("test mutex should not poison"), 1);
+    }
+
+    #[tokio::test]
+    async fn m2_executor_routes_index_commit_and_branch_but_rejects_remote() {
+        let index_seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let commit_seen = Arc::new(std::sync::Mutex::new(0));
+        let branch_seen = Arc::new(std::sync::Mutex::new(0));
+        let executor = M2OperationExecutor::new(
+            RecordingIndexWriter {
+                seen: Arc::clone(&index_seen),
+            },
+            RecordingCommitWriter {
+                seen: Arc::clone(&commit_seen),
+            },
+            RecordingBranchWriter {
+                seen: Arc::clone(&branch_seen),
+            },
+        );
+        let target = target();
+        let path = RepoPath::try_from("file.txt").expect("valid path");
+
+        executor
+            .execute(
+                GitCommand::StageFiles {
+                    target,
+                    paths: vec![path],
+                },
+                context(),
+            )
+            .await
+            .expect("stage should route");
+        executor
+            .execute(
+                GitCommand::CommitIndex {
+                    target,
+                    request: StandardCommitRequest {
+                        options: CommitOptions {
+                            message: b"message".to_vec(),
+                            amend: false,
+                            allow_empty: false,
+                            signoff: false,
+                            author: None,
+                            committer: None,
+                            signing: SigningMode::UseGitConfig,
+                        },
+                        expected_revision: SnapshotRevision::new(1),
+                        expected_head: None,
+                        expected_index: None,
+                    },
+                },
+                context(),
+            )
+            .await
+            .expect("commit should route");
+        executor
+            .execute(
+                GitCommand::Branch {
+                    target,
+                    command: BranchCommand::Checkout {
+                        name: RefName::new(b"main".to_vec()).expect("valid branch"),
+                    },
+                },
+                context(),
+            )
+            .await
+            .expect("branch should route");
+
+        assert_eq!(
+            index_seen
+                .lock()
+                .expect("test mutex should not poison")
+                .len(),
+            1
+        );
+        assert_eq!(
+            *commit_seen.lock().expect("test mutex should not poison"),
+            1
+        );
+        assert_eq!(
+            *branch_seen.lock().expect("test mutex should not poison"),
+            1
+        );
+
+        let error = executor
+            .execute(
+                GitCommand::Remote {
+                    target,
+                    command: git_domain::RemoteCommand::Fetch { remote: None },
+                },
+                context(),
+            )
+            .await
+            .expect_err("M3 command should remain unavailable");
+        assert_eq!(error.kind, GitErrorKind::UnsupportedFeature);
+    }
+
+    fn context() -> ExecutionContext {
+        let (progress, _receiver) = mpsc::channel(2);
+        ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress)
     }
 }
