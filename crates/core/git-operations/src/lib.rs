@@ -9,7 +9,8 @@ mod lock;
 mod recovery;
 
 pub use commit::{
-    CommitPreflightState, CommitStateReader, CoordinatedCommitWriter, PreflightCommitWriter,
+    CommitPreflightState, CommitStateReader, CoordinatedCommitWriter, JournaledCommitWriter,
+    PreflightCommitWriter,
 };
 pub use index::{
     CoordinatedIndexWriter, JournaledIndexWriter, ReconciledIndexWriter, SnapshotRebuilder,

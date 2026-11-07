@@ -2,9 +2,10 @@
 
 use async_trait::async_trait;
 use git_domain::{
-    GitError, GitErrorKind, GitResult, ObjectId, SessionTarget, StandardCommitRequest,
+    GitCommand, GitError, GitErrorKind, GitResult, JournalPhase, JournalRecord, JournalResult,
+    ObjectId, SessionTarget, StandardCommitRequest,
 };
-use git_ports::{CommitOutcome, CommitWriter, ExecutionContext};
+use git_ports::{CommitOutcome, CommitWriter, ExecutionContext, JournalStore};
 
 use crate::{ResourceKey, ResourceKind, ResourceLockManager, ResourceScope};
 
@@ -29,6 +30,60 @@ pub trait CommitStateReader: Send + Sync {
 pub struct PreflightCommitWriter<W, R> {
     writer: W,
     reader: R,
+}
+
+/// Durable Journal wrapper for standard commits.
+#[derive(Debug)]
+pub struct JournaledCommitWriter<W, J> {
+    writer: W,
+    journal: J,
+}
+
+impl<W, J> JournaledCommitWriter<W, J> {
+    #[must_use]
+    pub fn new(writer: W, journal: J) -> Self {
+        Self { writer, journal }
+    }
+}
+
+#[async_trait]
+impl<W: CommitWriter, J: JournalStore> CommitWriter for JournaledCommitWriter<W, J> {
+    #[allow(clippy::result_large_err)]
+    async fn commit(
+        &self,
+        target: SessionTarget,
+        request: StandardCommitRequest,
+        context: ExecutionContext,
+    ) -> GitResult<CommitOutcome> {
+        let mut record = JournalRecord::intent(
+            context.operation_id,
+            GitCommand::CommitIndex {
+                target,
+                request: request.clone(),
+            },
+        );
+        record.expected_head = request.expected_head;
+        record.expected_index = request.expected_index;
+        record.phase = JournalPhase::CommitInProgress;
+        self.journal.append(record.clone()).await?;
+        let result = self.writer.commit(target, request, context).await;
+        match &result {
+            Ok(outcome) => {
+                record.phase = JournalPhase::Completed;
+                record.observed_commit = Some(outcome.commit);
+                record.observed_parents = outcome.parents.clone();
+                record.result = Some(JournalResult::Completed);
+            }
+            Err(error) => {
+                record.phase = JournalPhase::RecoveryRequired;
+                record.result = Some(JournalResult::RecoveryRequired {
+                    reason: error.to_string(),
+                });
+            }
+        }
+        self.journal.replace(record).await?;
+        result
+    }
 }
 
 /// Commit writer that serializes shared refs and the concrete worktree Index.

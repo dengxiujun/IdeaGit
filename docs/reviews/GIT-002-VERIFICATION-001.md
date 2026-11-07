@@ -12,6 +12,7 @@
 - 真实 fixture 覆盖 staged 文件修改提交和单父提交结果。
 - `PreflightCommitWriter` 在 CLI 启动前比较 expected HEAD/Index，变化分别返回 `HeadChangedExternally` 或 `IndexChangedExternally`。
 - `CoordinatedCommitWriter` 保护共享 Refs 与具体 Worktree Index，使用既有稳定排序和取消感知锁管理器。
+- `JournaledCommitWriter` 持久化 CommitInProgress、实际 OID/parents 和 Completed/RecoveryRequired 终态，避免 Hook/进程异常后丢失结果。
 
 已执行并通过：
 
