@@ -449,6 +449,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `git-ui-model` 新增 repository-scoped `BranchPopupViewModel`、分组 BranchRow、搜索过滤和选择状态；搜索只过滤展示投影，不改变后端分支身份。
 - Checkout/Create 通过统一 `ActionRequest` 携带强类型 `RefName` 与目标 `SessionTarget`，未选分支时 Checkout 不生成请求；未接入 shell 字符串或直接 Git CLI。
 
+## M2 UI-008 Branch Popup 交互入口（2026-11-08）
+
+- Workbench 顶栏新增 Branch Popup 入口：显示当前分支、输入新分支名称并发出 typed Create request；当前分支行可发出 Checkout request。
+- Popup 的请求执行统一经过 `DefaultActionPolicy` 与生产 `ActionDispatcher`，错误反馈回到 Workbench operation overlay；分支刷新仍由后续权威 repository refresh 提供。
+
 ## M2 UI-009 Git Log Table 基础列（2026-11-08）
 
 - Workbench Git Log panel 现在展示 Graph lane/OID、Subject、Author、Timestamp 四列，复用 `git-log-ui::LogRow` 纯投影，不为每个 Commit 创建长期 GPUI Entity。

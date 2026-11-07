@@ -6,8 +6,8 @@ use std::{sync::Arc, time::Duration};
 use git_operations::{OperationOutcome, OperationPhase, OperationSnapshot};
 use git_ui_model::{
     ActionAvailability, ActionContext, ActionDispatcher, ActionId, ActionPolicy, ActionRequest,
-    ChangeContentSource, ChangesTreeModel, CommitDraftStore, CommitPanelViewModel,
-    RepositoryWorkbenchModel,
+    BranchPopupViewModel, ChangeContentSource, ChangesTreeModel, CommitDraftStore,
+    CommitPanelViewModel, RepositoryChromeModel, RepositoryWorkbenchModel,
 };
 use git_workbench::{PanelKind, WorkbenchLayout};
 use gpui_kit::base::StyledExt as _;
@@ -19,7 +19,7 @@ use gpui_kit::component::{
     Disableable as _,
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
-    input::{InputEvent, Textarea, TextareaState},
+    input::{Input, InputEvent, InputState, Textarea, TextareaState},
 };
 use gpui_kit::{
     AnyWindowHandle, App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
@@ -126,7 +126,9 @@ impl WorkbenchController {
 
     pub fn set_repository_model(&self, model: RepositoryWorkbenchModel, cx: &mut App) {
         self.view.update(cx, |view, cx| {
+            let branch_popup = branch_popup_from_chrome(&model.chrome);
             view.repository_chrome = model.chrome;
+            view.branch_popup = branch_popup;
             view.commit_panel.update(cx, |panel, cx| {
                 panel.set_changes(model.changes, model.expected_head, model.expected_index);
                 cx.notify();
@@ -310,6 +312,9 @@ struct WorkbenchWindow {
     operation_feedback: Option<OperationFeedback>,
     action_dispatcher: Arc<Mutex<Option<Arc<dyn ActionDispatcher>>>>,
     _commit_action_subscription: Subscription,
+    branch_popup: Option<BranchPopupViewModel>,
+    branch_popup_open: bool,
+    branch_name_input: Entity<InputState>,
 }
 
 impl WorkbenchWindow {
@@ -324,6 +329,7 @@ impl WorkbenchWindow {
             DockSkin::dock_area("ideagit.workbench.main", Some(LAYOUT_VERSION), window, cx);
         let repository = WorkbenchPanel::new(PanelKind::RepositoryExplorer, window, cx);
         let commit = WorkbenchPanel::new(PanelKind::Commit, window, cx);
+        let branch_name_input = cx.new(|cx| InputState::new(window, cx).placeholder("新分支名称"));
         let commit_action_subscription =
             cx.subscribe(&commit, |this, _, request: &ActionRequest, cx| {
                 let result = match git_ui_model::DefaultActionPolicy
@@ -417,6 +423,9 @@ impl WorkbenchWindow {
             operation_feedback: None,
             action_dispatcher,
             _commit_action_subscription: commit_action_subscription,
+            branch_popup: None,
+            branch_popup_open: false,
+            branch_name_input,
         }
     }
 }
@@ -432,9 +441,61 @@ fn decode_layout(layout: &WorkbenchLayout) -> Option<DockAreaState> {
     serde_json::from_value(layout.dock.clone()).ok()
 }
 
+fn branch_popup_from_chrome(chrome: &RepositoryChromeModel) -> Option<BranchPopupViewModel> {
+    let target = chrome.active_target?;
+    let branch = git_domain::RefName::new(chrome.status.branch.as_bytes().to_vec()).ok()?;
+    Some(BranchPopupViewModel {
+        target,
+        search_query: String::new(),
+        selected_branch: Some(branch.clone()),
+        sections: vec![git_ui_model::BranchSectionViewModel {
+            title: "Current".to_owned(),
+            rows: vec![git_ui_model::BranchRowViewModel {
+                display_name: branch.display_lossy().into_owned(),
+                reference: branch,
+                is_current: true,
+                is_favorite: true,
+                ahead: None,
+                behind: None,
+            }],
+        }],
+        loading: false,
+        error: None,
+    })
+}
+
+impl WorkbenchWindow {
+    fn dispatch_branch_request(&mut self, request: ActionRequest) {
+        let result =
+            match git_ui_model::DefaultActionPolicy.evaluate(request.action, &request.context) {
+                ActionAvailability::Enabled => self
+                    .action_dispatcher
+                    .lock()
+                    .map_err(|_| "action dispatcher lock poisoned".to_owned())
+                    .and_then(|dispatcher| {
+                        dispatcher
+                            .clone()
+                            .ok_or_else(|| "action dispatcher is not configured".to_owned())
+                    })
+                    .and_then(|dispatcher| dispatcher.dispatch(request)),
+                ActionAvailability::Disabled(reason) => Err(reason),
+                ActionAvailability::Hidden => Err("此操作当前不可用".to_owned()),
+            };
+        self.operation_feedback = Some(match result {
+            Ok(()) => OperationFeedback::Running("Branch".to_owned()),
+            Err(error) => OperationFeedback::Failed(error),
+        });
+    }
+}
+
 impl Render for WorkbenchWindow {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = self.theme.colors;
+        let branch_view = cx.entity().downgrade();
+        let branch_input = self.branch_name_input.clone();
+        let branch_popup = self.branch_popup.clone();
+        let branch_popup_open = self.branch_popup_open;
+        let toggle_view = branch_view.clone();
         div()
             .flex()
             .flex_col()
@@ -470,9 +531,89 @@ impl Render for WorkbenchWindow {
                                 .bg(rgb(colors.selection_background.as_rgb()))
                                 .child("No repository"),
                         )
-                    }),
+                    })
+                    .child(
+                        Button::new("branch-popup-toggle")
+                            .ghost()
+                            .label(self.repository_chrome.status.branch.clone())
+                            .on_click(move |_, _, cx| {
+                                let _ = toggle_view.update(cx, |view, cx| {
+                                    view.branch_popup_open = !view.branch_popup_open;
+                                    cx.notify();
+                                });
+                            }),
+                    ),
             )
             .child(div().flex_1().min_h_0().child(self.dock_area.clone()))
+            .when(branch_popup_open && branch_popup.is_some(), |element| {
+                let popup = branch_popup.clone().expect("branch popup checked above");
+                let checkout_view = branch_view.clone();
+                let create_view = branch_view.clone();
+                element.child(
+                    div()
+                        .absolute()
+                        .top(px(42.0))
+                        .right(px(12.0))
+                        .w(px(320.0))
+                        .p_3()
+                        .gap_2()
+                        .bg(rgb(colors.panel_background.as_rgb()))
+                        .border_1()
+                        .border_color(rgb(colors.border.as_rgb()))
+                        .child(div().font_semibold().child("Branches"))
+                        .children(popup.visible_sections().into_iter().flat_map(|section| {
+                            section.rows.into_iter().map(|row| {
+                                let checkout_view = checkout_view.clone();
+                                Button::new(format!("checkout-{}", row.display_name))
+                                    .ghost()
+                                    .label(row.display_name)
+                                    .on_click(move |_, _, cx| {
+                                        let _ = checkout_view.update(cx, |view, cx| {
+                                            if let Some(popup) = view.branch_popup.as_ref()
+                                                && let Some(request) = popup.checkout_request()
+                                            {
+                                                view.dispatch_branch_request(request);
+                                            }
+                                            cx.notify();
+                                        });
+                                    })
+                                    .into_any_element()
+                            })
+                        }))
+                        .child(Input::new(&branch_input).aria_label("新分支名称"))
+                        .child(
+                            Button::new("create-branch")
+                                .primary()
+                                .label("Create Branch")
+                                .on_click(move |_, _, cx| {
+                                    let _ = create_view.update(cx, |view, cx| {
+                                        let value = branch_input.read(cx).value();
+                                        let result =
+                                            git_domain::RefName::new(value.as_bytes().to_vec())
+                                                .map_err(|error| error.to_string())
+                                                .and_then(|branch| {
+                                                    let request = view
+                                                        .branch_popup
+                                                        .as_ref()
+                                                        .map(|popup| popup.create_request(branch));
+                                                    request
+                                                        .map(|request| {
+                                                            view.dispatch_branch_request(request)
+                                                        })
+                                                        .ok_or_else(|| {
+                                                            "分支弹窗尚未就绪".to_owned()
+                                                        })
+                                                });
+                                        if let Err(error) = result {
+                                            view.operation_feedback =
+                                                Some(OperationFeedback::Failed(error));
+                                        }
+                                        cx.notify();
+                                    });
+                                }),
+                        ),
+                )
+            })
             .child(
                 div()
                     .flex()
