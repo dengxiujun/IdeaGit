@@ -39,7 +39,14 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 
 ## 下一步
 
-按依赖 DAG 进入 M2 的 CORE-009 强类型 GitCommand；仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+按依赖 DAG 进入 M2 的 CORE-010 Operation Coordinator；仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+
+## CORE-009 强类型 GitCommand（2026-11-07）
+
+- `git-domain` 新增唯一 `GitCommand` 契约及强类型 Stage/Unstage、Selection、标准 Index Commit、Branch、Remote、Sequencer 命令；每个命令只携带一个 `SessionTarget`。
+- 新增 `FileIdentity`、`ChangeSelection`、`SelectionFingerprint`、`CommitOptions`、`StandardCommitRequest` 和 `SelectionCommitRequest`，保留原始 `RepoPath`、OID、Snapshot revision 与签名策略，不接受任意 shell 字符串。
+- 命令校验拒绝空路径、空提交消息、跨 SessionTarget 选择和 fingerprint 数量不匹配；本任务不执行 Git、不获取锁、不修改 Index/HEAD。
+- `git-domain` 专项测试 23 个通过；完整 Workspace 门禁与三平台 CI 将在本任务提交推送后执行。
 
 ## UI-005 Read-only Changes Tree / M1 §4.7（2026-11-07）
 

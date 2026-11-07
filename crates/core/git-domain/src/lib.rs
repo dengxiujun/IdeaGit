@@ -3,6 +3,7 @@
 //! This crate owns shared value semantics. It deliberately does not convert between Git's raw
 //! repository paths and operating-system paths; adapters must perform that platform-specific work.
 
+mod command;
 mod error;
 mod head;
 mod id;
@@ -11,6 +12,11 @@ mod path;
 mod snapshot;
 mod status;
 
+pub use command::{
+    BranchCommand, ChangeSelection, CommandValidationError, CommitOptions, EditedIndexSessionId,
+    FileIdentity, FileKind, GitCommand, LineSpan, RemoteCommand, SelectionCommitRequest,
+    SelectionFingerprint, SequencerCommand, SigningMode, StandardCommitRequest,
+};
 pub use error::{GitError, GitErrorKind, GitResult, RecoveryAction};
 pub use head::{BranchTracking, HeadState};
 pub use id::{OperationId, RepositoryId, SessionTarget, SnapshotRevision, WorktreeId};
