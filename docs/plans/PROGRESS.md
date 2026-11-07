@@ -52,6 +52,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `ActionRequest` 与 `ActionDispatcher` 明确了 UI 到应用组合根的 typed 派发边界；`WorkbenchController::dispatch_action` 统一执行 ActionPolicy 校验、失败反馈和 Running 状态发布。
 - Dispatcher 只负责接收并排队请求，UI 线程不直接调用 Git；具体 Stage/Commit/Branch 执行器及终态订阅仍需由 desktop composition root 接入。
 
+## UI-006 Action Command Mapping（2026-11-07）
+
+- `to_git_command` 将 Stage/Unstage 文件动作转换为共享 `GitCommand::StageFiles` / `UnstageFiles`，保留 `SessionTarget` 与原始 `RepoPath`。
+- 缺少目标、文件选择或非文件动作均返回结构化边界错误；尚未执行 Git、获取锁或修改真实 Index。
+
 ## CORE-011 Resource Lock Manager（2026-11-07）
 
 - `git-operations` 新增 `ResourceKey`、`ResourceScope`、`ResourceKind` 与 RAII `ResourceLock`；CommonGitDir 只承载共享 Refs，Worktree 承载 Index/WorktreeFiles/Sequencer。
