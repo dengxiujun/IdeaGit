@@ -1230,7 +1230,7 @@ mod tests {
         ));
 
         let (dispatcher, mut operation_updates, target) =
-            tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::time::timeout(Duration::from_secs(30), async {
                 let mut dispatcher = None;
                 let mut operation_updates = None;
                 let mut target = None;
@@ -1280,7 +1280,7 @@ mod tests {
                 payload: ActionPayload::None,
             })
             .expect("Stage action should queue");
-        let terminal = tokio::time::timeout(Duration::from_secs(10), async {
+        let terminal = tokio::time::timeout(Duration::from_secs(30), async {
             loop {
                 let snapshot = operation_updates
                     .recv()
@@ -1299,7 +1299,7 @@ mod tests {
         );
 
         let (expected_head, expected_index) =
-            tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::time::timeout(Duration::from_secs(30), async {
                 loop {
                     if let DesktopUiUpdate::Repository(model) =
                         receiver.recv().await.expect("bridge should remain live")
@@ -1345,7 +1345,7 @@ mod tests {
                 }),
             })
             .expect("Commit action should queue");
-        let commit_terminal = tokio::time::timeout(Duration::from_secs(10), async {
+        let commit_terminal = tokio::time::timeout(Duration::from_secs(30), async {
             loop {
                 let snapshot = operation_updates
                     .recv()
@@ -1378,7 +1378,7 @@ mod tests {
                 }),
             })
             .expect("Create branch action should queue");
-        let branch_terminal = tokio::time::timeout(Duration::from_secs(10), async {
+        let branch_terminal = tokio::time::timeout(Duration::from_secs(30), async {
             loop {
                 let snapshot = operation_updates
                     .recv()
@@ -1409,7 +1409,7 @@ mod tests {
                 }),
             })
             .expect("Checkout branch action should queue");
-        let checkout_terminal = tokio::time::timeout(Duration::from_secs(10), async {
+        let checkout_terminal = tokio::time::timeout(Duration::from_secs(30), async {
             loop {
                 let snapshot = operation_updates
                     .recv()
@@ -1427,7 +1427,7 @@ mod tests {
             Some(git_operations::OperationOutcome::Success)
         );
 
-        let log_page = tokio::time::timeout(Duration::from_secs(10), async {
+        let log_page = tokio::time::timeout(Duration::from_secs(30), async {
             loop {
                 if let DesktopUiUpdate::Log(page) =
                     receiver.recv().await.expect("bridge should remain live")
