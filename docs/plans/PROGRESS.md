@@ -421,6 +421,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 选择契约遵循已批准 ADR 的 `git_domain::ChangeSelection`，不另造 IP-001/LLD-UI 旧示例中的平行 `ChangeSelectionId`；跨仓库选择在进入 dispatcher 前关闭失败。
 - 单元测试覆盖仓库切换保留各自 Draft、刷新保留失败后消息和跨仓库选择拒绝；本切片只建立状态边界，输入控件与 Stage/Commit 事件将在后续 UI-007 切片接入。
 
+## M2 UI-007 Commit Message 输入接入（2026-11-07）
+
+- Workbench Commit Panel 接入 GPUI-Kit 多行 `Textarea` 与 Amend Checkbox，输入和勾选事件更新当前 `SessionTarget` 的 Draft 及 `draft_revision`。
+- repository projection 刷新时从面板持有的 `CommitDraftStore` 重建 `CommitPanelViewModel`，并在实际窗口上下文同步输入控件；仓库切换不会复用其他 target 的消息。
+- 输入控件只修改 UI Draft，不直接执行 Git CLI；Stage/Commit 仍将通过统一 `ActionDispatcher` 接入后续切片。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。

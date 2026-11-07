@@ -6,13 +6,17 @@ use std::{sync::Arc, time::Duration};
 use git_operations::{OperationOutcome, OperationPhase, OperationSnapshot};
 use git_ui_model::{
     ActionAvailability, ActionContext, ActionDispatcher, ActionId, ActionPolicy, ActionRequest,
-    ChangesTreeModel, RepositoryWorkbenchModel,
+    ChangesTreeModel, CommitDraftStore, CommitPanelViewModel, RepositoryWorkbenchModel,
 };
 use git_workbench::{PanelKind, WorkbenchLayout};
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::dock::{
     BasePanel, DockArea, DockAreaState, DockEvent, DockLayout, DockPlacement, DockSkin, Panel,
     PanelEvent, panel_handle, register_panel,
+};
+use gpui_kit::component::{
+    checkbox::Checkbox,
+    input::{InputEvent, Textarea, TextareaState},
 };
 use gpui_kit::{
     AnyWindowHandle, App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
@@ -121,7 +125,7 @@ impl WorkbenchController {
         self.view.update(cx, |view, cx| {
             view.repository_chrome = model.chrome;
             view.commit_panel.update(cx, |panel, cx| {
-                panel.changes = model.changes;
+                panel.set_changes(model.changes);
                 cx.notify();
             });
             cx.notify();
@@ -243,8 +247,8 @@ pub fn open_workbench_window(
 
 fn register_workbench_panels(cx: &mut App) {
     for kind in PanelKind::ALL {
-        register_panel(cx, kind.panel_name(), move |_, _, cx| {
-            panel_handle(WorkbenchPanel::new(kind, cx))
+        register_panel(cx, kind.panel_name(), move |_, window, cx| {
+            panel_handle(WorkbenchPanel::new(kind, window, cx))
         });
     }
 }
@@ -266,12 +270,12 @@ impl WorkbenchWindow {
         let theme = IdeaTheme::dark();
         let (dock_area, _skin) =
             DockSkin::dock_area("ideagit.workbench.main", Some(LAYOUT_VERSION), window, cx);
-        let repository = WorkbenchPanel::new(PanelKind::RepositoryExplorer, cx);
-        let commit = WorkbenchPanel::new(PanelKind::Commit, cx);
-        let log = WorkbenchPanel::new(PanelKind::GitLog, cx);
+        let repository = WorkbenchPanel::new(PanelKind::RepositoryExplorer, window, cx);
+        let commit = WorkbenchPanel::new(PanelKind::Commit, window, cx);
+        let log = WorkbenchPanel::new(PanelKind::GitLog, window, cx);
         let log_panel = log.clone();
-        let diff = WorkbenchPanel::new(PanelKind::Diff, cx);
-        let console = WorkbenchPanel::new(PanelKind::Console, cx);
+        let diff = WorkbenchPanel::new(PanelKind::Diff, window, cx);
+        let console = WorkbenchPanel::new(PanelKind::Console, window, cx);
         dock_area.update(cx, |area, cx| {
             area.set_center(
                 DockLayout::tabs()
@@ -431,17 +435,69 @@ struct WorkbenchPanel {
     kind: PanelKind,
     focus: FocusHandle,
     changes: ChangesTreeModel,
+    commit_drafts: CommitDraftStore,
+    commit_model: Option<CommitPanelViewModel>,
+    commit_message: Option<Entity<TextareaState>>,
+    pending_message_sync: Option<SharedString>,
+    _commit_message_subscription: Option<Subscription>,
     log_rows: Vec<git_log_ui::LogRow>,
 }
 
 impl WorkbenchPanel {
-    fn new(kind: PanelKind, cx: &mut App) -> Entity<Self> {
-        cx.new(|cx| Self {
-            kind,
-            focus: cx.focus_handle(),
-            changes: ChangesTreeModel::default(),
-            log_rows: Vec::new(),
+    fn new(kind: PanelKind, window: &mut Window, cx: &mut App) -> Entity<Self> {
+        cx.new(|cx| {
+            let commit_message = (kind == PanelKind::Commit).then(|| {
+                cx.new(|cx| {
+                    TextareaState::new(window, cx)
+                        .placeholder("Commit message")
+                        .auto_grow(3, 8)
+                })
+            });
+            let commit_message_subscription = commit_message.as_ref().map(|message| {
+                cx.subscribe(
+                    message,
+                    |this: &mut Self, message, event: &InputEvent, cx| {
+                        if !matches!(event, InputEvent::Change) {
+                            return;
+                        }
+                        let Some(target) = this.commit_model.as_ref().map(|model| model.target)
+                        else {
+                            return;
+                        };
+                        let value = message.read(cx).value().to_string();
+                        this.commit_drafts.set_message(target, value.clone());
+                        if let Some(model) = this.commit_model.as_mut() {
+                            model.message = value;
+                            model.draft_revision = this
+                                .commit_drafts
+                                .draft(target)
+                                .map_or(0, |draft| draft.draft_revision);
+                        }
+                        cx.notify();
+                    },
+                )
+            });
+            Self {
+                kind,
+                focus: cx.focus_handle(),
+                changes: ChangesTreeModel::default(),
+                commit_drafts: CommitDraftStore::default(),
+                commit_model: None,
+                commit_message,
+                pending_message_sync: None,
+                _commit_message_subscription: commit_message_subscription,
+                log_rows: Vec::new(),
+            }
         })
+    }
+
+    fn set_changes(&mut self, changes: ChangesTreeModel) {
+        self.changes = changes;
+        self.commit_model = CommitPanelViewModel::from_changes(&self.changes, &self.commit_drafts);
+        self.pending_message_sync = self
+            .commit_model
+            .as_ref()
+            .map(|model| SharedString::from(model.message.clone()));
     }
 }
 
@@ -470,7 +526,7 @@ impl Focusable for WorkbenchPanel {
 }
 
 impl Render for WorkbenchPanel {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.kind == PanelKind::GitLog {
             return div()
                 .flex()
@@ -488,6 +544,16 @@ impl Render for WorkbenchPanel {
                 }));
         }
         if self.kind == PanelKind::Commit {
+            if let (Some(message), Some(value)) = (
+                self.commit_message.as_ref(),
+                self.pending_message_sync.take(),
+            ) && message.read(cx).value() != value
+            {
+                message.update(cx, |state, cx| state.set_value(value, window, cx));
+            }
+            let message = self.commit_message.clone();
+            let amend = self.commit_model.as_ref().is_some_and(|model| model.amend);
+            let panel = cx.entity().downgrade();
             return div()
                 .flex()
                 .flex_col()
@@ -521,7 +587,32 @@ impl Render for WorkbenchPanel {
                                 conflict
                             ))
                         }))
-                }));
+                }))
+                .child(div().mt_2().font_semibold().child("Commit Message"))
+                .children(message.map(|message| Textarea::new(&message).h(px(96.0))))
+                .child(
+                    Checkbox::new("commit-amend")
+                        .label("Amend")
+                        .checked(amend)
+                        .on_change(move |checked, _, cx| {
+                            let _ = panel.update(cx, |panel, cx| {
+                                let Some(target) =
+                                    panel.commit_model.as_ref().map(|model| model.target)
+                                else {
+                                    return;
+                                };
+                                panel.commit_drafts.set_amend(target, *checked);
+                                if let Some(model) = panel.commit_model.as_mut() {
+                                    model.amend = *checked;
+                                    model.draft_revision = panel
+                                        .commit_drafts
+                                        .draft(target)
+                                        .map_or(0, |draft| draft.draft_revision);
+                                }
+                                cx.notify();
+                            });
+                        }),
+                );
         }
         div()
             .flex()
