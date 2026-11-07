@@ -26,7 +26,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use git_domain::{GitCommand, GitError, GitErrorKind, GitResult, OperationId, SessionTarget};
-use git_ports::{CommitWriter, ExecutionContext, IndexMutation, IndexWriter, ProcessProgress};
+use git_ports::{
+    BranchWriter, CommitWriter, ExecutionContext, IndexMutation, IndexWriter, ProcessProgress,
+};
 use thiserror::Error;
 use tokio::sync::{Mutex, mpsc, watch};
 use tokio_util::sync::CancellationToken;
@@ -146,6 +148,35 @@ impl<W: CommitWriter + Send + Sync + 'static> OperationExecutor for CommitOperat
             .commit(target, request, context)
             .await
             .map(|_| ())
+    }
+}
+
+/// Bridges typed branch commands to the coordinated Branch writer stack.
+#[derive(Debug)]
+pub struct BranchOperationExecutor<W> {
+    writer: W,
+}
+
+impl<W> BranchOperationExecutor<W> {
+    #[must_use]
+    pub fn new(writer: W) -> Self {
+        Self { writer }
+    }
+}
+
+#[async_trait]
+impl<W: BranchWriter + Send + Sync + 'static> OperationExecutor for BranchOperationExecutor<W> {
+    async fn execute(&self, command: GitCommand, context: ExecutionContext) -> GitResult<()> {
+        let (target, branch) = match command {
+            GitCommand::Branch { target, command } => (target, command),
+            other => {
+                return Err(GitError::new(
+                    GitErrorKind::UnsupportedFeature,
+                    format!("branch executor does not support {other:?}"),
+                ));
+            }
+        };
+        self.writer.apply(target, branch, context).await
     }
 }
 

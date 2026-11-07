@@ -72,6 +72,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `git-operations::CommitOperationExecutor` 将 `GitCommand::CommitIndex` 转换为 `CommitWriter::commit`，保留标准提交请求中的消息、预期 HEAD/Index 和 Snapshot revision。
 - 其它命令显式拒绝；测试覆盖标准提交映射。具体 Git CLI writer、锁、Journal、Hook 与 Reconcile 继续由装饰器链提供。
 
+## CORE-010 Branch Operation Executor（2026-11-07）
+
+- `git-operations::BranchOperationExecutor` 将 `GitCommand::Branch` 转换为 `BranchWriter::apply`，保留 Create/Checkout/Rename/Delete 的 typed `BranchCommand`。
+- 非 Branch 命令显式拒绝；实际 Refs 锁、Journal、Reconcile 仍由既有 writer 装饰器承担。
+
 ## CORE-011 Resource Lock Manager（2026-11-07）
 
 - `git-operations` 新增 `ResourceKey`、`ResourceScope`、`ResourceKind` 与 RAII `ResourceLock`；CommonGitDir 只承载共享 Refs，Worktree 承载 Index/WorktreeFiles/Sequencer。
