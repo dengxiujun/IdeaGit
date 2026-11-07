@@ -12,6 +12,7 @@
 - CLI 适配器只构造 `add -- <paths>` 或 `restore --staged -- <paths>`，不经 Shell；bare 仓库和非 UTF-8 CLI 参数均显式拒绝。
 - 真实 `git-fixture` 测试覆盖已提交文件修改、文件名含 glob 字符的 Stage/Unstage 往返。
 - `CoordinatedIndexWriter` 在适配器调用前获取 Worktree Index 资源锁，取消可中断等待；该锁是进程内协调锁，不替代 Git 的文件锁。
+- `JournaledIndexWriter` 在 Index 写入前追加 Intent，随后以 Completed 或 RecoveryRequired 替换记录；成功终态已由内存 Journal 测试覆盖。
 
 已执行并通过：
 
