@@ -243,5 +243,6 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。
 - 空路径在进程启动前拒绝；普通路径和包含 glob 字符的路径均作为 literal `RepoPath` 传递，后续 CLI 适配器必须使用 `--` 和 literal pathspec 策略。
-- 新增正常/失败路径端口测试；当前专项测试通过。真实 Git `add`/`restore --staged`、锁与 Snapshot reconcile 将在本任务后续切片接入。
+- 新增正常/失败路径端口测试；当前专项测试通过。CLI 适配器已使用 `add -- <paths>` 与 `restore --staged -- <paths>` 的 typed command，不经 Shell。
+- 非 UTF-8 RepoPath 在当前跨平台 CLI 参数边界显式返回 `UnsupportedEncoding`；真实 Git fixture、Index 锁与 Snapshot reconcile 仍待后续切片。
 - 详细结果见 [GIT-001-VERIFICATION-001](../reviews/GIT-001-VERIFICATION-001.md)。
