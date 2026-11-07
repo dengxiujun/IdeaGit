@@ -157,6 +157,24 @@ pub struct RemoteConfig {
     pub push_url: Vec<u8>,
 }
 
+/// Push safety mode selected after preview and preflight.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PushMode {
+    Normal,
+    ForceWithLease { expected: ObjectId },
+}
+
+/// Immutable push preview bound to one source and destination ref.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PushPreview {
+    pub remote: RefName,
+    pub source_ref: RefName,
+    pub destination_ref: RefName,
+    pub outgoing: Vec<crate::CommitSummary>,
+    pub expected_remote_oid: Option<ObjectId>,
+    pub mode: PushMode,
+}
+
 /// Sequencer operation kept separate from ordinary command state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SequencerCommand {

@@ -1,7 +1,9 @@
 //! Remote configuration and network-operation boundaries.
 
 use async_trait::async_trait;
-use git_domain::{GitResult, RemoteCommand, RemoteConfig, SessionTarget};
+use git_domain::{
+    GitResult, PushMode, PushPreview, RefName, RemoteCommand, RemoteConfig, SessionTarget,
+};
 
 use crate::{ExecutionContext, RepositoryLocation};
 
@@ -22,4 +24,16 @@ pub trait RemoteWriter: Send + Sync {
         command: RemoteCommand,
         context: ExecutionContext,
     ) -> GitResult<()>;
+}
+
+#[async_trait]
+pub trait PushPreviewReader: Send + Sync {
+    async fn preview_push(
+        &self,
+        target: SessionTarget,
+        remote: RefName,
+        branch: RefName,
+        mode: PushMode,
+        context: ExecutionContext,
+    ) -> GitResult<PushPreview>;
 }

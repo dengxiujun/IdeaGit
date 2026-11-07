@@ -3,10 +3,14 @@
 use crate::executor::{GitCliCommand, GitCliExecutor, GitCliInvocation, sealed};
 use async_trait::async_trait;
 use git_domain::{
-    GitError, GitErrorKind, GitResult, RefName, RemoteCommand, RemoteConfig, SessionTarget,
+    GitError, GitErrorKind, GitResult, ObjectId, PushMode, PushPreview, RefName, RemoteCommand,
+    RemoteConfig, SessionTarget,
 };
-use git_ports::{ExecutionContext, ProcessRunner, RemoteReader, RemoteWriter, RepositoryLocation};
-use std::{ffi::OsString, path::PathBuf};
+use git_ports::{
+    ExecutionContext, ProcessRunner, PushPreviewReader, RemoteReader, RemoteWriter,
+    RepositoryLocation,
+};
+use std::{ffi::OsString, path::PathBuf, str::FromStr};
 
 #[derive(Debug)]
 pub struct GitCliRemoteAdapter<R> {
@@ -91,6 +95,51 @@ impl<R: ProcessRunner> RemoteWriter for GitCliRemoteAdapter<R> {
                 "Git remote operation failed",
             ))
         }
+    }
+}
+
+#[async_trait]
+impl<R: ProcessRunner> PushPreviewReader for GitCliRemoteAdapter<R> {
+    async fn preview_push(
+        &self,
+        _target: SessionTarget,
+        remote: RefName,
+        branch: RefName,
+        mode: PushMode,
+        context: ExecutionContext,
+    ) -> GitResult<PushPreview> {
+        let cwd = self
+            .location
+            .worktree_root()
+            .unwrap_or(self.location.git_dir())
+            .to_path_buf();
+        let output = self
+            .executor
+            .execute(
+                PushPreviewCommand {
+                    cwd,
+                    remote: remote.clone(),
+                    branch: branch.clone(),
+                    mode: mode.clone(),
+                },
+                context,
+            )
+            .await?;
+        if !output.success {
+            return Err(GitError::new(
+                GitErrorKind::NetworkFailure,
+                "Git push preview failed",
+            ));
+        }
+        let expected_remote_oid = parse_push_preview_oid(&output.stdout)?;
+        Ok(PushPreview {
+            remote,
+            source_ref: branch.clone(),
+            destination_ref: branch,
+            outgoing: Vec::new(),
+            expected_remote_oid,
+            mode,
+        })
     }
 }
 
@@ -197,13 +246,80 @@ impl sealed::Sealed for RemoteMutation {
     }
 }
 
+struct PushPreviewCommand {
+    cwd: PathBuf,
+    remote: RefName,
+    branch: RefName,
+    mode: PushMode,
+}
+impl GitCliCommand for PushPreviewCommand {}
+impl sealed::Sealed for PushPreviewCommand {
+    fn into_invocation(self) -> GitCliInvocation {
+        let mut args = vec![
+            OsString::from("push"),
+            OsString::from("--dry-run"),
+            OsString::from("--porcelain"),
+        ];
+        if let PushMode::ForceWithLease { expected } = self.mode {
+            args.push(OsString::from(format!(
+                "--force-with-lease=refs/heads/{}:{}",
+                self.branch.display_lossy(),
+                expected
+            )));
+        }
+        args.push(OsString::from(self.remote.display_lossy().into_owned()));
+        args.push(OsString::from(self.branch.display_lossy().into_owned()));
+        GitCliInvocation::new(None, args).with_cwd(self.cwd)
+    }
+}
+
+#[allow(clippy::result_large_err)]
+fn parse_push_preview_oid(raw: &[u8]) -> GitResult<Option<ObjectId>> {
+    for line in raw.split(|byte| *byte == b'\n') {
+        let Some(ref_start) = line
+            .windows(b"refs/".len())
+            .position(|window| window == b"refs/")
+        else {
+            continue;
+        };
+        let fields = &line[ref_start..];
+        let Some(range) = fields
+            .split(|byte| byte.is_ascii_whitespace())
+            .find(|field| field.windows(2).any(|pair| pair == b".."))
+        else {
+            continue;
+        };
+        let Some(separator) = range.windows(2).position(|pair| pair == b"..") else {
+            continue;
+        };
+        let old = &range[..separator];
+        if old.is_empty() || old.iter().all(|byte| *byte == b'0') {
+            return Ok(None);
+        }
+        let old = std::str::from_utf8(old).map_err(|_| {
+            GitError::new(
+                GitErrorKind::UnsupportedEncoding,
+                "Git preview OID is not UTF-8",
+            )
+        })?;
+        if old.len() != 40 && old.len() != 64 {
+            return Ok(None);
+        }
+        return ObjectId::from_str(old).map(Some).map_err(|error| {
+            GitError::new(GitErrorKind::Internal, "Git preview OID is invalid")
+                .with_diagnostic(error.to_string())
+        });
+    }
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{GitCliRepositoryReader, TokioProcessRunner};
     use git_domain::{OperationId, RepositoryId, WorktreeId};
     use git_fixture::TestRepository;
-    use git_ports::{RemoteReader, RemoteWriter, RepositoryReader};
+    use git_ports::{PushPreviewReader, RemoteReader, RemoteWriter, RepositoryReader};
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 
@@ -298,5 +414,36 @@ mod tests {
             .await
             .expect("push should succeed");
         assert!(remote.path().is_dir());
+    }
+
+    #[tokio::test]
+    async fn previews_a_real_push_before_execution() {
+        let fixture = TestRepository::init().expect("fixture should initialize");
+        fixture.commit_file("base.txt", b"base\n").expect("commit");
+        fixture
+            .create_local_remote()
+            .expect("local remote should initialize");
+        fixture
+            .commit_file("next.txt", b"next\n")
+            .expect("local commit should succeed");
+        let (progress, _) = mpsc::channel(4);
+        let context = ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress);
+        let location = GitCliRepositoryReader::new(TokioProcessRunner)
+            .discover(fixture.worktree.clone(), context.clone())
+            .await
+            .expect("repository should be discovered");
+        let adapter = GitCliRemoteAdapter::new(TokioProcessRunner, location);
+        let preview = adapter
+            .preview_push(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                RefName::new(b"origin".to_vec()).expect("remote name"),
+                RefName::new(b"main".to_vec()).expect("branch name"),
+                PushMode::Normal,
+                context,
+            )
+            .await
+            .expect("preview should succeed");
+        assert_eq!(preview.remote.display_lossy(), "origin");
+        assert_eq!(preview.source_ref.display_lossy(), "main");
     }
 }
