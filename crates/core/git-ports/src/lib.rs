@@ -2,6 +2,7 @@
 
 mod branch;
 mod commit;
+mod credential;
 mod head;
 mod history;
 mod index;
@@ -12,6 +13,9 @@ mod status;
 
 pub use branch::BranchWriter;
 pub use commit::{CommitOutcome, CommitWriter};
+pub use credential::{
+    CredentialBroker, CredentialError, CredentialKind, CredentialRequest, CredentialResponse,
+};
 pub use head::{BranchReader, HeadReader};
 pub use history::HistoryReader;
 pub use index::{IndexMutation, IndexMutationError, IndexWriter};
