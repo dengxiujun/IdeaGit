@@ -444,6 +444,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Workbench 收到 Commit operation snapshot 后更新 `CommitSubmissionState`：排队/锁等待/执行阶段显示 Running，失败、恢复要求和取消映射为 NoCommit/Indeterminate，并保留原 Draft 消息。
 - 成功终态不伪造 commit OID；Operation overlay 展示真实成功结果，面板等待下一次权威 refresh，避免把缺少 OID 的快照误报为具体提交身份。
 
+## M2 UI-008 Branch Popup ViewModel（2026-11-08）
+
+- `git-ui-model` 新增 repository-scoped `BranchPopupViewModel`、分组 BranchRow、搜索过滤和选择状态；搜索只过滤展示投影，不改变后端分支身份。
+- Checkout/Create 通过统一 `ActionRequest` 携带强类型 `RefName` 与目标 `SessionTarget`，未选分支时 Checkout 不生成请求；未接入 shell 字符串或直接 Git CLI。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。

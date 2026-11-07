@@ -5,7 +5,7 @@ use std::{collections::HashMap, time::SystemTime};
 use git_application::{RefreshHealth, RefreshState, RepositorySessionView};
 use git_domain::{
     BranchCommand, ChangeKind, ChangeSelection, GitCommand, HeadState, ObjectId, OperationId,
-    RepoPath, RepositorySnapshot, SessionTarget, SnapshotRevision, StandardCommitRequest,
+    RefName, RepoPath, RepositorySnapshot, SessionTarget, SnapshotRevision, StandardCommitRequest,
 };
 
 /// Immutable source selected by a read-only change-tree entry.
@@ -354,6 +354,95 @@ pub enum ActionPanel {
     Commit,
     Diff,
     Console,
+}
+
+/// A branch row rendered by the Branch Popup.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BranchRowViewModel {
+    pub reference: RefName,
+    pub display_name: String,
+    pub is_current: bool,
+    pub is_favorite: bool,
+    pub ahead: Option<u64>,
+    pub behind: Option<u64>,
+}
+
+/// One named branch section (Recent, Local, or Remote).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BranchSectionViewModel {
+    pub title: String,
+    pub rows: Vec<BranchRowViewModel>,
+}
+
+/// State owned by one repository-scoped Branch Popup.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BranchPopupViewModel {
+    pub target: SessionTarget,
+    pub search_query: String,
+    pub selected_branch: Option<RefName>,
+    pub sections: Vec<BranchSectionViewModel>,
+    pub loading: bool,
+    pub error: Option<String>,
+}
+
+impl BranchPopupViewModel {
+    #[must_use]
+    pub fn visible_sections(&self) -> Vec<BranchSectionViewModel> {
+        let query = self.search_query.trim().to_lowercase();
+        self.sections
+            .iter()
+            .map(|section| BranchSectionViewModel {
+                title: section.title.clone(),
+                rows: section
+                    .rows
+                    .iter()
+                    .filter(|row| {
+                        query.is_empty()
+                            || row.display_name.to_lowercase().contains(&query)
+                            || row
+                                .reference
+                                .display_lossy()
+                                .to_lowercase()
+                                .contains(&query)
+                    })
+                    .cloned()
+                    .collect(),
+            })
+            .filter(|section| !section.rows.is_empty())
+            .collect()
+    }
+
+    pub fn select(&mut self, branch: Option<RefName>) {
+        self.selected_branch = branch;
+    }
+
+    #[must_use]
+    pub fn checkout_request(&self) -> Option<ActionRequest> {
+        let branch = self.selected_branch.clone()?;
+        Some(ActionRequest {
+            action: ActionId::CheckoutBranch,
+            context: ActionContext {
+                target: Some(self.target),
+                selected_branch: Some(branch.clone()),
+                active_panel: ActionPanel::RepositoryExplorer,
+                ..ActionContext::default()
+            },
+            payload: ActionPayload::Branch(BranchCommand::Checkout { name: branch }),
+        })
+    }
+
+    #[must_use]
+    pub fn create_request(&self, branch: RefName) -> ActionRequest {
+        ActionRequest {
+            action: ActionId::CreateBranch,
+            context: ActionContext {
+                target: Some(self.target),
+                active_panel: ActionPanel::RepositoryExplorer,
+                ..ActionContext::default()
+            },
+            payload: ActionPayload::Branch(BranchCommand::Create { name: branch }),
+        }
+    }
 }
 
 /// Snapshot of the selection and target captured immediately before dispatch.
@@ -713,6 +802,54 @@ mod tests {
             "commit selection belongs to another repository session"
         );
         assert!(drafts.draft(target).is_none());
+    }
+
+    #[test]
+    fn branch_popup_filters_rows_and_builds_typed_checkout() {
+        let target = test_target();
+        let main = RefName::new(b"main".to_vec()).expect("valid branch");
+        let feature = RefName::new(b"feature/ui".to_vec()).expect("valid branch");
+        let mut popup = BranchPopupViewModel {
+            target,
+            search_query: "ui".to_owned(),
+            selected_branch: Some(feature.clone()),
+            sections: vec![BranchSectionViewModel {
+                title: "Local".to_owned(),
+                rows: vec![
+                    BranchRowViewModel {
+                        reference: main,
+                        display_name: "main".to_owned(),
+                        is_current: true,
+                        is_favorite: false,
+                        ahead: None,
+                        behind: None,
+                    },
+                    BranchRowViewModel {
+                        reference: feature.clone(),
+                        display_name: "feature/ui".to_owned(),
+                        is_current: false,
+                        is_favorite: true,
+                        ahead: Some(1),
+                        behind: Some(2),
+                    },
+                ],
+            }],
+            loading: false,
+            error: None,
+        };
+
+        let visible = popup.visible_sections();
+        assert_eq!(visible[0].rows.len(), 1);
+        assert_eq!(visible[0].rows[0].reference, feature);
+        let request = popup
+            .checkout_request()
+            .expect("selected branch should checkout");
+        assert!(matches!(
+            request.payload,
+            ActionPayload::Branch(BranchCommand::Checkout { .. })
+        ));
+        popup.select(None);
+        assert!(popup.checkout_request().is_none());
     }
 
     #[test]
