@@ -476,6 +476,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Log 行现在支持受控选择，选中 OID 后展示 Subject/Author/Commit 摘要详情；刷新页面时若选中 OID 不再存在会清除旧选择，避免旧详情污染新仓库状态。
 - 点击处理只更新 Workbench UI 状态，数据仍来自 `LogRow`，没有为大历史列表创建长期 Entity。
 
+## M3 REMOTE-002 Credential Broker / AskPass（2026-11-08）
+
+- `git-ports` 新增 `CredentialBroker`、`CredentialRequest`、`CredentialResponse` 与结构化 `CredentialError`；秘密值使用 `secrecy::SecretString`，不实现序列化或明文 Debug。
+- `credential-broker` 新增无 Shell 的 `AskPassCredentialBroker`：受限输出、超时、显式 Host Confirmation、拒绝/取消/无效提示分类；凭据内容不进入诊断或 Journal。
+- Rust CI #71（Runner `42396300265`）在 Ubuntu、Windows、macOS 三个平台通过；本地 workspace check/clippy/test 全部通过。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。
