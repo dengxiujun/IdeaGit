@@ -2,7 +2,7 @@
 
 - 日期：2026-11-07
 - 任务：CORE-005
-- 当前状态：当前 macOS 实现及检查通过；本提交三平台 CI 待执行
+- 当前状态：完成；当前 macOS 与三平台 CI 均通过
 
 ## 1. 范围与契约
 
@@ -51,10 +51,21 @@ Fixture 显式使用 `main` 作为初始分支，并把 `init.defaultBranch` 写
 | `cargo test --workspace --locked` | 通过；62 个 Workspace 测试全部成功 |
 | `RUSTDOCFLAGS='-D warnings' cargo doc -p git-domain -p git-ports -p git-cli --no-deps --locked` | 通过；公共 API 文档无警告 |
 
-## 4. 依赖、设计差异与遗留事项
+## 4. 三平台 CI 验证
+
+[Rust CI #14](https://github.com/dengxiujun/IdeaGit/actions/runs/42319097515) attempt 2 已完成并全部通过：
+
+- [Windows Server 2022](https://github.com/dengxiujun/IdeaGit/actions/runs/42319097515/job/128245871924)
+- [Ubuntu 24.04](https://github.com/dengxiujun/IdeaGit/actions/runs/42319097515/job/128245871897)
+- [macOS 15](https://github.com/dengxiujun/IdeaGit/actions/runs/42319097515/job/128245871919)
+- [Format](https://github.com/dengxiujun/IdeaGit/actions/runs/42319097515/job/128245871680)
+
+首次代码运行 [Rust CI #13](https://github.com/dengxiujun/IdeaGit/actions/runs/42317764245) 暴露 Windows Git 不能把 `canonicalize` 产生的 verbatim path 作为 `GIT_DIR` 使用；修正为以 bare `git_dir` 作为 cwd 后，Windows 测试通过。Rust CI #14 attempt 1 的 Windows/macOS 已成功，但 Ubuntu apt 安装约 20 分钟无进展，因此取消该次基础设施卡住的尝试；attempt 2 重新执行全部平台并全部通过，没有用部分成功替代最终门禁。
+
+## 5. 依赖、设计差异与遗留事项
 
 - 无新增第三方依赖，Cargo.toml 与 Cargo.lock 不应改变。
 - 没有复用 status header 作为 HEAD 的权威来源；HEAD/Branch ports 直接读取 Git ref，Snapshot Builder 后续再组合各 reader 的结果。
 - Upstream 在 detached 或未配置时返回 `None`；读取计数期间 ref 变化导致命令失败时归类为 `ReferenceChanged`，不自动重试或伪造旧计数。
 - 当前仅验证本地 ref/upstream；远程网络状态、gone upstream、replace refs、超大提交图性能与外部进程在多条 plumbing 命令之间并发改写 ref 尚未覆盖。
-- Windows/Linux 的命令输出、默认 Git 版本与 bare/upstream 行为必须等待本提交 CI；CI 通过前不得声称三平台验证完成。
+- Windows、macOS、Linux 的命令输出、bare HEAD、upstream 与分叉计数已由 Rust CI #14 attempt 2 验证。Windows verbatim path 不再重复注入 `GIT_DIR`。
