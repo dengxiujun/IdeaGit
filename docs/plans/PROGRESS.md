@@ -95,6 +95,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 当已有 refresh 正在执行时，Reconcile 请求留在有界队列等待下一轮，避免把写入前启动的旧 snapshot 错认作写后结果；普通文件系统触发仍按原策略合并。
 - Reconcile 保留 target 校验、取消和底层结构化读取错误；测试覆盖成功产生下一 revision 及权威读取失败透传。
 
+## M2 CORE-012 Operation Journal 平台路径（2026-11-07）
+
+- `desktop-platform::operation_journal_path` 将 durable Journal 放在 IdeaGit 平台配置目录，与 Workbench layout 同目录但独立文件，不写入用户仓库或进程当前目录。
+- `IDEAGIT_JOURNAL_PATH` 提供显式测试/portable 覆盖；平台配置目录缺失时返回 `None`，由 composition root 安全禁用写入口而不是回退到不确定位置。
+- 纯函数测试覆盖路径派生和缺失目录两条路径，保持 Windows、macOS、Linux 选择逻辑不变。
+
 ## M2 GIT-002 Commit Preflight Probe（2026-11-07）
 
 - `GitCliCommitStateProbe` 通过 sealed typed command 读取 `rev-parse --verify --quiet HEAD` 与真实 Index 的 `write-tree` OID，为 composition root 提供强类型 HEAD/Index 身份。
