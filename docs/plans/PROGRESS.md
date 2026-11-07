@@ -449,6 +449,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `git-ui-model` 新增 repository-scoped `BranchPopupViewModel`、分组 BranchRow、搜索过滤和选择状态；搜索只过滤展示投影，不改变后端分支身份。
 - Checkout/Create 通过统一 `ActionRequest` 携带强类型 `RefName` 与目标 `SessionTarget`，未选分支时 Checkout 不生成请求；未接入 shell 字符串或直接 Git CLI。
 
+## M2 UI-009 Git Log Table 基础列（2026-11-08）
+
+- Workbench Git Log panel 现在展示 Graph lane/OID、Subject、Author、Timestamp 四列，复用 `git-log-ui::LogRow` 纯投影，不为每个 Commit 创建长期 GPUI Entity。
+- Log 数据仍由 `CommitPage → LogRow` 通路提供；新 Commit 后由 bridge 的 HEAD 变化触发重新读取，旧数据不会伪造为当前提交。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。

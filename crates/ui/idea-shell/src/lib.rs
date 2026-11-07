@@ -722,12 +722,38 @@ impl Render for WorkbenchPanel {
                 .p_3()
                 .gap_1()
                 .child(div().font_semibold().child("Git Log"))
+                .child(
+                    div()
+                        .flex()
+                        .gap_3()
+                        .text_xs()
+                        .font_semibold()
+                        .child(div().w(px(90.0)).child("Graph / OID"))
+                        .child(div().flex_1().child("Subject"))
+                        .child(div().w(px(140.0)).child("Author"))
+                        .child(div().w(px(110.0)).child("Timestamp")),
+                )
                 .children(self.log_rows.iter().map(|row| {
-                    div().text_sm().child(format!(
-                        "{} · {}",
-                        row.id,
-                        String::from_utf8_lossy(&row.subject)
-                    ))
+                    div()
+                        .flex()
+                        .gap_3()
+                        .text_sm()
+                        .child(
+                            div()
+                                .w(px(90.0))
+                                .child(format!("L{} {}", row.graph.lane, row.id)),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .child(String::from_utf8_lossy(&row.subject).into_owned()),
+                        )
+                        .child(
+                            div()
+                                .w(px(140.0))
+                                .child(String::from_utf8_lossy(&row.author).into_owned()),
+                        )
+                        .child(div().w(px(110.0)).child(row.timestamp.to_string()))
                 }));
         }
         if self.kind == PanelKind::Commit {
