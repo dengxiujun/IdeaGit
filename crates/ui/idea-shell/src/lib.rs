@@ -74,6 +74,13 @@ pub struct WorkbenchController {
     view: Entity<WorkbenchWindow>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OperationFeedback {
+    Running(String),
+    Succeeded(String),
+    Failed(String),
+}
+
 impl WorkbenchController {
     pub fn set_repository_model(&self, model: RepositoryWorkbenchModel, cx: &mut App) {
         self.view.update(cx, |view, cx| {
@@ -93,6 +100,13 @@ impl WorkbenchController {
                 panel.log_rows = rows;
                 cx.notify();
             });
+            cx.notify();
+        });
+    }
+
+    pub fn set_operation_feedback(&self, feedback: OperationFeedback, cx: &mut App) {
+        self.view.update(cx, |view, cx| {
+            view.operation_feedback = Some(feedback);
             cx.notify();
         });
     }
@@ -141,6 +155,7 @@ struct WorkbenchWindow {
     repository_chrome: git_ui_model::RepositoryChromeModel,
     commit_panel: Entity<WorkbenchPanel>,
     log_panel: Entity<WorkbenchPanel>,
+    operation_feedback: Option<OperationFeedback>,
 }
 
 impl WorkbenchWindow {
@@ -216,6 +231,7 @@ impl WorkbenchWindow {
             repository_chrome: git_ui_model::RepositoryChromeModel::default(),
             commit_panel: commit,
             log_panel,
+            operation_feedback: None,
         }
     }
 }
@@ -289,6 +305,21 @@ impl Render for WorkbenchWindow {
                         self.repository_chrome.status.branch, self.repository_chrome.status.sync
                     )),
             )
+            .when_some(self.operation_feedback.clone(), |element, feedback| {
+                element.child(
+                    div()
+                        .id("operation-feedback")
+                        .absolute()
+                        .top_2()
+                        .right_2()
+                        .p_2()
+                        .child(match feedback {
+                            OperationFeedback::Running(message) => format!("Running: {message}"),
+                            OperationFeedback::Succeeded(message) => format!("Done: {message}"),
+                            OperationFeedback::Failed(message) => format!("Failed: {message}"),
+                        }),
+                )
+            })
             .child(div().id("workbench-overlay-host").absolute().inset_0())
     }
 }
