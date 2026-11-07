@@ -2,7 +2,7 @@
 
 - 日期：2026-11-07
 - 任务：CORE-004
-- 当前状态：当前 macOS 实现及检查通过；本提交三平台 CI 待执行
+- 当前状态：完成；当前 macOS 与三平台 CI 均通过
 
 ## 1. 范围与契约
 
@@ -57,10 +57,21 @@
 | `cargo test --workspace --locked` | 通过；57 个 Workspace 测试全部成功 |
 | `RUSTDOCFLAGS='-D warnings' cargo doc -p git-domain -p git-ports -p git-cli --no-deps --locked` | 通过；公共 API 文档无警告 |
 
-## 4. 依赖、设计差异与遗留事项
+## 4. 三平台 CI 验证
+
+[Rust CI #12](https://github.com/dengxiujun/IdeaGit/actions/runs/42315434816) 已完成并全部通过：
+
+- [Windows Server 2022](https://github.com/dengxiujun/IdeaGit/actions/runs/42315434816/job/128226772727)
+- [Ubuntu 24.04](https://github.com/dengxiujun/IdeaGit/actions/runs/42315434816/job/128226772856)
+- [macOS 15](https://github.com/dengxiujun/IdeaGit/actions/runs/42315434816/job/128226773027)
+- [Format](https://github.com/dengxiujun/IdeaGit/actions/runs/42315434816/job/128226773077)
+
+各平台均使用 Rust 1.99.1 与提交的 Cargo.lock，执行 locked check、Clippy、Workspace tests 和窗口烟雾测试。由此关闭本任务对 Windows/Linux 的待验证项；超大仓库性能、sparse checkout、LFS 与嵌套 submodule status 仍未验证。
+
+## 5. 依赖、设计差异与遗留事项
 
 - 无新增第三方版本；`git-ports` 直接复用 Workspace 已锁定的 `thiserror` 定义结构化 parse error。
 - Core §18 的 `HeadState` 仍由 CORE-005 负责；本轮 BranchStatus 只保留同一次 status 响应的可选 header，不生成 Session 级 HEAD 真相或重复 `HeadState`。
 - 权威计划沿用 `StatusEntry::Renamed(RenamedChange)` 命名；该 DTO 用 `SimilarityKind` 明确区分 Rename 与 Copy，不丢失 C 记录。
 - status parser 保留 Git 的未定义输出顺序；UI 分组和稳定排序属于 Snapshot/UI projection，不在 adapter 中改变语义。
-- 当前 macOS 的真实 Fixture 已通过；Windows/Linux 的换行、mode、rename 与 conflict 行为必须等待本提交 CI。未执行超大仓库性能、sparse checkout、LFS 或嵌套 submodule status。
+- Windows、macOS、Linux 的真实 Fixture 已由 Rust CI #12 通过。未执行超大仓库性能、sparse checkout、LFS 或嵌套 submodule status。

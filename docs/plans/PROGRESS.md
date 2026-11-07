@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003 已完成当前平台及三平台 CI 验证；CORE-004 Porcelain v2 Status Parser/Reader 已在当前 macOS 通过专项检查，等待本提交三平台 CI。未执行的独立 HEAD、Snapshot、Session、Watcher、Workbench 和其他高级场景继续明确保留。
+M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003/004 已完成当前平台及三平台 CI 验证；CORE-005 HEAD / Branch Reader 已在当前 macOS 通过专项检查，等待本提交三平台 CI。未执行的 Snapshot、Session、Watcher、Workbench 和其他高级场景继续明确保留。
 
 ## 已完成的文档工作
 
@@ -39,7 +39,7 @@ M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003 �
 
 ## 下一步
 
-CORE-004 三平台 CI 通过后，按依赖 DAG 进入 CORE-005 HEAD / Branch Reader，再依次完成 Snapshot、Session、Watcher 与 Workbench。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+CORE-005 三平台 CI 通过并完成验证记录后按用户要求暂停；恢复后按依赖 DAG 进入 CORE-006 Snapshot Builder，再依次完成 Session、Watcher 与 Workbench。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
 
 ## INFRA-004 架构与开发约束（2026-11-07）
 
@@ -141,4 +141,12 @@ CORE-004 三平台 CI 通过后，按依赖 DAG 进入 CORE-005 HEAD / Branch Re
 - `git-cli` 严格按 NUL token 解析 porcelain v2；type-2 原路径单独取下一 token，未知 header 可扩展，截断或非法记录不静默接受。
 - 生产 reader 使用 `--no-optional-locks`、明确 untracked/ignored/rename 选项；bare status 明确拒绝，不误报干净工作区。
 - 当前 macOS / Rust 1.99.1 已通过专项 fmt、locked check、Clippy 和 43 个测试；合成输入覆盖所有格式/失败分支，隔离真实 Git 覆盖 staged+unstaged、rename、ignored/untracked、`UU` conflict 和 bare 拒绝。
-- Workspace 全量检查与三平台 CI 尚待执行；三平台 Git status 差异在 CI 通过前不得声称已验证。详细记录见 [CORE-004-VERIFICATION-001](../reviews/CORE-004-VERIFICATION-001.md)。
+- Workspace 全量检查已通过；[Rust CI #12](https://github.com/dengxiujun/IdeaGit/actions/runs/42315434816) 已在 Windows Server 2022、macOS 15 和 Ubuntu 24.04 通过全部门禁与真实 Git status 测试，CORE-004 已完成。详细记录见 [CORE-004-VERIFICATION-001](../reviews/CORE-004-VERIFICATION-001.md)。
+
+## CORE-005 HEAD / Branch Reader（2026-11-07）
+
+- `git-domain` 按 Core §18 新增 `Unborn`、`Attached`、`Detached` 三态 `HeadState`，并以独立 `BranchTracking` 保留 upstream 及 ahead/behind，不改变已批准契约。
+- `git-ports` 新增异步 `HeadReader` 与 `BranchReader`；`git-cli` 通过 `symbolic-ref`、`rev-parse`、`for-each-ref` 和 `rev-list --left-right --count` 读取，不经 Shell，不执行 Git 写操作。
+- Ref/OID/计数均严格校验；bare repository 使用真实 `git_dir`，未配置 upstream 或 detached HEAD 明确返回 `None`。
+- Fixture 显式固定隔离的 `main` 默认分支，并新增 detach、peer-only push 与 fetch 辅助；真实测试覆盖 Unborn/Attached/Detached、bare、upstream 0/0 和分叉 1/1。
+- 当前 macOS / Rust 1.99.1 的专项格式、53 个相关测试及包含 62 个测试的 Workspace 全量门禁已通过；三平台 CI 尚待执行。详细记录见 [CORE-005-VERIFICATION-001](../reviews/CORE-005-VERIFICATION-001.md)。

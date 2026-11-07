@@ -127,6 +127,7 @@ impl TestRepository {
             "initialize fixture repository",
             vec![
                 OsString::from("init"),
+                OsString::from("--initial-branch=main"),
                 repository.worktree.as_os_str().to_owned(),
             ],
         )?;
@@ -280,6 +281,22 @@ impl TestRepository {
         path: &str,
         data: &[u8],
     ) -> Result<(), TestError> {
+        self.push_change_from_peer(remote, path, data)?;
+        self.run_git_at(
+            &self.worktree,
+            "pull peer change from local bare remote",
+            vec![OsString::from("pull"), OsString::from("--ff-only")],
+        )?;
+        Ok(())
+    }
+
+    /// Commits through a peer clone and pushes without updating the original worktree.
+    pub fn push_change_from_peer(
+        &self,
+        remote: &LocalBareRemote,
+        path: &str,
+        data: &[u8],
+    ) -> Result<(), TestError> {
         let peer = self.temp_dir.path().join("peer-worktree");
         self.run_git_at(
             self.temp_dir.path(),
@@ -319,10 +336,34 @@ impl TestRepository {
                 OsString::from("HEAD"),
             ],
         )?;
+        Ok(())
+    }
+
+    /// Fetches the fixture's configured local remote.
+    pub fn fetch_remote(&self) -> Result<(), TestError> {
         self.run_git_at(
             &self.worktree,
-            "pull peer change from local bare remote",
-            vec![OsString::from("pull"), OsString::from("--ff-only")],
+            "fetch fixture local remote",
+            vec![OsString::from("fetch"), OsString::from("origin")],
+        )?;
+        Ok(())
+    }
+
+    /// Detaches HEAD at the current commit.
+    pub fn detach_head(&self) -> Result<(), TestError> {
+        if self.head_oid()?.is_none() {
+            return Err(TestError::UnbornHead {
+                operation: "detach HEAD",
+            });
+        }
+        self.run_git_at(
+            &self.worktree,
+            "detach fixture HEAD",
+            vec![
+                OsString::from("checkout"),
+                OsString::from("--detach"),
+                OsString::from("HEAD"),
+            ],
         )?;
         Ok(())
     }
@@ -478,6 +519,7 @@ impl TestRepository {
             ("core.hooksPath", self.hooks_dir.to_string_lossy().as_ref()),
             ("credential.helper", ""),
             ("commit.gpgSign", "false"),
+            ("init.defaultBranch", "main"),
         ] {
             self.run_git_at(
                 &self.worktree,
