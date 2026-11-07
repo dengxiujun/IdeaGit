@@ -3,6 +3,7 @@
 mod branch;
 mod commit;
 mod head;
+mod history;
 mod index;
 mod journal;
 mod process;
@@ -12,6 +13,7 @@ mod status;
 pub use branch::BranchWriter;
 pub use commit::{CommitOutcome, CommitWriter};
 pub use head::{BranchReader, HeadReader};
+pub use history::HistoryReader;
 pub use index::{IndexMutation, IndexMutationError, IndexWriter};
 pub use journal::{JournalError, JournalStore};
 pub use process::{

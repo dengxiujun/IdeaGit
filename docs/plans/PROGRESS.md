@@ -264,6 +264,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `git-ports` 新增 `BranchWriter`；CLI typed command 支持 Create、Checkout、Rename、Delete，并将 RefName 作为单独参数传递，不经 Shell。
 - 真实 fixture 覆盖创建 feature 分支后切回 main；bare 仓库显式拒绝 Branch 写入。
 - 详细结果见 [GIT-003-VERIFICATION-001](../reviews/GIT-003-VERIFICATION-001.md)。
+
+## GIT-004 Log（2026-11-07）
+
+- `git-domain` 新增 `LogQuery`、`CommitSummary`、`CommitPage`，以强类型 OID、父提交、subject、author、timestamp 表达分页历史。
+- `git-ports` 新增异步 `HistoryReader`，为 Git CLI、Graph 和 UI 分层保留统一读取边界。
+- 本切片完成领域/端口契约，CLI `--format` 解析与 DAG/分页读取将在后续切片接入。
 - `git-operations` 新增 `CoordinatedBranchWriter`，以 CommonGitDir Refs 锁串行化分支变更；`ReconciledBranchWriter` 在写后重建 Snapshot。
 - `JournaledBranchWriter` 在分支变更前记录 CommitInProgress，随后持久化 Completed 或 RecoveryRequired，保留崩溃审计线索。
 - `ReconciledCommitWriter` 只有在实际提交成功且权威 RepositorySnapshot 重建成功后才返回完整成功结果。
