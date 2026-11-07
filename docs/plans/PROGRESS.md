@@ -103,6 +103,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - desktop 新增统一安装入口，将 Dispatcher 注入 `WorkbenchController`，并通过弱 UI 句柄在 GPUI 任务中回送 coordinator snapshots；Workbench Entity 释放后终止反馈消费，不形成 controller/sender 保留环，也不重试 Git 命令。
 - 测试从不含 Tokio context 的独立线程派发 Stage Action，并验证真实 coordinator 终态经 receiver 转发为 Success；具体安全 writer 装配仍由后续小节点完成。
 
+## M2 UI-0010 真实 Git Log Bridge（2026-11-07）
+
+- desktop repository bridge 新增 typed UI update，在刷新得到新 HEAD 时通过 `GitCliHistoryReader` 读取默认首个分页并回送 `WorkbenchController::set_log_page`；普通工作区文件变化不会重复读取相同 HEAD 的历史。
+- Unborn HEAD 显示空 Log，不执行注定失败的 `git log`；历史读取失败以可见反馈返回 UI，不终止 Status/Changes 持续刷新。
+- 真实仓库测试覆盖首次提交历史与外部新增提交后的 Log 更新，bridge 在 UI receiver 关闭后仍可干净收束。
+
 ## CORE-011 Resource Lock Manager（2026-11-07）
 
 - `git-operations` 新增 `ResourceKey`、`ResourceScope`、`ResourceKind` 与 RAII `ResourceLock`；CommonGitDir 只承载共享 Refs，Worktree 承载 Index/WorktreeFiles/Sequencer。

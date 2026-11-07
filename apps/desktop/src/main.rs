@@ -21,6 +21,13 @@ use std::{
 const SMOKE_DURATION_ENV: &str = "IDEAGIT_UI_SMOKE_DURATION_MS";
 const OPEN_REPOSITORY_ENV: &str = "IDEAGIT_OPEN_REPOSITORY";
 
+#[derive(Debug)]
+enum DesktopUiUpdate {
+    Repository(git_ui_model::RepositoryWorkbenchModel),
+    Log(git_domain::CommitPage),
+    LogFailed(String),
+}
+
 /// Composition-root dispatcher that queues typed UI actions without blocking GPUI.
 pub struct DesktopActionDispatcher<E: OperationExecutor> {
     coordinator: Arc<OperationCoordinator<E>>,
@@ -162,8 +169,21 @@ fn main() -> ExitCode {
                     }
                 });
                 cx.spawn(async move |cx| {
-                    while let Some(model) = receiver.recv().await {
-                        cx.update(|cx| controller.set_repository_model(model, cx));
+                    while let Some(update) = receiver.recv().await {
+                        cx.update(|cx| match update {
+                            DesktopUiUpdate::Repository(model) => {
+                                controller.set_repository_model(model, cx);
+                            }
+                            DesktopUiUpdate::Log(page) => controller.set_log_page(page, cx),
+                            DesktopUiUpdate::LogFailed(error) => {
+                                controller.set_operation_feedback(
+                                    idea_shell::OperationFeedback::Failed(format!(
+                                        "读取 Git Log 失败：{error}"
+                                    )),
+                                    cx,
+                                );
+                            }
+                        });
                     }
                 })
                 .detach();
@@ -201,9 +221,9 @@ fn main() -> ExitCode {
 
 async fn run_repository_bridge(
     path: PathBuf,
-    sender: tokio::sync::mpsc::UnboundedSender<git_ui_model::RepositoryWorkbenchModel>,
+    sender: tokio::sync::mpsc::UnboundedSender<DesktopUiUpdate>,
 ) -> Result<(), String> {
-    use git_ports::RepositoryReader as _;
+    use git_ports::{HistoryReader as _, RepositoryReader as _};
 
     let discovery_cancellation = tokio_util::sync::CancellationToken::new();
     let (progress, _progress_receiver) = tokio::sync::mpsc::channel(16);
@@ -240,11 +260,46 @@ async fn run_repository_bridge(
     let mut refresh = scheduler.subscribe();
     let mut watcher = repository_watcher::RepositoryWatch::start(&location, 32)
         .map_err(|error| error.to_string())?;
+    let history = git_cli::GitCliHistoryReader::new(git_cli::TokioProcessRunner, location);
+    let mut last_log_head = None;
     let result = loop {
-        let model =
-            git_ui_model::RepositoryWorkbenchModel::single_session(&session, &refresh.borrow());
-        if sender.send(model).is_err() {
+        let state = refresh.borrow().clone();
+        let model = git_ui_model::RepositoryWorkbenchModel::single_session(&session, &state);
+        if sender.send(DesktopUiUpdate::Repository(model)).is_err() {
             break Ok(());
+        }
+        if let Some(snapshot) = state.snapshot.as_ref()
+            && last_log_head.as_ref() != Some(&snapshot.head)
+        {
+            last_log_head = Some(snapshot.head.clone());
+            let page = if matches!(snapshot.head, git_domain::HeadState::Unborn { .. }) {
+                Ok(git_domain::CommitPage {
+                    target: handle.target(),
+                    commits: Vec::new(),
+                    has_more: false,
+                })
+            } else {
+                let (progress, _progress_receiver) = tokio::sync::mpsc::channel(16);
+                history
+                    .log(
+                        handle.target(),
+                        git_domain::LogQuery::default(),
+                        git_ports::ExecutionContext::new(
+                            git_domain::OperationId::new(),
+                            cancellation.clone(),
+                            progress,
+                        ),
+                    )
+                    .await
+                    .map_err(|error| error.to_string())
+            };
+            let update = match page {
+                Ok(page) => DesktopUiUpdate::Log(page),
+                Err(error) => DesktopUiUpdate::LogFailed(error),
+            };
+            if sender.send(update).is_err() {
+                break Ok(());
+            }
         }
         tokio::select! {
             changed = refresh.changed() => {
@@ -488,11 +543,13 @@ mod tests {
         let bridge = tokio::spawn(run_repository_bridge(repository.worktree.clone(), sender));
         let model = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
-                let model = receiver
+                let update = receiver
                     .recv()
                     .await
                     .expect("bridge should publish a model");
-                if model.chrome.status.message == "Ready" {
+                if let DesktopUiUpdate::Repository(model) = update
+                    && model.chrome.status.message == "Ready"
+                {
                     break model;
                 }
             }
@@ -531,15 +588,15 @@ mod tests {
             .expect("external Git edit should be written");
         let refreshed = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
-                let model = receiver.recv().await.expect("bridge should remain live");
-                let untracked = model
-                    .changes
-                    .group(git_ui_model::ChangeGroup::Untracked)
-                    .expect("fixed group should exist");
-                if untracked
-                    .entries
-                    .iter()
-                    .any(|entry| entry.path.display_lossy() == "external.txt")
+                let update = receiver.recv().await.expect("bridge should remain live");
+                if let DesktopUiUpdate::Repository(model) = update
+                    && model
+                        .changes
+                        .group(git_ui_model::ChangeGroup::Untracked)
+                        .expect("fixed group should exist")
+                        .entries
+                        .iter()
+                        .any(|entry| entry.path.display_lossy() == "external.txt")
                 {
                     break model;
                 }
@@ -548,6 +605,57 @@ mod tests {
         .await
         .expect("watcher refresh should reach the workbench");
         assert_eq!(refreshed.chrome.status.message, "Ready");
+        drop(receiver);
+        tokio::time::timeout(Duration::from_secs(10), bridge)
+            .await
+            .expect("bridge should stop after UI receiver closes")
+            .expect("bridge task should not panic")
+            .expect("bridge should stop cleanly");
+    }
+
+    #[tokio::test]
+    async fn repository_bridge_publishes_log_again_after_external_commit() {
+        let repository =
+            git_fixture::TestRepository::init().expect("real Git fixture should initialize");
+        repository
+            .commit_file("one.txt", b"one\n")
+            .expect("first fixture commit should succeed");
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let bridge = tokio::spawn(run_repository_bridge(repository.worktree.clone(), sender));
+
+        let first = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match receiver.recv().await.expect("bridge should remain live") {
+                    DesktopUiUpdate::Log(page) if page.commits.len() == 1 => break page,
+                    DesktopUiUpdate::LogFailed(error) => panic!("log should load: {error}"),
+                    _ => {}
+                }
+            }
+        })
+        .await
+        .expect("initial log should reach the workbench");
+        assert_eq!(first.commits[0].subject, b"fixture commit");
+        let first_commit = first.commits[0].id;
+
+        repository
+            .commit_file("two.txt", b"two\n")
+            .expect("external fixture commit should succeed");
+        let refreshed = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match receiver.recv().await.expect("bridge should remain live") {
+                    DesktopUiUpdate::Log(page) if page.commits.len() == 2 => break page,
+                    DesktopUiUpdate::LogFailed(error) => {
+                        panic!("refreshed log should load: {error}")
+                    }
+                    _ => {}
+                }
+            }
+        })
+        .await
+        .expect("updated log should reach the workbench");
+        assert_ne!(refreshed.commits[0].id, first_commit);
+        assert_eq!(refreshed.commits[1].id, first_commit);
+
         drop(receiver);
         tokio::time::timeout(Duration::from_secs(10), bridge)
             .await
