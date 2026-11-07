@@ -41,6 +41,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 
 按依赖 DAG 进入 M2 的 RECOVERY-000 最小写操作恢复；仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
 
+## UI-006 Action Registry 基础（2026-11-07）
+
+- `git-ui-model` 新增 typed `ActionId`、`ActionContext`、`ActionAvailability` 与 `ActionPolicy`，为 Stage、Unstage、Commit、Create/Checkout Branch 统一按钮、菜单和快捷键的判定入口。
+- `DefaultActionPolicy` 在没有仓库、没有文件选择或没有目标分支时安全禁用动作；策略只做上下文校验，不直接执行 Git 写操作。
+- 新增正常与失败前置条件测试；实际 Action Dispatcher 到 `OperationCoordinator` 的执行绑定仍是下一小任务。
+
 ## CORE-011 Resource Lock Manager（2026-11-07）
 
 - `git-operations` 新增 `ResourceKey`、`ResourceScope`、`ResourceKind` 与 RAII `ResourceLock`；CommonGitDir 只承载共享 Refs，Worktree 承载 Index/WorktreeFiles/Sequencer。

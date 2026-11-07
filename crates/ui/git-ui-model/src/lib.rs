@@ -183,6 +183,97 @@ pub struct RepositoryWorkbenchModel {
     pub changes: ChangesTreeModel,
 }
 
+/// User intent routed through the workbench action registry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ActionId {
+    Stage,
+    Unstage,
+    Commit,
+    CreateBranch,
+    CheckoutBranch,
+}
+
+/// UI panel identity used by action policy without coupling the projection crate to GPUI panels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ActionPanel {
+    RepositoryExplorer,
+    GitLog,
+    Commit,
+    Diff,
+    Console,
+}
+
+/// Snapshot of the selection and target captured immediately before dispatch.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ActionContext {
+    pub target: Option<SessionTarget>,
+    pub selected_files: Vec<RepoPath>,
+    pub selected_commits: Vec<git_domain::ObjectId>,
+    pub selected_branch: Option<git_domain::RefName>,
+    pub active_panel: ActionPanel,
+}
+
+impl Default for ActionContext {
+    fn default() -> Self {
+        Self {
+            target: None,
+            selected_files: Vec::new(),
+            selected_commits: Vec::new(),
+            selected_branch: None,
+            active_panel: ActionPanel::RepositoryExplorer,
+        }
+    }
+}
+
+/// Whether an action may be presented and invoked for the current context.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ActionAvailability {
+    Enabled,
+    Disabled(String),
+    Hidden,
+}
+
+/// Policy shared by buttons, menus, and shortcuts.
+pub trait ActionPolicy {
+    fn evaluate(&self, action: ActionId, context: &ActionContext) -> ActionAvailability;
+}
+
+/// Conservative default policy for the first write-action slice.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultActionPolicy;
+
+impl ActionPolicy for DefaultActionPolicy {
+    fn evaluate(&self, action: ActionId, context: &ActionContext) -> ActionAvailability {
+        if context.target.is_none() {
+            return ActionAvailability::Disabled("打开仓库后才能执行此操作".to_owned());
+        }
+        match action {
+            ActionId::Stage | ActionId::Unstage => {
+                if context.selected_files.is_empty() {
+                    ActionAvailability::Disabled("请选择至少一个文件".to_owned())
+                } else {
+                    ActionAvailability::Enabled
+                }
+            }
+            ActionId::Commit => {
+                if context.selected_files.is_empty() {
+                    ActionAvailability::Disabled("没有可提交的文件".to_owned())
+                } else {
+                    ActionAvailability::Enabled
+                }
+            }
+            ActionId::CreateBranch => ActionAvailability::Enabled,
+            ActionId::CheckoutBranch => {
+                if context.selected_branch.is_some() {
+                    ActionAvailability::Enabled
+                } else {
+                    ActionAvailability::Disabled("请选择目标分支".to_owned())
+                }
+            }
+        }
+    }
+}
+
 impl RepositoryWorkbenchModel {
     /// Projects one session's latest refresh state into all currently visible read-only regions.
     #[must_use]
@@ -437,5 +528,57 @@ mod tests {
                 .source,
             ChangeContentSource::Index
         );
+    }
+
+    #[test]
+    fn default_action_policy_requires_target_and_selection() {
+        let policy = DefaultActionPolicy;
+        let empty = ActionContext::default();
+        assert_eq!(
+            policy.evaluate(ActionId::Stage, &empty),
+            ActionAvailability::Disabled("打开仓库后才能执行此操作".to_owned())
+        );
+
+        let target = SessionTarget::worktree(
+            git_domain::RepositoryId::new(),
+            git_domain::WorktreeId::new(),
+            1,
+        );
+        let context = ActionContext {
+            target: Some(target),
+            ..Default::default()
+        };
+        assert_eq!(
+            policy.evaluate(ActionId::Stage, &context),
+            ActionAvailability::Disabled("请选择至少一个文件".to_owned())
+        );
+        assert_eq!(
+            policy.evaluate(ActionId::CreateBranch, &context),
+            ActionAvailability::Enabled
+        );
+    }
+
+    #[test]
+    fn checkout_requires_a_branch_but_commit_requires_files() {
+        let policy = DefaultActionPolicy;
+        let target = SessionTarget::worktree(
+            git_domain::RepositoryId::new(),
+            git_domain::WorktreeId::new(),
+            1,
+        );
+        let path = RepoPath::try_from("src/lib.rs").expect("valid repository path");
+        let context = ActionContext {
+            target: Some(target),
+            selected_files: vec![path],
+            ..Default::default()
+        };
+        assert_eq!(
+            policy.evaluate(ActionId::Commit, &context),
+            ActionAvailability::Enabled
+        );
+        assert!(matches!(
+            policy.evaluate(ActionId::CheckoutBranch, &context),
+            ActionAvailability::Disabled(_)
+        ));
     }
 }
