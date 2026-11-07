@@ -57,6 +57,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `to_git_command` 将 Stage/Unstage 文件动作转换为共享 `GitCommand::StageFiles` / `UnstageFiles`，保留 `SessionTarget` 与原始 `RepoPath`。
 - 缺少目标、文件选择或非文件动作均返回结构化边界错误；尚未执行 Git、获取锁或修改真实 Index。
 
+## UI-006 Dispatcher Injection（2026-11-07）
+
+- `WorkbenchController` 支持注入应用组合根提供的 `ActionDispatcher`，所有动作共享同一 dispatcher 句柄；未配置 dispatcher 时安全失败并保留失败反馈。
+- 注入边界不持有 Git 适配器、不在 GPUI 线程执行进程，下一步由 desktop 将其连接到 `OperationCoordinator`。
+
 ## CORE-011 Resource Lock Manager（2026-11-07）
 
 - `git-operations` 新增 `ResourceKey`、`ResourceScope`、`ResourceKind` 与 RAII `ResourceLock`；CommonGitDir 只承载共享 Refs，Worktree 承载 Index/WorktreeFiles/Sequencer。

@@ -1,5 +1,6 @@
 //! Desktop workbench shell, native window lifecycle, DockArea, and overlay host.
 
+use std::sync::Mutex;
 use std::{sync::Arc, time::Duration};
 
 use git_ui_model::{
@@ -75,6 +76,7 @@ pub struct OpenedWorkbench {
 #[derive(Clone)]
 pub struct WorkbenchController {
     view: Entity<WorkbenchWindow>,
+    action_dispatcher: Arc<Mutex<Option<Arc<dyn ActionDispatcher>>>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -85,6 +87,13 @@ pub enum OperationFeedback {
 }
 
 impl WorkbenchController {
+    /// Installs the application-owned dispatcher used by all workbench actions.
+    pub fn set_action_dispatcher(&self, dispatcher: Arc<dyn ActionDispatcher>) {
+        if let Ok(mut slot) = self.action_dispatcher.lock() {
+            *slot = Some(dispatcher);
+        }
+    }
+
     pub fn set_repository_model(&self, model: RepositoryWorkbenchModel, cx: &mut App) {
         self.view.update(cx, |view, cx| {
             view.repository_chrome = model.chrome;
@@ -120,7 +129,6 @@ impl WorkbenchController {
         action: ActionId,
         context: ActionContext,
         policy: &dyn ActionPolicy,
-        dispatcher: &dyn ActionDispatcher,
         cx: &mut App,
     ) -> Result<(), String> {
         match policy.evaluate(action, &context) {
@@ -135,6 +143,12 @@ impl WorkbenchController {
                 return Err(reason);
             }
         }
+        let dispatcher = self
+            .action_dispatcher
+            .lock()
+            .map_err(|_| "action dispatcher lock poisoned".to_owned())?
+            .clone()
+            .ok_or_else(|| "action dispatcher is not configured".to_owned())?;
         dispatcher.dispatch(ActionRequest { action, context })?;
         self.set_operation_feedback(OperationFeedback::Running(format!("{action:?}")), cx);
         Ok(())
@@ -163,7 +177,10 @@ pub fn open_workbench_window(
     })
     .map(|(window, view)| OpenedWorkbench {
         window,
-        controller: WorkbenchController { view },
+        controller: WorkbenchController {
+            view,
+            action_dispatcher: Arc::new(Mutex::new(None)),
+        },
     })
 }
 
