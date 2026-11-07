@@ -513,6 +513,7 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Rust CI #76（Runner `42424330920`）暴露 Ubuntu/Windows 测试中的初始分支假设；测试已改为读取 fixture 实际分支名后再切回，待下一次三平台 Runner 验证。
 - Rust CI #77（Runner `42425323222`）显示 Ubuntu/Windows 仍失败而 macOS 通过；Sequencer invocation 现显式设置 `GIT_EDITOR=true`、`GIT_TERMINAL_PROMPT=0` 与 `GIT_OPTIONAL_LOCKS=0`，避免跨平台非交互阻塞，待再次验证。
 - Rust CI #78（Runner `42426129293`）仍显示 Ubuntu/Windows 失败；Cherry-pick 现再显式携带 `--no-edit`，消除不同 Git 版本的提交消息编辑策略差异，待再次验证。
+- Rust CI #79（Runner `42426931288`）仍显示 Ubuntu/Windows 失败；在已有 `--no-edit` 后移除跨平台不一致的 `GIT_EDITOR=true`，仅保留终端提示与可选锁控制，待再次验证。
 
 ## GIT-001 Stage / Unstage（2026-11-07）
 
