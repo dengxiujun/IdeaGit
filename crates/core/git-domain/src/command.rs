@@ -183,8 +183,10 @@ pub struct PushPreview {
 }
 
 /// Sequencer operation kept separate from ordinary command state.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SequencerCommand {
+    CherryPick { commit: ObjectId },
+    Revert { commit: ObjectId, no_edit: bool },
     Continue,
     Skip,
     Abort,

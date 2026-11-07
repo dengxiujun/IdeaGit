@@ -505,6 +505,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `git-cli` 新增无 Shell 的 `GitCliMergeWriter`，仅接受已验证的 `RefName`，支持 `--no-ff`，bare repository 安全拒绝；失败映射为 `MergeConflict` 并提供 Continue/Abort recovery actions，不泄露 stderr。
 - 真实 fixture 覆盖 feature branch 合并成功；本机 Workspace `fmt/check/clippy/test` 全量通过。Journal/Reconcile 装饰与冲突状态恢复留给 GIT-008/RECOVERY-001。
 
+## M3 GIT-006 Cherry-pick / Revert（2026-11-08）
+
+- `SequencerCommand` 增加 typed `CherryPick` 与 `Revert`（含 `--no-edit` 选项），`git-ports` 新增 `SequencerWriter`，`git-operations` 提供 `SequencerOperationExecutor`。
+- `git-cli` 新增无 Shell 的 `GitCliSequencerWriter`，对 bare repository 安全拒绝，失败映射为结构化 MergeConflict 与 Continue/Abort recovery actions。
+- 真实 fixture 覆盖 Cherry-pick 提交；本机专项 clippy/test 通过。Rust CI #75（Runner `42423104481`）对 GIT-005 变更已在 Ubuntu、Windows、macOS 三平台通过。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。

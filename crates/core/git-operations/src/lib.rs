@@ -31,7 +31,7 @@ use async_trait::async_trait;
 use git_domain::{GitCommand, GitError, GitErrorKind, GitResult, OperationId, SessionTarget};
 use git_ports::{
     BranchWriter, CommitWriter, ExecutionContext, IndexMutation, IndexWriter, MergeWriter,
-    ProcessProgress,
+    ProcessProgress, SequencerWriter,
 };
 use thiserror::Error;
 use tokio::sync::{Mutex, mpsc, watch};
@@ -232,6 +232,37 @@ pub struct BranchOperationExecutor<W> {
 #[derive(Debug)]
 pub struct MergeOperationExecutor<W> {
     writer: W,
+}
+
+/// Bridges typed cherry-pick/revert commands to the sequencer writer stack.
+#[derive(Debug)]
+pub struct SequencerOperationExecutor<W> {
+    writer: W,
+}
+
+impl<W> SequencerOperationExecutor<W> {
+    #[must_use]
+    pub fn new(writer: W) -> Self {
+        Self { writer }
+    }
+}
+
+#[async_trait]
+impl<W: SequencerWriter + Send + Sync + 'static> OperationExecutor
+    for SequencerOperationExecutor<W>
+{
+    async fn execute(&self, command: GitCommand, context: ExecutionContext) -> GitResult<()> {
+        let (target, sequencer) = match command {
+            GitCommand::Sequencer { target, command } => (target, command),
+            other => {
+                return Err(GitError::new(
+                    GitErrorKind::UnsupportedFeature,
+                    format!("sequencer executor does not support {other:?}"),
+                ));
+            }
+        };
+        self.writer.apply(target, sequencer, context).await
+    }
 }
 
 impl<W> MergeOperationExecutor<W> {

@@ -10,6 +10,7 @@ mod merge;
 mod remote;
 mod repository;
 mod runner;
+mod sequencer;
 mod status;
 
 pub use branch::GitCliBranchWriter;
@@ -22,4 +23,5 @@ pub use merge::GitCliMergeWriter;
 pub use remote::GitCliRemoteAdapter;
 pub use repository::GitCliRepositoryReader;
 pub use runner::TokioProcessRunner;
+pub use sequencer::GitCliSequencerWriter;
 pub use status::{GitCliStatusReader, PorcelainV2StatusParser};

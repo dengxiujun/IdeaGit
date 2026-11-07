@@ -22,7 +22,7 @@ pub use head::{BranchReader, HeadReader};
 pub use history::HistoryReader;
 pub use index::{IndexMutation, IndexMutationError, IndexWriter};
 pub use journal::{JournalError, JournalStore, PendingJournalRecords};
-pub use merge::MergeWriter;
+pub use merge::{MergeWriter, SequencerWriter};
 pub use process::{
     DEFAULT_OUTPUT_LIMIT, EnvironmentVariable, ExecutionContext, ProcessOutput, ProcessProgress,
     ProcessRunner, ProcessSpec, ProcessStdin, ProcessStream, Sensitivity,
