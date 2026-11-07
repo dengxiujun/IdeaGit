@@ -83,6 +83,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - executor 不构造裸 Git writer；Lock、Journal、Commit Preflight 与 Reconcile 仍必须由外层组合后注入，Remote/M3 command 明确返回 `UnsupportedFeature`。
 - 单元测试覆盖三类成功路由和 Remote 拒绝，确保不会因统一入口意外开放后续里程碑能力。
 
+## M2 CORE-0014 写后权威重读端口（2026-11-07）
+
+- `ReconciledIndexWriter`、`ReconciledCommitWriter` 与 `ReconciledBranchWriter` 现在直接实现对应写端口，可作为统一 M2 executor 的最外层 writer 注入。
+- 三类装饰器都只在底层写入与 `SnapshotRebuilder` 权威重读同时成功后返回成功；Commit 保留并返回原始 `CommitOutcome`。
+- 失败路径测试覆盖“Git 写入已成功但重读失败”，三类操作均保留重读器的结构化失败，不向 Coordinator 伪报成功。
+
 ## UI-006 Desktop Action Queue（2026-11-07）
 
 - desktop 新增 `DesktopActionDispatcher`：将 UI `ActionRequest` 转换为共享 `GitCommand`，通过 Tokio runtime 异步提交 `OperationCoordinator`，避免阻塞 GPUI 线程。

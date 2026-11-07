@@ -55,6 +55,14 @@ impl<W, R> ReconciledIndexWriter<W, R> {
     }
 }
 
+#[async_trait]
+impl<W: IndexWriter, R: SnapshotRebuilder> IndexWriter for ReconciledIndexWriter<W, R> {
+    #[allow(clippy::result_large_err)]
+    async fn apply(&self, mutation: IndexMutation, context: ExecutionContext) -> GitResult<()> {
+        self.apply_and_rebuild(mutation, context).await.map(|_| ())
+    }
+}
+
 /// Journal decorator that records Index intent before execution and terminal outcome afterwards.
 #[derive(Debug)]
 pub struct JournaledIndexWriter<W, J> {

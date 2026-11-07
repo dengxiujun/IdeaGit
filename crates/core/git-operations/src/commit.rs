@@ -123,6 +123,21 @@ impl<W, R> ReconciledCommitWriter<W, R> {
     }
 }
 
+#[async_trait]
+impl<W: CommitWriter, R: SnapshotRebuilder> CommitWriter for ReconciledCommitWriter<W, R> {
+    #[allow(clippy::result_large_err)]
+    async fn commit(
+        &self,
+        target: SessionTarget,
+        request: StandardCommitRequest,
+        context: ExecutionContext,
+    ) -> GitResult<CommitOutcome> {
+        self.commit_and_rebuild(target, request, context)
+            .await
+            .map(|(outcome, _)| outcome)
+    }
+}
+
 impl<W> CoordinatedCommitWriter<W> {
     #[must_use]
     pub fn new(writer: W, locks: ResourceLockManager) -> Self {

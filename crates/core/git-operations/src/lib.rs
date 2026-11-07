@@ -473,6 +473,26 @@ mod tests {
         seen: Arc<std::sync::Mutex<usize>>,
     }
 
+    #[derive(Clone)]
+    struct FailingRebuilder {
+        calls: Arc<std::sync::Mutex<usize>>,
+    }
+
+    #[async_trait]
+    impl SnapshotRebuilder for FailingRebuilder {
+        async fn rebuild(
+            &self,
+            _target: SessionTarget,
+            _context: ExecutionContext,
+        ) -> GitResult<git_domain::RepositorySnapshot> {
+            *self.calls.lock().expect("test mutex should not poison") += 1;
+            Err(GitError::new(
+                GitErrorKind::Internal,
+                "authoritative rebuild failed",
+            ))
+        }
+    }
+
     #[async_trait]
     impl BranchWriter for RecordingBranchWriter {
         async fn apply(
@@ -780,6 +800,106 @@ mod tests {
             .await
             .expect_err("M3 command should remain unavailable");
         assert_eq!(error.kind, GitErrorKind::UnsupportedFeature);
+    }
+
+    #[tokio::test]
+    async fn m2_reconciled_writers_never_report_success_when_rebuild_fails() {
+        let index_seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let commit_seen = Arc::new(std::sync::Mutex::new(0));
+        let branch_seen = Arc::new(std::sync::Mutex::new(0));
+        let rebuilds = Arc::new(std::sync::Mutex::new(0));
+        let rebuilder = FailingRebuilder {
+            calls: Arc::clone(&rebuilds),
+        };
+        let executor = M2OperationExecutor::new(
+            ReconciledIndexWriter::new(
+                RecordingIndexWriter {
+                    seen: Arc::clone(&index_seen),
+                },
+                rebuilder.clone(),
+            ),
+            ReconciledCommitWriter::new(
+                RecordingCommitWriter {
+                    seen: Arc::clone(&commit_seen),
+                },
+                rebuilder.clone(),
+            ),
+            ReconciledBranchWriter::new(
+                RecordingBranchWriter {
+                    seen: Arc::clone(&branch_seen),
+                },
+                rebuilder,
+            ),
+        );
+        let target = target();
+
+        let index_error = executor
+            .execute(
+                GitCommand::StageFiles {
+                    target,
+                    paths: vec![RepoPath::try_from("file.txt").expect("valid path")],
+                },
+                context(),
+            )
+            .await
+            .expect_err("failed Index rebuild must fail the operation");
+        assert_eq!(index_error.kind, GitErrorKind::Internal);
+
+        let commit_error = executor
+            .execute(
+                GitCommand::CommitIndex {
+                    target,
+                    request: StandardCommitRequest {
+                        options: CommitOptions {
+                            message: b"message".to_vec(),
+                            amend: false,
+                            allow_empty: false,
+                            signoff: false,
+                            author: None,
+                            committer: None,
+                            signing: SigningMode::UseGitConfig,
+                        },
+                        expected_revision: SnapshotRevision::new(1),
+                        expected_head: None,
+                        expected_index: None,
+                    },
+                },
+                context(),
+            )
+            .await
+            .expect_err("failed Commit rebuild must fail the operation");
+        assert_eq!(commit_error.kind, GitErrorKind::Internal);
+
+        let branch_error = executor
+            .execute(
+                GitCommand::Branch {
+                    target,
+                    command: BranchCommand::Create {
+                        name: RefName::new(b"feature".to_vec()).expect("valid branch"),
+                    },
+                },
+                context(),
+            )
+            .await
+            .expect_err("failed Branch rebuild must fail the operation");
+        assert_eq!(branch_error.kind, GitErrorKind::Internal);
+
+        assert_eq!(
+            index_seen
+                .lock()
+                .expect("test mutex should not poison")
+                .len(),
+            1
+        );
+        assert_eq!(
+            *commit_seen.lock().expect("test mutex should not poison"),
+            1
+        );
+        assert_eq!(
+            *branch_seen.lock().expect("test mutex should not poison"),
+            1
+        );
+        assert_eq!(*rebuilds.lock().expect("test mutex should not poison"), 3);
     }
 
     fn context() -> ExecutionContext {

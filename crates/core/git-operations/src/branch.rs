@@ -121,3 +121,18 @@ impl<W, R> ReconciledBranchWriter<W, R> {
         self.rebuilder.rebuild(target, context).await
     }
 }
+
+#[async_trait]
+impl<W: BranchWriter, R: SnapshotRebuilder> BranchWriter for ReconciledBranchWriter<W, R> {
+    #[allow(clippy::result_large_err)]
+    async fn apply(
+        &self,
+        target: SessionTarget,
+        command: BranchCommand,
+        context: ExecutionContext,
+    ) -> GitResult<()> {
+        self.apply_and_rebuild(target, command, context)
+            .await
+            .map(|_| ())
+    }
+}
