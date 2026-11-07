@@ -5,6 +5,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+async-trait.workspace = true
 gpui-kit.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -30,7 +31,6 @@ git-diff-ui.workspace = true
 git-merge-ui.workspace = true
 
 [dev-dependencies]
-async-trait.workspace = true
 git-fixture = { path = "../../tests/fixtures" }
 tempfile.workspace = true
 proptest.workspace = true

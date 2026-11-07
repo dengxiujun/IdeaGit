@@ -101,6 +101,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Unborn HEAD 表示为 `None`；Index tree 始终为 `ObjectId`。探针不修改 Index 或 refs，进程仍继承 Operation 的取消、超时和输出上限。
 - 真实仓库测试覆盖 Unborn、首次 Commit 与外部 Stage 后的身份变化，证明 HEAD 不变时 Index 指纹仍可检测竞争。
 
+## M2 GIT-002 Desktop Commit State Adapter（2026-11-07）
+
+- desktop composition root 新增 `DesktopCommitStateReader`，将 Git CLI probe 的 HEAD/Index tree OID 转为 Core `CommitPreflightState`，不复制 Git 进程逻辑。
+- 适配器绑定一个 `SessionTarget`，跨仓库或过期 session 在启动 Git 前以结构化 `InvalidRepository` 拒绝，避免读错仓库后授权 Commit。
+- 真实仓库测试覆盖成功映射与 foreign session 拒绝；下一步可将其注入 `PreflightCommitWriter` 的完整安全装饰链。
+
 ## UI-006 Desktop Action Queue（2026-11-07）
 
 - desktop 新增 `DesktopActionDispatcher`：将 UI `ActionRequest` 转换为共享 `GitCommand`，通过 Tokio runtime 异步提交 `OperationCoordinator`，避免阻塞 GPUI 线程。

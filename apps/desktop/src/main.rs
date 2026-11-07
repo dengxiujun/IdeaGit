@@ -28,6 +28,50 @@ enum DesktopUiUpdate {
     LogFailed(String),
 }
 
+/// Composition-root adapter from the Git CLI probe to the Core commit preflight contract.
+#[derive(Debug)]
+pub struct DesktopCommitStateReader<R> {
+    target: git_domain::SessionTarget,
+    probe: git_cli::GitCliCommitStateProbe<R>,
+}
+
+impl<R> DesktopCommitStateReader<R> {
+    #[must_use]
+    pub fn new(
+        target: git_domain::SessionTarget,
+        probe: git_cli::GitCliCommitStateProbe<R>,
+    ) -> Self {
+        Self { target, probe }
+    }
+}
+
+#[async_trait::async_trait]
+impl<R: git_ports::ProcessRunner> git_operations::CommitStateReader
+    for DesktopCommitStateReader<R>
+{
+    async fn read(
+        &self,
+        target: git_domain::SessionTarget,
+        context: git_ports::ExecutionContext,
+    ) -> git_domain::GitResult<git_operations::CommitPreflightState> {
+        if target != self.target {
+            return Err(git_domain::GitError::new(
+                git_domain::GitErrorKind::InvalidRepository,
+                "commit preflight target does not match its repository session",
+            )
+            .with_target(target)
+            .with_operation(context.operation_id));
+        }
+        self.probe
+            .read(context)
+            .await
+            .map(|state| git_operations::CommitPreflightState {
+                head: state.head,
+                index: Some(state.index),
+            })
+    }
+}
+
 /// Composition-root dispatcher that queues typed UI actions without blocking GPUI.
 pub struct DesktopActionDispatcher<E: OperationExecutor> {
     coordinator: Arc<OperationCoordinator<E>>,
@@ -488,6 +532,59 @@ mod tests {
             terminal.outcome,
             Some(git_operations::OperationOutcome::Success)
         );
+    }
+
+    #[tokio::test]
+    async fn commit_state_reader_maps_probe_and_rejects_a_foreign_session() {
+        use git_operations::CommitStateReader as _;
+
+        let repository =
+            git_fixture::TestRepository::init().expect("real Git fixture should initialize");
+        repository
+            .commit_file("tracked.txt", b"content\n")
+            .expect("fixture commit should succeed");
+        let target = SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1);
+        let reader = DesktopCommitStateReader::new(
+            target,
+            git_cli::GitCliCommitStateProbe::new(
+                git_cli::TokioProcessRunner,
+                git_ports::RepositoryLocation::worktree(
+                    &repository.worktree,
+                    repository.worktree.join(".git"),
+                    repository.worktree.join(".git"),
+                ),
+            ),
+        );
+        let (progress, _receiver) = tokio::sync::mpsc::channel(4);
+        let state = reader
+            .read(
+                target,
+                ExecutionContext::new(
+                    git_domain::OperationId::new(),
+                    tokio_util::sync::CancellationToken::new(),
+                    progress,
+                ),
+            )
+            .await
+            .expect("matching session should be readable");
+        assert!(state.head.is_some());
+        assert!(state.index.is_some());
+
+        let foreign = SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1);
+        let (progress, _receiver) = tokio::sync::mpsc::channel(4);
+        let error = reader
+            .read(
+                foreign,
+                ExecutionContext::new(
+                    git_domain::OperationId::new(),
+                    tokio_util::sync::CancellationToken::new(),
+                    progress,
+                ),
+            )
+            .await
+            .expect_err("foreign session must be rejected before probing Git");
+        assert_eq!(error.kind, git_domain::GitErrorKind::InvalidRepository);
+        assert_eq!(error.target, Some(foreign));
     }
 
     #[test]
