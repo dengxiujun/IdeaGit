@@ -454,6 +454,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Workbench 顶栏新增 Branch Popup 入口：显示当前分支、输入新分支名称并发出 typed Create request；当前分支行可发出 Checkout request。
 - Popup 的请求执行统一经过 `DefaultActionPolicy` 与生产 `ActionDispatcher`，错误反馈回到 Workbench operation overlay；分支刷新仍由后续权威 repository refresh 提供。
 
+## M2 TEST-002 Production UI Action 闭环（2026-11-08）
+
+- `repository_bridge_dispatches_a_real_stage_only_after_recovery_is_ready` 扩展为 production `ActionDispatcher` 的 Stage → Commit → Create Branch → Checkout Branch → Log 流程，使用真实 Git fixture、Journal 和 bridge refresh 验证每个终态。
+- bridge 与写执行器共享 probe/write guard，避免只读 `git write-tree` 与真实 Index lock 竞争；该竞态曾导致 Stage 以 exit 128 失败，现由测试稳定覆盖。
+- Commit 使用 bridge 提供的真实 HEAD/Index 指纹；Log 断言新提交 subject 经 bridge 重新读取后可见，补齐 M2 §5.9 的 GUI action wiring 证据。
+
 ## M2 UI-009 Git Log Table 基础列（2026-11-08）
 
 - Workbench Git Log panel 现在展示 Graph lane/OID、Subject、Author、Timestamp 四列，复用 `git-log-ui::LogRow` 纯投影，不为每个 Commit 创建长期 GPUI Entity。

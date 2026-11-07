@@ -39,6 +39,38 @@ pub struct DesktopCommitStateReader<R> {
     probe: git_cli::GitCliCommitStateProbe<R>,
 }
 
+/// Serializes read-only HEAD/Index probes with production write operations.
+///
+/// `git write-tree` may briefly create an Index lock even though it is logically read-only. The
+/// bridge and the coordinator therefore share this guard so a refresh probe cannot race Stage,
+/// Unstage, or Commit against the same concrete worktree Index.
+#[derive(Debug)]
+struct ProbeGuardedExecutor<E> {
+    executor: E,
+    probe_lock: Arc<tokio::sync::Mutex<()>>,
+}
+
+impl<E> ProbeGuardedExecutor<E> {
+    fn new(executor: E, probe_lock: Arc<tokio::sync::Mutex<()>>) -> Self {
+        Self {
+            executor,
+            probe_lock,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<E: OperationExecutor> OperationExecutor for ProbeGuardedExecutor<E> {
+    async fn execute(
+        &self,
+        command: git_domain::GitCommand,
+        context: git_ports::ExecutionContext,
+    ) -> git_domain::GitResult<()> {
+        let _guard = self.probe_lock.lock().await;
+        self.executor.execute(command, context).await
+    }
+}
+
 impl<R> DesktopCommitStateReader<R> {
     #[must_use]
     pub fn new(
@@ -520,6 +552,7 @@ async fn run_repository_bridge(
         Err(error) => Some(error),
     };
     let write_enabled = recovery_block.is_none();
+    let probe_lock = Arc::new(tokio::sync::Mutex::new(()));
     if let Some(reason) = recovery_block
         && sender
             .send(DesktopUiUpdate::RecoveryBlocked(reason))
@@ -550,6 +583,7 @@ async fn run_repository_bridge(
             scheduler.rebuilder(),
         )
         .map_err(|error| error.to_string())?;
+        let executor = ProbeGuardedExecutor::new(executor, Arc::clone(&probe_lock));
         let coordinator = Arc::new(
             OperationCoordinator::new(executor, 32)
                 .map_err(|error| format!("failed to start operation coordinator: {error}"))?,
@@ -580,7 +614,15 @@ async fn run_repository_bridge(
     let mut last_log_head = None;
     let result = loop {
         let state = refresh.borrow().clone();
-        let commit_identity = {
+        let commit_identity = if state
+            .snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.operation.is_some())
+            || location.git_dir().join("index.lock").exists()
+        {
+            None
+        } else {
+            let _probe_guard = probe_lock.lock().await;
             let (progress, _progress_receiver) = tokio::sync::mpsc::channel(4);
             commit_probe
                 .read(git_ports::ExecutionContext::new(
@@ -1256,24 +1298,156 @@ mod tests {
             Some(git_operations::OperationOutcome::Success)
         );
 
-        tokio::time::timeout(Duration::from_secs(10), async {
+        let (expected_head, expected_index) =
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    if let DesktopUiUpdate::Repository(model) =
+                        receiver.recv().await.expect("bridge should remain live")
+                        && model
+                            .changes
+                            .group(git_ui_model::ChangeGroup::Staged)
+                            .expect("staged group")
+                            .entries
+                            .iter()
+                            .any(|entry| entry.path.display_lossy() == "ui-stage.txt")
+                    {
+                        break (model.expected_head, model.expected_index);
+                    }
+                }
+            })
+            .await
+            .expect("reconciled staged state should reach the UI model");
+        let expected_index = expected_index.expect("UI model should expose the real Index tree");
+
+        dispatcher
+            .dispatch(ActionRequest {
+                action: ActionId::Commit,
+                context: ActionContext {
+                    target: Some(target),
+                    selected_files: vec![RepoPath::try_from("ui-stage.txt").expect("fixture path")],
+                    selected_commits: Vec::new(),
+                    selected_branch: None,
+                    active_panel: ActionPanel::Commit,
+                },
+                payload: ActionPayload::Commit(git_domain::StandardCommitRequest {
+                    options: git_domain::CommitOptions {
+                        message: b"UI bridge commit".to_vec(),
+                        amend: false,
+                        allow_empty: false,
+                        signoff: false,
+                        author: None,
+                        committer: None,
+                        signing: git_domain::SigningMode::UseGitConfig,
+                    },
+                    expected_revision: git_domain::SnapshotRevision::new(1),
+                    expected_head,
+                    expected_index: Some(expected_index),
+                }),
+            })
+            .expect("Commit action should queue");
+        let commit_terminal = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
-                if let DesktopUiUpdate::Repository(model) =
-                    receiver.recv().await.expect("bridge should remain live")
-                    && model
-                        .changes
-                        .group(git_ui_model::ChangeGroup::Staged)
-                        .expect("staged group")
-                        .entries
-                        .iter()
-                        .any(|entry| entry.path.display_lossy() == "ui-stage.txt")
-                {
-                    break;
+                let snapshot = operation_updates
+                    .recv()
+                    .await
+                    .expect("operation stream should remain live");
+                if snapshot.phase == OperationPhase::Finished {
+                    break snapshot;
                 }
             }
         })
         .await
-        .expect("reconciled staged state should reach the UI model");
+        .expect("Commit action should reach a terminal state");
+        assert_eq!(
+            commit_terminal.outcome,
+            Some(git_operations::OperationOutcome::Success)
+        );
+
+        let feature = git_domain::RefName::new(b"feature/ui-bridge".to_vec())
+            .expect("feature branch should be valid");
+        dispatcher
+            .dispatch(ActionRequest {
+                action: ActionId::CreateBranch,
+                context: ActionContext {
+                    target: Some(target),
+                    active_panel: ActionPanel::RepositoryExplorer,
+                    ..ActionContext::default()
+                },
+                payload: ActionPayload::Branch(git_domain::BranchCommand::Create {
+                    name: feature.clone(),
+                }),
+            })
+            .expect("Create branch action should queue");
+        let branch_terminal = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let snapshot = operation_updates
+                    .recv()
+                    .await
+                    .expect("operation stream should remain live");
+                if snapshot.phase == OperationPhase::Finished {
+                    break snapshot;
+                }
+            }
+        })
+        .await
+        .expect("Create branch should reach a terminal state");
+        assert_eq!(
+            branch_terminal.outcome,
+            Some(git_operations::OperationOutcome::Success)
+        );
+        dispatcher
+            .dispatch(ActionRequest {
+                action: ActionId::CheckoutBranch,
+                context: ActionContext {
+                    target: Some(target),
+                    selected_branch: Some(feature.clone()),
+                    active_panel: ActionPanel::RepositoryExplorer,
+                    ..ActionContext::default()
+                },
+                payload: ActionPayload::Branch(git_domain::BranchCommand::Checkout {
+                    name: feature.clone(),
+                }),
+            })
+            .expect("Checkout branch action should queue");
+        let checkout_terminal = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let snapshot = operation_updates
+                    .recv()
+                    .await
+                    .expect("operation stream should remain live");
+                if snapshot.phase == OperationPhase::Finished {
+                    break snapshot;
+                }
+            }
+        })
+        .await
+        .expect("Checkout branch should reach a terminal state");
+        assert_eq!(
+            checkout_terminal.outcome,
+            Some(git_operations::OperationOutcome::Success)
+        );
+
+        let log_page = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let DesktopUiUpdate::Log(page) =
+                    receiver.recv().await.expect("bridge should remain live")
+                    && page
+                        .commits
+                        .iter()
+                        .any(|commit| commit.subject == b"UI bridge commit")
+                {
+                    break page;
+                }
+            }
+        })
+        .await
+        .expect("new commit should reach the Log bridge");
+        assert!(
+            log_page
+                .commits
+                .iter()
+                .any(|commit| { commit.subject == b"UI bridge commit" })
+        );
         let record = persistence::JsonJournalStore::new(journal_path)
             .get(terminal.id)
             .await
