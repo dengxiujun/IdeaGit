@@ -29,7 +29,7 @@ cargo test --workspace --locked
 git diff --check
 ```
 
-真实仓库测试覆盖：销毁第一套 Registry 后由第二套随机 target 找回旧 Journal；原 HEAD/Index 判 `NotExecuted`；外部 Stage 后判 `Unknown` 并阻止写入；损坏 Journal 阻止写入但不停止只读刷新；生产 Stage executor 的 Completed Journal 保留写前 Index 指纹。Rust CI #60（Runner ID `42367271332`）已验证 scope、Journal v2 与 desktop gate 的前一检查点；最终 Index 指纹与真实 linked-worktree 隔离仍需下一次三平台运行确认。
+真实仓库测试覆盖：销毁第一套 Registry 后由第二套随机 target 找回旧 Journal；原 HEAD/Index 判 `NotExecuted`；外部 Stage 后判 `Unknown` 并阻止写入；损坏 Journal 阻止写入但不停止只读刷新；生产 Stage executor 的 Completed Journal 保留写前 Index 指纹。Rust CI #61（Runner ID `42368138172`）已在 Windows Server 2022、macOS 15 与 Ubuntu 24.04 验证最终 Index 指纹、真实 linked-worktree 隔离及全部 Workspace 门禁。
 
 ## 风险与后续
 
