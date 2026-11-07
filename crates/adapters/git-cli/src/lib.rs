@@ -1,5 +1,6 @@
 //! Git CLI process execution and machine-output adapters.
 
+mod branch;
 mod commit;
 mod executor;
 mod head;
@@ -8,6 +9,7 @@ mod repository;
 mod runner;
 mod status;
 
+pub use branch::GitCliBranchWriter;
 pub use commit::GitCliCommitWriter;
 pub use executor::{GitCliCommand, GitCliExecutor, GitVersionCommand};
 pub use head::GitCliHeadReader;

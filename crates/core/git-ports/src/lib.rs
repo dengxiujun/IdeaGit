@@ -1,5 +1,6 @@
 //! Replaceable Git, storage, credential, journal, watcher, and process contracts.
 
+mod branch;
 mod commit;
 mod head;
 mod index;
@@ -8,6 +9,7 @@ mod process;
 mod repository;
 mod status;
 
+pub use branch::BranchWriter;
 pub use commit::{CommitOutcome, CommitWriter};
 pub use head::{BranchReader, HeadReader};
 pub use index::{IndexMutation, IndexMutationError, IndexWriter};
