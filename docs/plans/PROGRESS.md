@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003/004/005/006/007 已完成当前平台及三平台 CI 验证；CORE-008 Watcher + Refresh Scheduler 已在当前 macOS 通过专项及 Workspace 全量门禁，等待本提交三平台 CI。未执行的 Workbench 和其他高级场景继续明确保留。
+M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003/004/005/006/007/008 已完成当前平台及三平台 CI 验证；UI-003 Workbench Shell 已在当前 macOS 通过专项及 Workspace 全量门禁，等待本提交三平台 CI。Repository Tabs 的真实 Git 数据和 Changes Tree 继续由 UI-004/005 实施。
 
 ## 已完成的文档工作
 
@@ -39,14 +39,23 @@ M0 已完成，M1 Git Read Core 与 Workbench 正在实施。CORE-001/002/003/00
 
 ## 下一步
 
-CORE-008 三平台 CI 通过后，按依赖 DAG 进入 UI-003 Workbench Shell，再依次完成 Repository Tabs / StatusBar 与 Read-only Changes Tree。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+UI-003 三平台 CI 通过后，按依赖 DAG 进入 UI-004 Repository Tabs / StatusBar，再实施 UI-005 Read-only Changes Tree。后续仍一次只实施一个任务，核心版本或边界变更仍需 ADR。
+
+## UI-003 Workbench Shell / DockArea（2026-11-07）
+
+- `git-workbench` 新增窗口本地 `WorkbenchState`、稳定 `PanelKind`/PanelRegistry 名称、Overlay ID 和版本化 layout envelope；旧 schema、空 layout ID 与非法 overlay 均显式拒绝。
+- `idea-shell` 将 UI-001 启动占位替换为 GPUI-Kit 0.9.0 `DockArea`：中心 Commit/Git Log/Diff 标签、左侧 Repository、底部 Git Console，并提供 Titlebar 区、Repository Tab 占位、StatusBar 与最后绘制的 OverlayHost。
+- 所有面板经 PanelRegistry 注册，可拖拽、关闭、隐藏与恢复；未知/已移除面板按 GPUI-Kit DockArea 的占位语义安全保留，不在一次保存后静默丢失。
+- DockArea `LayoutChanged` 以 250ms 世代防抖，只发布最终布局；desktop 在后台线程写入平台配置目录，启动前读取并验证 schema。UI 线程不执行文件 IO。
+- 当前 macOS 已连续两次运行真实窗口烟雾：首次生成布局，第二次加载同一布局并成功绘制/关闭；专项 9 个测试、fmt 与 Clippy 通过。三平台 CI 待本提交推送后执行。
+- UI-003 不伪造真实 Repository/HEAD/Changes；这些属于 UI-004/005。详细结果见 [UI-003-VERIFICATION-001](../reviews/UI-003-VERIFICATION-001.md)。
 
 ## CORE-008 Watcher + Refresh Scheduler（2026-11-07）
 
 - `repository-watcher` 新增基于 `notify` 的有界、内容无关变化信号；普通仓库递归监控 worktree（包含 `.git`），linked worktree 同时监控独立 worktree 与共享 common dir，bare 只监控 common dir。
 - `git-application` 新增 guarded Snapshot 刷新服务，严格按 `HEAD(before) → Status → Tracking → HEAD(after)` 读取并调用唯一 `SnapshotBuilder`；bare 不执行 worktree Status。
 - Refresh Scheduler 合并 200ms 内突发信号，使用 30 秒周期主动校验兜底丢事件/溢出，串行发布单调 Snapshot；失败保留最后成功 Snapshot 并进入 Degraded，Session 取消时停止后台任务。
-- 当前 macOS 已通过 fmt、locked check、Clippy 和 Workspace tests；新增 7 个 Watcher/Refresh 正常及失败路径测试。三平台 CI 待本提交推送后执行。
+- 当前 macOS 已通过 fmt、locked check、Clippy 和 Workspace tests；新增 7 个 Watcher/Refresh 正常及失败路径测试。[Rust CI #18](https://github.com/dengxiujun/IdeaGit/actions/runs/42340135972) 已在 Windows Server 2022、macOS 15 和 Ubuntu 24.04 全部通过；CORE-008 三平台验收关闭。
 - CORE-008 不提前实现 Sequencer port、Operation 写协调或 UI；详细结果见 [CORE-008-VERIFICATION-001](../reviews/CORE-008-VERIFICATION-001.md)。
 
 ## CORE-007 Repository Session / Registry（2026-11-07）

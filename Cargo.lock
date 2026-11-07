@@ -1259,6 +1259,7 @@ dependencies = [
  "persistence",
  "proptest",
  "repository-watcher",
+ "serde_json",
  "tempfile",
  "tokio",
  "tracing",
@@ -2140,8 +2141,12 @@ dependencies = [
 name = "git-workbench"
 version = "0.1.0"
 dependencies = [
+ "git-domain",
  "git-ui-model",
  "idea-ui-primitives",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3278,8 +3283,11 @@ name = "idea-shell"
 version = "0.1.0"
 dependencies = [
  "git-ui-model",
+ "git-workbench",
  "gpui-kit",
+ "idea-theme",
  "idea-ui-primitives",
+ "serde_json",
 ]
 
 [[package]]

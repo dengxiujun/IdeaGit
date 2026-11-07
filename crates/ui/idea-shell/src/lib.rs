@@ -1,50 +1,297 @@
-//! Desktop shell, window layout, menus, focus, and overlays; no concrete feature imports.
-//!
-//! UI-001 intentionally exposes only a minimal startup window. Workbench, Dock, theme tokens,
-//! feature panels, and Git behavior belong to later tracked tasks.
+//! Desktop workbench shell, native window lifecycle, DockArea, and overlay host.
 
-use gpui_kit::{
-    AnyWindowHandle, App, Context, IntoElement, Render, TitlebarOptions, Window, WindowBounds,
-    WindowOptions, div, prelude::*, px, rgb, size,
+use std::{sync::Arc, time::Duration};
+
+use git_workbench::{PanelKind, WorkbenchLayout};
+use gpui_kit::base::StyledExt as _;
+use gpui_kit::component::dock::{
+    BasePanel, DockArea, DockAreaState, DockEvent, DockLayout, DockPlacement, DockSkin, Panel,
+    PanelEvent, panel_handle, register_panel,
 };
+use gpui_kit::{
+    AnyWindowHandle, App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
+    Render, SharedString, Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, div,
+    prelude::*, px, rgb, size,
+};
+use idea_theme::IdeaTheme;
 
 const APP_NAME: &str = "IdeaGit";
 const APP_ID: &str = "com.ideagit.desktop";
+const LAYOUT_VERSION: usize = 1;
 
-/// Opens the minimal IdeaGit application window for the UI-001 startup spike.
+/// Opens the main IdeaGit workbench window.
 ///
-/// The shell does not initialize GPUI-Kit itself; the desktop composition root must call
-/// [`gpui_kit::init`] before this function.
+/// The desktop composition root must call [`gpui_kit::init`] first. UI-004 will replace the
+/// repository placeholder with live session tabs; UI-005 will replace panel placeholders with the
+/// read-only Changes projection.
 pub fn open_main_window(cx: &mut App) -> gpui_kit::Result<AnyWindowHandle> {
+    open_main_window_with_layout(cx, WorkbenchLayoutIo::disabled())
+}
+
+/// Optional restored layout and a non-blocking persistence callback.
+#[derive(Clone)]
+pub struct WorkbenchLayoutIo {
+    initial: Option<WorkbenchLayout>,
+    save: Arc<dyn Fn(WorkbenchLayout) + Send + Sync>,
+}
+
+impl WorkbenchLayoutIo {
+    #[must_use]
+    pub fn new(
+        initial: Option<WorkbenchLayout>,
+        save: impl Fn(WorkbenchLayout) + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            initial,
+            save: Arc::new(save),
+        }
+    }
+
+    #[must_use]
+    pub fn disabled() -> Self {
+        Self::new(None, |_| {})
+    }
+}
+
+/// Opens the workbench with layout restoration and debounced persistence enabled.
+pub fn open_main_window_with_layout(
+    cx: &mut App,
+    layout_io: WorkbenchLayoutIo,
+) -> gpui_kit::Result<AnyWindowHandle> {
+    register_workbench_panels(cx);
     let options = WindowOptions {
-        window_bounds: Some(WindowBounds::centered(size(px(900.0), px(600.0)), cx)),
+        window_bounds: Some(WindowBounds::centered(size(px(1100.0), px(720.0)), cx)),
         titlebar: Some(TitlebarOptions {
             title: Some(APP_NAME.into()),
             ..Default::default()
         }),
         app_id: Some(APP_ID.to_owned()),
-        window_min_size: Some(size(px(640.0), px(420.0))),
+        window_min_size: Some(size(px(760.0), px(520.0))),
         ..Default::default()
     };
 
-    gpui_kit::open_window(options, cx, |_, cx| cx.new(|_| StartupWindow)).map(|(window, _)| window)
+    gpui_kit::open_window(options, cx, |window, cx| {
+        cx.new(|cx| WorkbenchWindow::new(window, layout_io, cx))
+    })
+    .map(|(window, _)| window)
 }
 
-/// Minimal render root used only to prove GPUI-Kit native window startup.
-struct StartupWindow;
+fn register_workbench_panels(cx: &mut App) {
+    for kind in PanelKind::ALL {
+        register_panel(cx, kind.panel_name(), move |_, _, cx| {
+            panel_handle(WorkbenchPanel::new(kind, cx))
+        });
+    }
+}
 
-impl Render for StartupWindow {
+struct WorkbenchWindow {
+    dock_area: Entity<DockArea>,
+    theme: IdeaTheme,
+    layout_save: Arc<dyn Fn(WorkbenchLayout) + Send + Sync>,
+    layout_generation: u64,
+    _layout_subscription: Subscription,
+}
+
+impl WorkbenchWindow {
+    fn new(window: &mut Window, layout_io: WorkbenchLayoutIo, cx: &mut Context<Self>) -> Self {
+        let theme = IdeaTheme::dark();
+        let (dock_area, _skin) =
+            DockSkin::dock_area("ideagit.workbench.main", Some(LAYOUT_VERSION), window, cx);
+        let repository = WorkbenchPanel::new(PanelKind::RepositoryExplorer, cx);
+        let commit = WorkbenchPanel::new(PanelKind::Commit, cx);
+        let log = WorkbenchPanel::new(PanelKind::GitLog, cx);
+        let diff = WorkbenchPanel::new(PanelKind::Diff, cx);
+        let console = WorkbenchPanel::new(PanelKind::Console, cx);
+        dock_area.update(cx, |area, cx| {
+            area.set_center(
+                DockLayout::tabs()
+                    .panel_view(panel_handle(commit), cx)
+                    .panel_view(panel_handle(log), cx)
+                    .panel_view(panel_handle(diff), cx),
+                window,
+                cx,
+            );
+            area.set_dock(
+                DockPlacement::Left,
+                DockLayout::tabs().panel_view(panel_handle(repository), cx),
+                window,
+                cx,
+            );
+            area.set_dock_size(DockPlacement::Left, px(260.0), window, cx);
+            area.set_dock(
+                DockPlacement::Bottom,
+                DockLayout::tabs().panel_view(panel_handle(console), cx),
+                window,
+                cx,
+            );
+            area.set_dock_size(DockPlacement::Bottom, px(190.0), window, cx);
+            if let Some(state) = layout_io.initial.as_ref().and_then(decode_layout)
+                && state.version == Some(LAYOUT_VERSION)
+            {
+                let _ = area.load(state, window, cx);
+            }
+        });
+        let layout_subscription = cx.subscribe(&dock_area, |this, _, event: &DockEvent, cx| {
+            if matches!(event, DockEvent::LayoutChanged) {
+                this.layout_generation = this.layout_generation.saturating_add(1);
+                let generation = this.layout_generation;
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(250))
+                        .await;
+                    let _ = this.update(cx, |this, cx| {
+                        if generation != this.layout_generation {
+                            return;
+                        }
+                        let state = this.dock_area.read(cx).dump(cx);
+                        if let Some(layout) = encode_layout(&state) {
+                            (this.layout_save)(layout);
+                        }
+                    });
+                })
+                .detach();
+            }
+        });
+        if let Some(layout) = encode_layout(&dock_area.read(cx).dump(cx)) {
+            (layout_io.save)(layout);
+        }
+        Self {
+            dock_area,
+            theme,
+            layout_save: layout_io.save,
+            layout_generation: 0,
+            _layout_subscription: layout_subscription,
+        }
+    }
+}
+
+fn encode_layout(state: &DockAreaState) -> Option<WorkbenchLayout> {
+    serde_json::to_value(state)
+        .ok()
+        .map(|dock| WorkbenchLayout::new("main", dock))
+}
+
+fn decode_layout(layout: &WorkbenchLayout) -> Option<DockAreaState> {
+    layout.validate().ok()?;
+    serde_json::from_value(layout.dock.clone()).ok()
+}
+
+impl Render for WorkbenchWindow {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let colors = self.theme.colors;
         div()
             .flex()
             .flex_col()
             .size_full()
+            .bg(rgb(colors.window_background.as_rgb()))
+            .text_color(rgb(colors.text_primary.as_rgb()))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .h(px(36.0))
+                    .px_3()
+                    .border_b_1()
+                    .border_color(rgb(colors.border.as_rgb()))
+                    .child(div().font_semibold().child(APP_NAME))
+                    .child(
+                        div()
+                            .ml_4()
+                            .px_2()
+                            .py_1()
+                            .bg(rgb(colors.selection_background.as_rgb()))
+                            .child("No repository"),
+                    ),
+            )
+            .child(div().flex_1().min_h_0().child(self.dock_area.clone()))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .h(px(24.0))
+                    .px_2()
+                    .border_t_1()
+                    .border_color(rgb(colors.border.as_rgb()))
+                    .text_sm()
+                    .text_color(rgb(colors.text_secondary.as_rgb()))
+                    .child("Ready")
+                    .child("No branch"),
+            )
+            .child(div().id("workbench-overlay-host").absolute().inset_0())
+    }
+}
+
+struct WorkbenchPanel {
+    kind: PanelKind,
+    focus: FocusHandle,
+}
+
+impl WorkbenchPanel {
+    fn new(kind: PanelKind, cx: &mut App) -> Entity<Self> {
+        cx.new(|cx| Self {
+            kind,
+            focus: cx.focus_handle(),
+        })
+    }
+}
+
+impl BasePanel for WorkbenchPanel {
+    fn panel_name(&self) -> &'static str {
+        self.kind.panel_name()
+    }
+}
+
+impl Panel for WorkbenchPanel {
+    fn tab_name(&self, _: &App) -> Option<SharedString> {
+        Some(self.kind.title().into())
+    }
+
+    fn title(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        self.kind.title()
+    }
+}
+
+impl EventEmitter<PanelEvent> for WorkbenchPanel {}
+
+impl Focusable for WorkbenchPanel {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus.clone()
+    }
+}
+
+impl Render for WorkbenchPanel {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .size_full()
             .items_center()
             .justify_center()
-            .gap_2()
-            .bg(rgb(0x2b2d30))
-            .text_color(rgb(0xdfe1e5))
-            .child(div().text_xl().child(APP_NAME))
-            .child(div().child("GPUI-Kit startup spike"))
+            .child(format!("{} panel", self.kind.title()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dock_state_round_trips_through_versioned_layout_envelope() {
+        let state = DockAreaState {
+            version: Some(LAYOUT_VERSION),
+            ..DockAreaState::default()
+        };
+        let layout = encode_layout(&state).expect("dock state should serialize");
+        assert_eq!(decode_layout(&layout), Some(state));
+    }
+
+    #[test]
+    fn incompatible_or_malformed_layout_is_ignored() {
+        let mut incompatible = WorkbenchLayout::new("main", serde_json::json!({}));
+        incompatible.schema = 0;
+        assert_eq!(decode_layout(&incompatible), None);
+
+        let malformed = WorkbenchLayout::new("main", serde_json::json!({"not": "dock"}));
+        assert_eq!(decode_layout(&malformed), None);
     }
 }

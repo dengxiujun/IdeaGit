@@ -9,6 +9,7 @@ gpui-kit.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+serde_json.workspace = true
 git-application.workspace = true
 git-cli.workspace = true
 repository-watcher.workspace = true
