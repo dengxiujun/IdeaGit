@@ -2,7 +2,7 @@
 
 - 日期：2026-11-07
 - 任务：CORE-010
-- 当前状态：本机 Workspace 全量门禁通过；本提交三平台 CI 待执行。
+- 当前状态：本机 Workspace 全量门禁与 Rust CI #23 三平台门禁均通过。
 
 ## 1. 范围与架构边界
 
@@ -24,8 +24,9 @@
 - `cargo clippy --workspace --all-targets --locked -- -D warnings`
 - `cargo test --workspace --locked`
 - `git-operations` 专项覆盖成功生命周期、未开始取消、执行器结构化失败；全部 3 个测试通过。
+- [Rust CI #23](https://github.com/dengxiujun/IdeaGit/actions/runs/42348019499) 的 Format、locked check、Clippy、Workspace tests 已在 Windows Server 2022、macOS 15 与 Ubuntu 24.04 全部通过。
 
 ## 4. 遗留风险
 
 - 真实资源锁、Journal 耐久化、恢复判定和 Git 写命令仍未开放，分别由 CORE-011/012、RECOVERY-000、GIT-001/002 验证。
-- 三平台 CI 需在推送本提交后确认；M2 写操作门禁尚未关闭。
+- M2 写操作门禁尚未关闭；资源锁、Journal、恢复和真实 Git 写操作仍待后续任务。

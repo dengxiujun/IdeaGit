@@ -46,7 +46,7 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `git-operations` 新增有界串行 `OperationCoordinator`，通过注入的 `OperationExecutor` 消费 `GitCommand`，不在本任务伪造 Git 副作用。
 - 生命周期发布 `Queued → ResourceWait → Preflight → Running → Reconciling → Finished`；通过 latest-only watch 提供 OperationSnapshot，保留目标、命令和结构化终态。
 - 取消区分 `NotStarted`、`StoppedAndChecked`、`NeedsRecovery`，执行器失败保留 `GitError`；progress channel 在后台持续排空，避免长操作反压。
-- 本机 Workspace 全量 fmt/check/clippy/test 已通过；三平台 Runner 尚待本任务推送后执行。CORE-011/012、RECOVERY-000 仍是标准写操作开放前置。
+- 本机 Workspace 全量 fmt/check/clippy/test 已通过；[Rust CI #23](https://github.com/dengxiujun/IdeaGit/actions/runs/42348019499) 已在 Windows Server 2022、macOS 15 与 Ubuntu 24.04 全部通过。CORE-011/012、RECOVERY-000 仍是标准写操作开放前置。
 
 ## CORE-009 强类型 GitCommand（2026-11-07）
 
