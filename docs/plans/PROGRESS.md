@@ -539,7 +539,7 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 
 - `RemoteCommand` 新增 typed `Pull { remote, branch }`；`GitCliRemoteAdapter` 以 `git pull --no-rebase` 执行 fetch+merge MVP，未开放 rebase 参数。
 - Pull 复用既有 RemoteWriter、无 Shell 参数构造与结构化 NetworkFailure；真实 local bare remote fixture 覆盖 peer push 后 Pull 成功。
-- 本机专项 fmt/check/clippy/test 通过；MERGE/Conflict/Reconcile 仍需后续节点接入完整恢复链。
+- 本机专项 fmt/check/clippy/test 通过；Rust CI #86（Runner `42432473741`）三平台通过。MERGE/Conflict/Reconcile 仍需后续节点接入完整恢复链。
 
 ## GIT-001 Stage / Unstage（2026-11-07）
 
