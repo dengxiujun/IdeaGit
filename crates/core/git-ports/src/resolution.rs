@@ -73,6 +73,22 @@ pub fn validate_conflict_stages(
     Ok(())
 }
 
+/// Runs every read-only preflight required before applying a conflict result.
+pub fn validate_resolution_request(
+    request: &ApplyResolutionRequest,
+    observed: &UnmergedChange,
+    current_worktree: &[u8],
+) -> Result<(), ResolutionPreflightError> {
+    request
+        .validate()
+        .map_err(ResolutionPreflightError::InvalidRequest)?;
+    validate_conflict_stages(&request.path, &request.expected_stage_oids, observed)
+        .map_err(ResolutionPreflightError::ConflictStages)?;
+    validate_worktree_digest(request.expected_worktree_digest, current_worktree)
+        .map_err(ResolutionPreflightError::Worktree)?;
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ResolutionRequestError {
     #[error("conflict resolution requires a non-zero file mode")]
@@ -91,6 +107,16 @@ pub enum ConflictStageError {
     PathChanged,
     #[error("conflict stage identities changed while resolving")]
     StagesChanged,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum ResolutionPreflightError {
+    #[error("invalid conflict resolution request: {0}")]
+    InvalidRequest(#[source] ResolutionRequestError),
+    #[error("conflict stages are stale: {0}")]
+    ConflictStages(#[source] ConflictStageError),
+    #[error("worktree is stale: {0}")]
+    Worktree(#[source] WorktreeConflictError),
 }
 
 /// Applies a previously validated conflict result and stages it atomically with respect to the

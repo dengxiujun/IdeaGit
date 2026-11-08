@@ -37,8 +37,9 @@ pub use remote::{PushPreviewReader, RemoteReader, RemoteWriter};
 pub use repository::{RepositoryLocation, RepositoryReader};
 pub use resolution::{
     ApplyResolutionRequest, ConflictResolutionWriter, ConflictStageError, ConflictStages,
-    ResolutionRequestError, WorktreeConflictError, validate_conflict_stages,
-    validate_worktree_digest, worktree_digest,
+    ResolutionPreflightError, ResolutionRequestError, WorktreeConflictError,
+    validate_conflict_stages, validate_resolution_request, validate_worktree_digest,
+    worktree_digest,
 };
 pub use status::{StatusOptions, StatusParseError, StatusParser, StatusReader};
 pub use version::{FileVersions, VersionDescriptor, VersionReader};
