@@ -1192,3 +1192,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - GitHub Runner：Rust CI #118（Run ID `42467537507`）尚未完成；本次组合根修复已推送，后续 CI 为新 Run。
 - 风险：GPUI Controller 尚未接收 Preview Session/Selection Coordinator 句柄，UI 仍不能在没有应用层 Preview 的情况下触发确认；需要继续完成生命周期持有与安全入口。
 - 下一步：将 Preview Session/Selection Coordinator 句柄纳入桌面写就绪状态，补真实 Git Preview→Coordinator Confirm 集成测试。
+
+## M4 UI-013：桌面 ActionDispatcher 生命周期接入（2026-11-08）
+
+- 完成：`DesktopActionDispatcher` 持有 M4 Preview/Coordinator Runtime；普通 `CommitIndex` 继续使用 M2 Coordinator，`CommitSelection` 只能提交到 M4 Coordinator，并复用操作快照反馈通道。Recovery 阻断或未装配 M4 Runtime 时，Changelist 提交明确失败，不会回退到 Index 提交。
+- 修改文件：`apps/desktop/src/main.rs`、`docs/plans/PROGRESS.md`。
+- 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
+- GitHub Runner：Rust CI #120（Run ID `42468104829`，提交 `37bfa70`）当时运行中；本次修改尚未推送 CI。
+- 风险：仍需真实 Git Preview→Coordinator Confirm 的桌面组合测试，并验证 Selection Commit 操作快照在失败/恢复路径中完整反馈。
+- 下一步：补桌面真实 Git M4 Runtime 集成测试，随后等待本次提交的跨平台 CI。

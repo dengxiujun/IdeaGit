@@ -288,6 +288,26 @@ pub fn build_selection_commit_coordinator(
     })
 }
 
+/// Runtime-owned M4 resources. Keeping both values alive is required because the Coordinator
+/// owns the shared Handler while the Session owns Preview preparation and its Temporary Index.
+pub struct DesktopSelectionCommitRuntime {
+    pub session: DesktopSelectionCommitSession,
+    pub coordinator: Arc<DesktopSelectionCommitCoordinator>,
+}
+
+impl DesktopSelectionCommitRuntime {
+    #[must_use]
+    pub fn new(
+        session: DesktopSelectionCommitSession,
+        coordinator: DesktopSelectionCommitCoordinator,
+    ) -> Self {
+        Self {
+            session,
+            coordinator: Arc::new(coordinator),
+        }
+    }
+}
+
 /// Builds the production M2 writer stack without opening any GUI write capability by itself.
 #[allow(clippy::result_large_err)]
 pub fn build_m2_executor(
@@ -363,6 +383,7 @@ pub fn build_m2_executor(
 /// Composition-root dispatcher that queues typed UI actions without blocking GPUI.
 pub struct DesktopActionDispatcher<E: OperationExecutor> {
     coordinator: Arc<OperationCoordinator<E>>,
+    selection_commit: Option<Arc<DesktopSelectionCommitRuntime>>,
     runtime: tokio::runtime::Handle,
     updates: tokio::sync::mpsc::UnboundedSender<OperationSnapshot>,
 }
@@ -380,17 +401,59 @@ impl<E: OperationExecutor> DesktopActionDispatcher<E> {
         (
             Self {
                 coordinator,
+                selection_commit: None,
                 runtime,
                 updates,
             },
             receiver,
         )
     }
+
+    #[must_use]
+    pub fn with_selection_commit(
+        mut self,
+        selection_commit: Arc<DesktopSelectionCommitRuntime>,
+    ) -> Self {
+        self.selection_commit = Some(selection_commit);
+        self
+    }
 }
 
 impl<E: OperationExecutor> ActionDispatcher for DesktopActionDispatcher<E> {
     fn dispatch(&self, request: ActionRequest) -> Result<(), String> {
         let command = to_git_command(&request)?;
+        if matches!(command, git_domain::GitCommand::CommitSelection { .. }) {
+            let Some(selection_commit) = self.selection_commit.as_ref() else {
+                return Err("Changelist commit is unavailable until Preview is prepared".to_owned());
+            };
+            let coordinator = Arc::clone(&selection_commit.coordinator);
+            let updates = self.updates.clone();
+            let runtime = self.runtime.clone();
+            let failed_command = command.clone();
+            runtime.spawn(async move {
+                let id = match coordinator.submit(command).await {
+                    Ok(id) => id,
+                    Err(error) => {
+                        let _ = updates.send(queue_failure_snapshot(failed_command, error));
+                        return;
+                    }
+                };
+                let Some(mut snapshots) = coordinator.subscribe(id).await else {
+                    return;
+                };
+                loop {
+                    let snapshot = snapshots.borrow().clone();
+                    let finished = snapshot.phase == OperationPhase::Finished;
+                    if updates.send(snapshot).is_err() || finished {
+                        break;
+                    }
+                    if snapshots.changed().await.is_err() {
+                        break;
+                    }
+                }
+            });
+            return Ok(());
+        }
         let failed_command = command.clone();
         let coordinator = Arc::clone(&self.coordinator);
         let updates = self.updates.clone();
@@ -697,7 +760,7 @@ async fn run_repository_bridge(
         let executor = build_m2_executor(
             handle.target(),
             location.clone(),
-            journal_path,
+            journal_path.clone(),
             scheduler.rebuilder(),
         )
         .map_err(|error| error.to_string())?;
@@ -706,8 +769,19 @@ async fn run_repository_bridge(
             OperationCoordinator::new(executor, 32)
                 .map_err(|error| format!("failed to start operation coordinator: {error}"))?,
         );
+        let selection_session =
+            build_selection_commit_session(handle.target(), location.clone(), journal_path)
+                .map_err(|error| error.to_string())?;
+        let selection_coordinator =
+            build_selection_commit_coordinator(handle.target(), &selection_session, 32)
+                .map_err(|error| error.to_string())?;
+        let selection_runtime = Arc::new(DesktopSelectionCommitRuntime::new(
+            selection_session,
+            selection_coordinator,
+        ));
         let (dispatcher, updates) =
             DesktopActionDispatcher::new(coordinator, tokio::runtime::Handle::current());
+        let dispatcher = dispatcher.with_selection_commit(selection_runtime);
         if sender
             .send(DesktopUiUpdate::WriteReady {
                 dispatcher: Arc::new(dispatcher),
