@@ -1343,4 +1343,8 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 安全边界：ViewModel 只生成经过 `InteractiveRebasePlan::validate` 校验的领域计划；不直接启动 Git、不修改 Index/Refs，并明确拒绝非法 `squash/fixup` 首行和 Drop 消息覆盖。
 - 测试：新增正常编辑生成计划、非法动作组合拒绝两项测试。
 - 修改文件：`crates/ui/git-ui-model/src/lib.rs`、`docs/plans/PROGRESS.md`。
-- 风险：PR、完整工作区门禁、GitHub CI 和合并门禁尚未完成。
+- 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
+- PR：[#12](https://github.com/dengxiujun/IdeaGit/pull/12) 已合并，合并提交为 `77b5623f778d543c9a29c3b9f1de5ff68a598565`。
+- CI：Rust CI #135（Run ID `42492053587`，提交 `3ab5593cc4c9eb265bd979be10e52324ca228d63`）已成功；Format、Ubuntu 24.04、macOS 15、Windows 2022 全部通过。
+- 分支：已确认合并提交进入 `main`；本地和远程 `feat/UI-014` 均已清理。
+- 结论：UI-014 完成；下一任务为 `UI-015`，必须从已验证的 `main` 按串行规则创建新分支。
