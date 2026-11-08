@@ -1,59 +1,112 @@
 //! Diff viewers and staging presentation.
-//!
-//! INFRA-001 skeleton only; behavior is implemented by subsequent tracked tasks.
 
-use git_diff::{AlignedDiffRow, Hunk, align_hunk};
+use git_diff::ThreeVersionDocument;
+use git_domain::EditedIndexSessionId;
 
-/// Read-only side-by-side projection. It owns only logical row references; line content remains
-/// in the shared Diff document and is not copied into each UI row.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SideBySideViewer {
-    pub hunk_id: u32,
-    pub rows: Vec<AlignedDiffRow>,
+/// The visible columns in the three-version stage viewer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StageViewerSide {
+    Head,
+    Index,
+    Worktree,
 }
 
-impl SideBySideViewer {
+/// Read-only UI projection for HEAD/Index/Worktree staging review.
+///
+/// The viewer deliberately stores no mutable Git state.  The middle column becomes eligible
+/// for Apply only after the application layer binds an [`EditedIndexSessionId`]; the UI itself
+/// never writes the real Index.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThreeVersionStageViewer {
+    document: ThreeVersionDocument,
+    active_side: StageViewerSide,
+    edit_session: Option<EditedIndexSessionId>,
+}
+
+impl ThreeVersionStageViewer {
     #[must_use]
-    pub fn from_hunk(hunk_id: u32, hunk: &Hunk) -> Self {
+    pub fn new(document: ThreeVersionDocument) -> Self {
         Self {
-            hunk_id,
-            rows: align_hunk(hunk_id, hunk),
+            document,
+            active_side: StageViewerSide::Index,
+            edit_session: None,
         }
+    }
+
+    #[must_use]
+    pub fn document(&self) -> &ThreeVersionDocument {
+        &self.document
+    }
+
+    #[must_use]
+    pub fn active_side(&self) -> StageViewerSide {
+        self.active_side
+    }
+
+    pub fn select_side(&mut self, side: StageViewerSide) {
+        self.active_side = side;
+    }
+
+    pub fn bind_edit_session(&mut self, session: EditedIndexSessionId) {
+        self.edit_session = Some(session);
+    }
+
+    pub fn clear_edit_session(&mut self) {
+        self.edit_session = None;
+    }
+
+    #[must_use]
+    pub fn apply_session(&self) -> Option<EditedIndexSessionId> {
+        self.edit_session
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use git_diff::{ContentSource, ThreeVersionFile, VersionIdentity};
+    use git_domain::RepoPath;
+
     use super::*;
-    use git_diff::{Line, LineKind};
+
+    fn document() -> ThreeVersionDocument {
+        let identity = |source| VersionIdentity {
+            source,
+            oid: None,
+            mode: Some(0o100644),
+        };
+        ThreeVersionDocument {
+            path: RepoPath::new("src/lib.rs").expect("fixture path is valid"),
+            file: ThreeVersionFile {
+                path: RepoPath::new("src/lib.rs").expect("fixture path is valid"),
+                head: Some(identity(ContentSource::Head)),
+                index: Some(identity(ContentSource::Index)),
+                worktree: Some(identity(ContentSource::Worktree)),
+            },
+            head_to_index: None,
+            index_to_worktree: None,
+            head_to_worktree: None,
+        }
+    }
 
     #[test]
-    fn projects_alignment_without_copying_line_content() {
-        let hunk = Hunk {
-            old_start: 1,
-            old_count: 1,
-            new_start: 1,
-            new_count: 2,
-            lines: vec![
-                Line {
-                    kind: LineKind::Context,
-                    old_line: Some(1),
-                    new_line: Some(1),
-                    content: b"same".to_vec(),
-                    has_newline: true,
-                },
-                Line {
-                    kind: LineKind::Added,
-                    old_line: None,
-                    new_line: Some(2),
-                    content: b"added".to_vec(),
-                    has_newline: true,
-                },
-            ],
-        };
-        let view = SideBySideViewer::from_hunk(7, &hunk);
-        assert_eq!(view.hunk_id, 7);
-        assert_eq!(view.rows.len(), 2);
-        assert_eq!(view.rows[1].right.expect("added row").line_index, 1);
+    fn apply_is_closed_until_an_edit_session_is_bound() {
+        let mut viewer = ThreeVersionStageViewer::new(document());
+        assert_eq!(viewer.active_side(), StageViewerSide::Index);
+        assert!(viewer.apply_session().is_none());
+
+        let session = EditedIndexSessionId::new();
+        viewer.bind_edit_session(session);
+        assert_eq!(viewer.apply_session(), Some(session));
+        viewer.clear_edit_session();
+        assert!(viewer.apply_session().is_none());
+    }
+
+    #[test]
+    fn side_selection_does_not_mutate_the_three_version_document() {
+        let mut viewer = ThreeVersionStageViewer::new(document());
+        let before = viewer.document().clone();
+        viewer.select_side(StageViewerSide::Worktree);
+        assert_eq!(viewer.active_side(), StageViewerSide::Worktree);
+        assert_eq!(viewer.document(), &before);
     }
 }

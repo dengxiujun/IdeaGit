@@ -6,5 +6,6 @@ publish.workspace = true
 
 [dependencies]
 git-diff.workspace = true
+git-domain.workspace = true
 git-ui-model.workspace = true
 idea-ui-primitives.workspace = true
