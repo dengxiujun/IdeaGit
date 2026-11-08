@@ -643,6 +643,31 @@ mod tests {
         }
     }
 
+    fn prepare_temporary_index(
+        fixture: &TestRepository,
+        path: &std::path::Path,
+        selected_path: &str,
+    ) {
+        let mut read_tree = Command::new("git");
+        read_tree
+            .args(["read-tree", "HEAD"])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", path);
+        for (name, value) in fixture.isolated_environment() {
+            read_tree.env(name, value);
+        }
+        assert!(read_tree.status().expect("git starts").success());
+
+        let mut add = Command::new("git");
+        add.args(["add", "--", selected_path])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", path);
+        for (name, value) in fixture.isolated_environment() {
+            add.env(name, value);
+        }
+        assert!(add.status().expect("git starts").success());
+    }
+
     #[tokio::test]
     async fn commits_real_index_and_returns_oid_and_parents() {
         let fixture = TestRepository::init().expect("fixture");
@@ -856,6 +881,151 @@ mod tests {
         assert_eq!(error.operation_id, Some(context_operation));
         assert_eq!(fs::read(&real_index).expect("real index"), before);
         assert_eq!(fixture.head_oid().expect("HEAD"), head_before);
+    }
+
+    #[tokio::test]
+    async fn temporary_index_writer_does_not_reuse_another_preview_path() {
+        let fixture = TestRepository::init().expect("fixture");
+        fixture
+            .commit_file("first.txt", b"first-base\n")
+            .expect("first baseline");
+        fixture
+            .write_file("second.txt", b"second-base\n")
+            .expect("second baseline");
+        fixture
+            .stage_file("second.txt")
+            .expect("stage second baseline");
+        let baseline_writer = GitCliCommitWriter::new(
+            TokioProcessRunner,
+            RepositoryLocation::worktree(
+                &fixture.worktree,
+                fixture.worktree.join(".git"),
+                fixture.worktree.join(".git"),
+            ),
+        )
+        .with_environment(fixture.isolated_environment());
+        baseline_writer
+            .commit(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                StandardCommitRequest {
+                    options: CommitOptions {
+                        message: b"second baseline\n".to_vec(),
+                        amend: false,
+                        allow_empty: false,
+                        signoff: false,
+                        author: None,
+                        committer: None,
+                        signing: SigningMode::Disable,
+                    },
+                    expected_revision: SnapshotRevision::new(1),
+                    expected_head: None,
+                    expected_index: None,
+                },
+                test_context(),
+            )
+            .await
+            .expect("baseline commit");
+
+        fixture
+            .write_file("first.txt", b"first-selected\n")
+            .expect("first selection");
+        fixture
+            .write_file("second.txt", b"second-selected\n")
+            .expect("second selection");
+        let real_index = fixture.worktree.join(".git/index");
+        let real_index_before = fs::read(&real_index).expect("real Index");
+        let first_index = fixture.temp_dir.path().join("first-preview-index");
+        let second_index = fixture.temp_dir.path().join("second-preview-index");
+        prepare_temporary_index(&fixture, &first_index, "first.txt");
+        prepare_temporary_index(&fixture, &second_index, "second.txt");
+
+        let location = RepositoryLocation::worktree(
+            &fixture.worktree,
+            fixture.worktree.join(".git"),
+            fixture.worktree.join(".git"),
+        );
+        let writer = GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location)
+            .with_environment(fixture.isolated_environment());
+        let target = SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1);
+        let first_operation = OperationId::new();
+        let first_lease = temporary_lease(&first_index, first_operation);
+        writer
+            .commit(
+                target,
+                first_operation,
+                StandardCommitRequest {
+                    options: CommitOptions {
+                        message: b"first preview\n".to_vec(),
+                        amend: false,
+                        allow_empty: false,
+                        signoff: false,
+                        author: None,
+                        committer: None,
+                        signing: SigningMode::Disable,
+                    },
+                    expected_revision: SnapshotRevision::new(2),
+                    expected_head: None,
+                    expected_index: None,
+                },
+                &first_lease,
+                partial_context(first_operation),
+            )
+            .await
+            .expect("first Preview commit");
+        let first_head = Command::new("git")
+            .args(["show", "HEAD:first.txt"])
+            .current_dir(&fixture.worktree)
+            .output()
+            .expect("first HEAD blob");
+        let first_head_second = Command::new("git")
+            .args(["show", "HEAD:second.txt"])
+            .current_dir(&fixture.worktree)
+            .output()
+            .expect("second baseline blob");
+        assert_eq!(first_head.stdout, b"first-selected\n");
+        assert_eq!(first_head_second.stdout, b"second-base\n");
+
+        let second_operation = OperationId::new();
+        let second_lease = temporary_lease(&second_index, second_operation);
+        writer
+            .commit(
+                target,
+                second_operation,
+                StandardCommitRequest {
+                    options: CommitOptions {
+                        message: b"second preview\n".to_vec(),
+                        amend: false,
+                        allow_empty: false,
+                        signoff: false,
+                        author: None,
+                        committer: None,
+                        signing: SigningMode::Disable,
+                    },
+                    expected_revision: SnapshotRevision::new(3),
+                    expected_head: None,
+                    expected_index: None,
+                },
+                &second_lease,
+                partial_context(second_operation),
+            )
+            .await
+            .expect("second Preview commit");
+        let second_head_first = Command::new("git")
+            .args(["show", "HEAD:first.txt"])
+            .current_dir(&fixture.worktree)
+            .output()
+            .expect("first baseline blob");
+        let second_head = Command::new("git")
+            .args(["show", "HEAD:second.txt"])
+            .current_dir(&fixture.worktree)
+            .output()
+            .expect("second HEAD blob");
+        assert_eq!(second_head_first.stdout, b"first-base\n");
+        assert_eq!(second_head.stdout, b"second-selected\n");
+        assert_eq!(
+            fs::read(&real_index).expect("real Index"),
+            real_index_before
+        );
     }
 
     #[tokio::test]

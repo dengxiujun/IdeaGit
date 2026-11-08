@@ -1118,7 +1118,29 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 完成：落实已批准的 ADR-M4-DYNAMIC-TEMP-INDEX-WRITER-001 方案一，新增 `PartialCommitWriter` 专用端口；每次提交显式传递 Preview 的 `TemporaryIndexLease` 与 Preview Operation ID，普通 M2 `CommitWriter` 保持不变。
 - 安全证据：Git CLI 写适配器拒绝跨 Preview Operation Lease、真实 `.git/index` 和已释放路径；真实 Git 测试验证动态临时 Index 提交不改变真实 Index，桌面 `OperationCoordinator` 组合测试验证 Preview ID 与确认执行 ID 分离时仍使用正确 Candidate Index。
 - 修改文件：`crates/core/git-ports/src/commit.rs`、`crates/core/git-ports/src/lib.rs`、`crates/core/git-commit/src/lib.rs`、`crates/core/git-application/src/selection_commit.rs`、`crates/adapters/git-cli/src/commit.rs`、`apps/desktop/src/main.rs`、`docs/architecture/adr/ADR-M4-DYNAMIC-TEMP-INDEX-WRITER-001.md`、`docs/architecture/LLD-CCD-001.md`、`docs/plans/IP-001-development-plan.md`、`docs/plans/PROGRESS.md`。
-- Commit：待本次门禁通过后生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- Commit：`af78f6e feat(M4 UI-013): 支持动态 Temporary Index 提交`；GitHub Runner 未执行，PR 未创建。
 - 测试：专项 `git-cli` 动态 Lease/真实 Index/Hook/未选择内容、`git-commit`、`git-application` 和桌面真实 Coordinator 组合测试均通过；workspace 全量门禁待本次提交前执行。
 - 风险：生产 GPUI ActionDispatcher 尚未开放 Selection Commit 入口；并发双 Preview 的真实仓库组合仍需在 UI-013/TEST-004 最终审计中核验，当前写端口已具备逐调用 Lease 隔离。
 - 下一步：继续 UI-013 生产 Preview Session 生命周期与 ActionDispatcher 装配，不提前开放未满足门禁的真实入口。
+
+## M4 TEST-004：Partial Commit 安全矩阵最终本地审计（2026-11-08）
+
+| IP-001 §7.6 验收项 | 当前证据 |
+|---|---|
+| 同文件 Staged + Unstaged | `temporary_partial_commit_does_not_mix_staged_and_unstaged_edits` |
+| 单 Hunk / 部分行 | Diff 选区单元测试与 `candidate_tree_partial_line_patch_commits_only_selected_line` |
+| Changelist A/B 共享文件 | `keeps_shared_file_selections_owned_by_their_changelist` |
+| Hook 拒绝 / 修改 Worktree | `temporary_partial_commit_hook_rejection_keeps_head_and_real_index`、`side_effect_observer_detects_hook_worktree_mutation_after_real_commit` 与 Coordinator Recovery 测试 |
+| 签名失败 | `required_signing_failure_is_classified_without_changing_head_or_index` |
+| 外部修改 Index / HEAD | `coordinator_persists_recovery_for_external_index_mutation`、`real_repository_external_commit_with_index_change_requires_recovery` 与 HEAD 身份状态机测试 |
+| 提交成功但 Index 协调失败 | Git CLI 外部 Index 写入测试及 `coordinator_persists_recovery_when_index_reconciliation_fails` |
+| 应用异常退出 | `startup_recovery_diagnoses_commit_with_unreconciled_index_after_restart` |
+| Rename / CRLF / 非 UTF-8 | 对应真实仓库 Partial Commit 测试 |
+| Binary | 未选择二进制内容保持测试与行级 Patch 拒绝测试 |
+| 多 Preview Operation 隔离 | 新增同一动态 writer 持有两个有效 Lease 的真实仓库测试，验证第二次提交不复用第一次路径且真实 Index 字节不变 |
+
+- 完成：按 IP-001 §7.6 逐项复核 TEST-004，本地实现和测试证据齐备；新增动态 writer 多 Preview 路径隔离测试，两个 Candidate Index 同时存在并由同一 writer 依次执行，HEAD 精确对应各自候选 Tree。
+- 修改文件：`crates/adapters/git-cli/src/commit.rs`、`docs/plans/PROGRESS.md`。
+- Commit：待本次门禁通过后生成；GitHub Runner 待 PR 创建后按固定 3 分钟间隔检查。
+- 风险：本地仅验证 macOS；Windows/Linux/macOS 的最终跨平台结论必须以 GitHub `Rust CI` 三平台 Runner 为准。在 Runner 全绿前，TEST-004 不标记为发布验收完成，UI-013 生产入口继续关闭。
+- 下一步：执行 workspace 全量门禁并提交，推送 `feat/m4`、创建 PR，等待三平台 Rust CI；通过后再继续 UI-013。
