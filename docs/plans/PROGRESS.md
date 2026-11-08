@@ -82,6 +82,24 @@
 - 风险：UI-012/UI-013 尚未开放；跨平台 Git Index 扩展组合仍需在发布矩阵中复核。
 - 下一步：读取 UI-012 完整任务描述与 LLD 依赖，开始 Three-version Stage Viewer。
 
+## M4 UI-012：Three-version Stage Viewer（已核验，2026-11-08）
+
+- 分支：`feat/m4`；实现提交：`3093766 feat(M4 UI-012): 实现 Three-version Stage Viewer 投影`。
+- 完成：提供 HEAD/Index/Worktree 三列只读投影、活动列选择和 `EditableIndexSessionId` 绑定；未绑定编辑会话时 Apply 能力关闭，UI 不直接写真实 Index。
+- 测试：现有 UI-012 单元测试通过；本次 workspace 全量 fmt、check、clippy、test、diff check 全部通过。
+- Runner/PR：GitHub Runner 未创建（当前环境无 GitHub 连接器）；未创建/合并 PR。
+- 风险：真实 GPUI 组件尚未接入；UI-013 生产入口继续关闭。
+- 下一步：实现 UI-013 Changelist Commit Mode 的安全投影。
+
+## M4 UI-013：Changelist Commit Mode 安全投影（2026-11-08）
+
+- 分支：`feat/m4`。
+- 完成：Commit Panel ViewModel 增加 Staging/Changelist 模式和 Changelist 身份；模式切换不修改 Git Index，Changelist 模式必须绑定身份，切回 Staging 清除 Changelist 绑定但保留用户选区。
+- 测试：新增模式身份与选区保持测试；workspace 全量 fmt、check、clippy、test、diff check 全部通过。
+- Runner/PR：GitHub Runner 未创建（当前环境无 GitHub 连接器）；未创建/合并 PR。
+- 风险：真实提交入口仍关闭，尚未将 UI 操作接入 Partial Commit OperationCoordinator。
+- 下一步：审查 UI-013 真实入口开放条件，补齐应用层安全门禁后再决定是否开放。
+
 ## M4 TEST-004 / CCD-006：提交副作用观察与恢复边界（2026-11-08）
 
 - 分支：`feat/m4`；已统一承载全部已完成 M4 分支内容，保留用户未跟踪文件不动。

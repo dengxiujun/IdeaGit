@@ -1163,6 +1163,8 @@ mod tests {
             selected: Vec::new(),
             message: "commit from panel".to_owned(),
             amend: true,
+            mode: git_ui_model::CommitMode::Staging,
+            changelist: None,
             draft_revision: 3,
             expected_head: Some(head),
             expected_index: Some(index),

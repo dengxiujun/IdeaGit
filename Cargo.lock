@@ -2171,6 +2171,7 @@ name = "git-ui-model"
 version = "0.1.0"
 dependencies = [
  "git-application",
+ "git-changelist",
  "git-domain",
  "git-ports",
 ]
