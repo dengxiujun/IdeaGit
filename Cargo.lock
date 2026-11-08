@@ -2041,6 +2041,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "git-commit",
+ "git-diff",
  "git-domain",
  "git-fixture",
  "git-ports",

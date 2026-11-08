@@ -5,6 +5,7 @@ mod candidate_tree;
 mod clone;
 mod commit;
 mod conflict;
+mod diff;
 mod editable_index;
 mod executor;
 mod head;
@@ -30,6 +31,7 @@ pub use commit::{
     GitCliTemporaryIndexCommitWriter,
 };
 pub use conflict::GitCliConflictStageReader;
+pub use diff::GitCliDiffReader;
 pub use editable_index::GitCliEditableIndexCandidateBuilder;
 pub use executor::{GitCliCommand, GitCliExecutor, GitVersionCommand};
 pub use head::GitCliHeadReader;

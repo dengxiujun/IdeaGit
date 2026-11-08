@@ -866,3 +866,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：尚未实现 Git CLI DiffReader 适配器、Candidate Tree/Temporary Index Preview 装配和 OperationCoordinator Selection Commit 执行器；UI-013 真实入口继续关闭。
 - 下一步：实现 Git CLI DiffReader 适配器及真实仓库 Preview/Candidate Tree 集成测试。
+
+## M4 UI-013：Git CLI DiffReader（2026-11-08）
+
+- 完成：新增 `GitCliDiffReader`，以无 shell 的参数数组读取 HEAD→Index、Index→Worktree、HEAD→Worktree 三种比较；路径使用平台原生参数传递，输出解析为现有 Patch AST，并基于输出摘要生成 generation。
+- 测试：真实 Git 仓库测试覆盖三种版本比较；Git CLI 专项 77 个测试通过；workspace `fmt/check/clippy/test/diff check` 全部通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：DiffReader 目前只支持三种工作树比较，Commit/Tree/ConflictStage 来源和完整 Diff Facade 仍待后续按 LLD 接入；UI-013 真实入口继续关闭。
+- 下一步：把 DiffReader、TemporaryIndexManager、CandidateTreeBuilder 和 Preview 服务接入真实 Candidate Tree 准备流程。
