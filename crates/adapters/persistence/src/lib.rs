@@ -1,5 +1,8 @@
 //! Configuration, workspace data, journals, and cache persistence.
 
+mod changelist;
+pub use changelist::JsonChangelistStore;
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
