@@ -113,7 +113,13 @@ impl<R: ProcessRunner> SequencerWriter for GitCliSequencerWriter<R> {
             .to_path_buf();
         let output = self
             .executor
-            .execute(SequencerMutation { cwd, command }, context.clone())
+            .execute(
+                SequencerMutation {
+                    cwd,
+                    command: command.clone(),
+                },
+                context.clone(),
+            )
             .await?;
         if output.success {
             Ok(())
@@ -124,9 +130,28 @@ impl<R: ProcessRunner> SequencerWriter for GitCliSequencerWriter<R> {
             )
             .with_target(target)
             .with_operation(context.operation_id)
-            .with_recovery_actions([RecoveryAction::ContinueMerge, RecoveryAction::AbortMerge])
+            .with_recovery_actions(recovery_actions(&command))
             .with_diagnostic(format!("exit_code={:?}", output.exit_code)))
         }
+    }
+}
+
+fn recovery_actions(command: &SequencerCommand) -> [RecoveryAction; 2] {
+    match command {
+        SequencerCommand::ContinueRebase
+        | SequencerCommand::SkipRebase
+        | SequencerCommand::AbortRebase => {
+            [RecoveryAction::ContinueRebase, RecoveryAction::AbortRebase]
+        }
+        SequencerCommand::CherryPick { .. }
+        | SequencerCommand::Revert { .. }
+        | SequencerCommand::Continue
+        | SequencerCommand::Skip
+        | SequencerCommand::Abort => [
+            RecoveryAction::ContinueCherryPick,
+            RecoveryAction::AbortCherryPick,
+        ],
+        _ => [RecoveryAction::ContinueMerge, RecoveryAction::AbortMerge],
     }
 }
 
@@ -158,6 +183,15 @@ impl sealed::Sealed for SequencerMutation {
             }
             SequencerCommand::AbortMerge => {
                 args.extend([OsString::from("merge"), OsString::from("--abort")]);
+            }
+            SequencerCommand::ContinueRebase => {
+                args.extend([OsString::from("rebase"), OsString::from("--continue")]);
+            }
+            SequencerCommand::SkipRebase => {
+                args.extend([OsString::from("rebase"), OsString::from("--skip")]);
+            }
+            SequencerCommand::AbortRebase => {
+                args.extend([OsString::from("rebase"), OsString::from("--abort")]);
             }
             SequencerCommand::Continue => {
                 args.extend([OsString::from("cherry-pick"), OsString::from("--continue")])
@@ -322,8 +356,56 @@ mod tests {
         assert_eq!(error.kind, GitErrorKind::MergeConflict);
         assert_eq!(
             error.recovery_actions,
-            vec![RecoveryAction::ContinueMerge, RecoveryAction::AbortMerge]
+            vec![
+                RecoveryAction::ContinueCherryPick,
+                RecoveryAction::AbortCherryPick
+            ]
         );
+    }
+
+    #[tokio::test]
+    async fn builds_explicit_rebase_continue_skip_and_abort_arguments() {
+        let args = Arc::new(Mutex::new(Vec::new()));
+        let writer = GitCliSequencerWriter::new(
+            RecordingRunner {
+                args: Arc::clone(&args),
+                success: true,
+            },
+            RepositoryLocation::worktree(".", ".git", ".git"),
+        );
+        let (progress, _) = mpsc::channel(4);
+        let context = || {
+            ExecutionContext::new(
+                OperationId::new(),
+                CancellationToken::new(),
+                progress.clone(),
+            )
+        };
+        for (command, expected) in [
+            (
+                SequencerCommand::ContinueRebase,
+                vec!["rebase", "--continue"],
+            ),
+            (SequencerCommand::SkipRebase, vec!["rebase", "--skip"]),
+            (SequencerCommand::AbortRebase, vec!["rebase", "--abort"]),
+        ] {
+            writer
+                .apply(
+                    SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                    command,
+                    context(),
+                )
+                .await
+                .expect("rebase command");
+            assert_eq!(
+                args.lock()
+                    .expect("test mutex")
+                    .iter()
+                    .map(|arg| arg.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
     }
 
     #[tokio::test]
