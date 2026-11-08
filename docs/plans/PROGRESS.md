@@ -1371,3 +1371,14 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - CI：Rust CI #137（Run ID `42494684611`，提交 `0b6c6713f7ac6e0f3e353989b03aeb97ff9d0629`）已成功；Format、Ubuntu 24.04、macOS 15、Windows 2022 全部通过。
 - 分支：已确认合并提交进入 `main`；本地和远程 `feat/TEST-005` 均已清理。
 - 结论：TEST-005 完成；M5 任务表中的全部任务均已完成，进入 M5 总体验收审计。
+
+## M6 PERF-001：大仓库 Benchmark 基线（进行中，2026-11-09）
+
+- 分支：`feat/PERF-001`，从已验证的 `main` 创建；当前无其他 M6 feature 分支或开放 PR。
+- 完成：新增可重复的真实 Git benchmark，使用单个 `git fast-import` 生成 100,000 个线性提交，并通过生产 `GitCliStatusReader` / `GitCliHistoryReader` 测量 Status 与 Log 首页。
+- 当前 macOS 基线：Git 2.39.5 (Apple Git-154)、macOS/aarch64、10 逻辑并行度、11 次样本；Status 首轮 P50/P95 为 8.183/9.489ms，后续轮次为 7.931/8.282ms；Log 首页首轮为 8.592/9.192ms，后续轮次为 8.396/8.746ms。
+- 证据：`docs/performance/PERF-001-baseline-2026-11-09.md`；入口为 `crates/adapters/git-cli/tests/m6_perf.rs`，默认 ignored，避免普通 PR 产生长时间基准开销。
+- 已执行：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；ignored benchmark 真实运行通过。
+- 未完成：严格冷缓存、峰值内存、Changes Tree、Branch Popup、大型 Diff、多仓库切换、取消操作及 Windows/Linux 基线仍未测量；因此 PERF-001 尚未完成，不能进入后续 M6 任务。
+- 风险与回滚：当前仅新增测试和文档，不修改 Git 写路径；删除本分支新增文件即可回滚。严格冷缓存和峰值内存需要明确的跨平台采集方案，不能以当前首轮样本替代。
+- 下一步：补齐同一任务要求的 UI projection / 大 Diff / 多仓库与取消 benchmark，并建立可审计的跨平台运行记录。
