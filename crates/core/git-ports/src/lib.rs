@@ -8,6 +8,7 @@ mod conflict;
 mod credential;
 mod diff;
 mod editable_index;
+mod file_history;
 mod head;
 mod history;
 mod index;
@@ -37,6 +38,7 @@ pub use diff::{DiffDocument, DiffReadRequest, DiffReader};
 pub use editable_index::{
     EditableIndexCandidate, EditableIndexCandidateBuilder, EditableIndexCandidateRequest,
 };
+pub use file_history::{BlameReader, FileHistoryReader};
 pub use head::{BranchReader, HeadReader};
 pub use history::HistoryReader;
 pub use index::{

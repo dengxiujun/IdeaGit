@@ -1312,3 +1312,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 修改文件：`Cargo.toml`、`Cargo.lock`、`crates/core/git-shelf/`、`crates/adapters/persistence/Cargo.toml`、`crates/adapters/persistence/src/lib.rs`、`crates/adapters/persistence/src/shelf.rs`、`docs/plans/PROGRESS.md`。
 - 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
 - 风险：PR、GitHub CI、代码审查和合并门禁尚未完成。
+
+## M5 HISTORY-001：File History / Blame（2026-11-08）
+
+- 完成：新增文件历史与 Blame 领域 DTO、异步端口及 Git CLI 适配器；文件历史支持 `--follow`、分页和父提交，Blame 解析行级提交、作者、时间与内容。
+- 测试：新增真实 Git 仓库 E2E，验证两次文件提交的历史、父提交以及两行 Blame 归属和内容。
+- 修改文件：`crates/core/git-domain/src/file_history.rs`、`crates/core/git-domain/src/lib.rs`、`crates/core/git-ports/src/file_history.rs`、`crates/core/git-ports/src/lib.rs`、`crates/adapters/git-cli/src/file_history.rs`、`crates/adapters/git-cli/src/lib.rs`、`crates/adapters/git-cli/tests/m3_e2e.rs`、`docs/plans/PROGRESS.md`。
+- 本地验证：适配器 Clippy、Git CLI 单元测试和真实仓库 E2E 已通过；完整工作区门禁及 PR/CI/合并尚未完成。
+- 风险：当前 Blame/历史查询仍以 Git CLI 输出格式为边界，后续需在跨平台 CI 上确认路径和编码行为。
