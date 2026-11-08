@@ -102,9 +102,10 @@ fn utf8_path(path: &RepoPath) -> GitResult<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use git_domain::{RepositoryId, SessionTarget, SnapshotRevision, WorktreeId};
+    use crate::GitCliSequencerWriter;
+    use git_domain::{RepositoryId, SequencerCommand, SessionTarget, SnapshotRevision, WorktreeId};
     use git_fixture::TestRepository;
-    use git_ports::{ConflictStages, worktree_digest};
+    use git_ports::{ConflictStages, SequencerWriter, worktree_digest};
     use std::process::Command;
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
@@ -157,6 +158,22 @@ mod tests {
             .await
             .expect("resolution should be written and staged");
 
+        GitCliSequencerWriter::new(
+            crate::TokioProcessRunner,
+            RepositoryLocation::worktree(
+                &fixture.worktree,
+                fixture.worktree.join(".git"),
+                fixture.worktree.join(".git"),
+            ),
+        )
+        .apply(
+            SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+            SequencerCommand::ContinueMerge,
+            context(),
+        )
+        .await
+        .expect("merge should continue after resolution");
+
         let status = Command::new("git")
             .args([
                 "-C",
@@ -167,6 +184,7 @@ mod tests {
             .output()
             .expect("git status should run");
         assert!(!String::from_utf8_lossy(&status.stdout).starts_with("UU "));
+        assert!(!fixture.worktree.join(".git/MERGE_HEAD").exists());
         assert_eq!(
             fs::read(fixture.worktree.join("conflict.txt")).expect("resolved file"),
             b"resolved\n"

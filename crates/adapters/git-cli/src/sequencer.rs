@@ -171,6 +171,7 @@ impl sealed::Sealed for SequencerMutation {
         }
         GitCliInvocation::new(None, args)
             .with_environment([
+                EnvironmentVariable::public("GIT_EDITOR", "true"),
                 EnvironmentVariable::public("GIT_TERMINAL_PROMPT", "0"),
                 EnvironmentVariable::public("GIT_OPTIONAL_LOCKS", "0"),
             ])
