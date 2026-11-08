@@ -5,11 +5,11 @@
 ## M4 TEST-004：Partial Commit Safety Tests（2026-11-08）
 
 - 分支：`feat/TEST-004`；从 `main` 创建，带入 DIFF-003..007 与 CCD-001..009 的前置实现。
-- 完成：新增安全测试，覆盖混合 Staged/Unstaged 的 Index 身份拒绝、外部 HEAD 变化、提交结果与实际 HEAD 不一致进入 RecoveryRequired，以及真实 Git 仓库外部提交导致 Index 变化时的保守恢复判定；新增真实临时 Index 部分提交测试，确认未选文件的 HEAD/Worktree 内容与真实 Index 均保持不变；新增真实 Hook 拒绝测试，确认失败不虚报成功且不改变 HEAD/真实 Index。
+- 完成：新增安全测试，覆盖混合 Staged/Unstaged 的 Index 身份拒绝、外部 HEAD 变化、提交结果与实际 HEAD 不一致进入 RecoveryRequired，以及真实 Git 仓库外部提交导致 Index 变化时的保守恢复判定；新增真实临时 Index 部分提交测试，确认未选文件的 HEAD/Worktree 内容与真实 Index 均保持不变；新增隔离 `core.hooksPath` 下的真实 Hook 拒绝测试，确认失败不虚报成功且不改变 HEAD/真实 Index。
 - 测试：`git-commit` 专项 10 个测试、Git CLI 专项 62 个测试通过；workspace 全量测试通过。
 - 门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过。
 - Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
-- 未覆盖风险：Hook 拒绝/修改 Worktree、签名失败、部分行真实提交后未选内容保留、崩溃重启诊断、Rename/CRLF/非 UTF-8/Binary 的 Partial Commit 端到端矩阵仍缺少可执行的协调器/真实提交测试入口；M4 生产开放门禁保持关闭。
+- 未覆盖风险：Hook 修改 Worktree、签名失败、部分行真实提交后未选内容保留、崩溃重启诊断、Rename/CRLF/非 UTF-8/Binary 的 Partial Commit 端到端矩阵仍缺少可执行的协调器/真实提交测试入口；M4 生产开放门禁保持关闭。
 - 下一任务：补齐 TEST-004 所需的真实 Partial Commit 执行测试入口；UI-013 在 TEST-004 与 CCD-007 生产发布协议完成前不得开放。
 
 ## M4 CCD-008：EditableIndexSession / Apply（2026-11-08）
