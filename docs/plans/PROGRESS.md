@@ -541,6 +541,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Pull 复用既有 RemoteWriter、无 Shell 参数构造与结构化 NetworkFailure；真实 local bare remote fixture 覆盖 peer push 后 Pull 成功。
 - 本机专项 fmt/check/clippy/test 通过；Rust CI #86（Runner `42432473741`）三平台通过。MERGE/Conflict/Reconcile 仍需后续节点接入完整恢复链。
 
+## M3 REMOTE-005 Clone 基础执行器（2026-11-08）
+
+- `git-ports` 新增 `CloneRequest`/`CloneWriter`；`git-cli` 新增无 Shell `GitCliCloneWriter`，仅允许明确 source 与新 destination，拒绝空 source、已存在目标及不存在的父目录。
+- Clone 失败保留残留目录并返回结构化 NetworkFailure，不递归删除用户数据；凭据继续由 REMOTE-002 的 AskPass/组合根注入，取消语义沿用 ExecutionContext。
+- 真实 local repository Clone 与已存在目标失败路径已覆盖；本机 fmt/check/clippy/专项 test 通过。完整三平台 Runner 待推送后验证。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。

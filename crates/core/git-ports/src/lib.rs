@@ -1,6 +1,7 @@
 //! Replaceable Git, storage, credential, journal, watcher, and process contracts.
 
 mod branch;
+mod clone;
 mod commit;
 mod conflict;
 mod credential;
@@ -15,6 +16,7 @@ mod repository;
 mod status;
 
 pub use branch::BranchWriter;
+pub use clone::{CloneRequest, CloneWriter};
 pub use commit::{CommitOutcome, CommitWriter};
 pub use conflict::ConflictStageReader;
 pub use credential::{

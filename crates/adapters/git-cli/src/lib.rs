@@ -1,6 +1,7 @@
 //! Git CLI process execution and machine-output adapters.
 
 mod branch;
+mod clone;
 mod commit;
 mod conflict;
 mod executor;
@@ -15,6 +16,7 @@ mod sequencer;
 mod status;
 
 pub use branch::GitCliBranchWriter;
+pub use clone::GitCliCloneWriter;
 pub use commit::{GitCliCommitState, GitCliCommitStateProbe, GitCliCommitWriter};
 pub use conflict::GitCliConflictStageReader;
 pub use executor::{GitCliCommand, GitCliExecutor, GitVersionCommand};
