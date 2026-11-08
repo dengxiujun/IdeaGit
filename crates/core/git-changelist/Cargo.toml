@@ -6,3 +6,6 @@ publish.workspace = true
 
 [dependencies]
 git-domain.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+uuid.workspace = true

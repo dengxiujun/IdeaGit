@@ -2,35 +2,6 @@
 
 更新日期：2026-11-08。
 
-## M4 CCD-004：Temporary Index Manager（2026-11-08）
-
-- 分支：`feat/CCD-004`；从 `main` 创建并带入 CCD-001/002/003。
-- 完成：新增临时 Index 端口与 Git CLI 实现；使用独立临时目录和 `GIT_INDEX_FILE` 初始化 HEAD/空树，RAII 租约释放临时文件，不触碰真实 Index；裸仓库安全拒绝。
-- 测试：专项 2/2 通过，覆盖真实 Git 仓库有 HEAD 创建、真实 Index 不变、租约释放，以及 unborn HEAD 判定。
-- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
-- 风险：Journal 清理失败记录、Index 原始摘要/备份和崩溃恢复上下文将在后续 Partial Commit 事务任务中接入；当前未修改真实 Index。
-- 下一任务：CCD-005（Candidate Tree Builder）。
-
-## M4 CCD-003：Changelist Persistence（2026-11-08）
-
-- 分支：`feat/CCD-003`；从 `main` 创建并带入 CCD-001/002。
-- 完成：新增版本化 `ChangelistBundle` 与 `ChangelistStore` 端口；`JsonChangelistStore` 实现目标/Schema 校验、乐观版本控制、原子临时文件替换和写前 `.json.bak` 备份。
-- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；Persistence 测试 6 个通过，新增持久化专项 2 个通过。
-- 依赖：仅使用 workspace 已锁定的 `git-changelist` 与既有异步/序列化依赖，Cargo.lock 已更新依赖边，未升级版本。
-- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
-- 风险：当前为 JSON 文件存储，尚未接入 SQLite 迁移；Temporary Index 与 Partial Commit 不在本任务范围。
-- 下一任务：CCD-004（Temporary Index Manager）。
-
-## M4 CCD-002：Selection Fingerprints（2026-11-08）
-
-- 分支：`feat/CCD-002`；从 `main` 创建并带入 CCD-001。
-- 完成：新增确定性 SHA-256 选区指纹引擎，绑定 Repository/Worktree、HEAD/Index、Diff Generation、ChangeSelection 与原始内容字节；状态变化分类为 Valid、Stale 或 Ambiguous，跨目标选择拒绝。
-- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；专项测试 4/4 通过。
-- 依赖：仅使用 workspace 已锁定的 `serde_json`/`sha2`，更新 Cargo.lock 依赖边，未升级版本或引入外部依赖。
-- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
-- 风险：指纹重定位仍是保守分类，不自动移动选区；持久化事务留给 CCD-003。
-- 下一任务：CCD-003（Changelist Persistence）。
-
 ## M4 CCD-001：Changelist Domain（2026-11-08）
 
 - 分支：`feat/CCD-001`；从 `main` 创建，未提前引入后续 M4 实现。
