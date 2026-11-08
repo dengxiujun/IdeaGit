@@ -15,6 +15,7 @@ mod resolution;
 mod runner;
 mod sequencer;
 mod status;
+mod temporary_index;
 mod version;
 
 pub use branch::GitCliBranchWriter;
@@ -32,4 +33,5 @@ pub use resolution::GitCliConflictResolutionWriter;
 pub use runner::TokioProcessRunner;
 pub use sequencer::{GitCliSequencerReader, GitCliSequencerWriter};
 pub use status::{GitCliStatusReader, PorcelainV2StatusParser};
+pub use temporary_index::GitCliTemporaryIndexManager;
 pub use version::GitCliVersionReader;

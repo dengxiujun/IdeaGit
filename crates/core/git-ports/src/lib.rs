@@ -15,6 +15,7 @@ mod remote;
 mod repository;
 mod resolution;
 mod status;
+mod temporary_index;
 mod version;
 
 pub use branch::BranchWriter;
@@ -42,4 +43,5 @@ pub use resolution::{
     worktree_digest,
 };
 pub use status::{StatusOptions, StatusParseError, StatusParser, StatusReader};
+pub use temporary_index::{TemporaryIndexContext, TemporaryIndexLease, TemporaryIndexManager};
 pub use version::{FileVersions, VersionDescriptor, VersionReader};
