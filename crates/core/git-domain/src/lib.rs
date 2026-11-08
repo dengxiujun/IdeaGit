@@ -17,9 +17,11 @@ mod status;
 
 pub use command::{
     BranchCommand, ChangeSelection, CommandValidationError, CommitOptions, EditedIndexSessionId,
-    FileIdentity, FileKind, GitCommand, HunkSelection, LineSpan, MergeCommand, PushMode,
-    PushPreview, RemoteCommand, RemoteConfig, SelectionCommitRequest, SelectionFingerprint,
-    SequencerCommand, SequencerKind, SequencerSnapshot, SigningMode, StandardCommitRequest,
+    FileIdentity, FileKind, GitCommand, HunkSelection, InteractiveRebasePlan, LineSpan,
+    MergeCommand, PushMode, PushPreview, RebaseAction, RebasePlanValidationError, RebaseTodoEntry,
+    RebaseTodoValidationError, RemoteCommand, RemoteConfig, SelectionCommitRequest,
+    SelectionFingerprint, SequencerCommand, SequencerKind, SequencerSnapshot, SigningMode,
+    StandardCommitRequest,
 };
 pub use error::{GitError, GitErrorKind, GitResult, RecoveryAction};
 pub use head::{BranchTracking, HeadState};
