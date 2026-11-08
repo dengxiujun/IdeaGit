@@ -77,13 +77,30 @@ impl<R: ProcessRunner> EditableIndexCandidateBuilder for GitCliEditableIndexCand
                     index: request.temporary_index.clone(),
                     entry: cacheinfo_entry(request.mode, &oid, &path),
                 },
-                context,
+                context.clone(),
             )
             .await?;
         if !update.success {
             return Err(GitError::new(
                 GitErrorKind::InvalidRepository,
                 "Git could not update editable candidate Index",
+            ));
+        }
+        let observed = self
+            .executor
+            .execute(
+                VerifyIndexEntryCommand {
+                    cwd: cwd.to_path_buf(),
+                    index: request.temporary_index.clone(),
+                    path: path.clone(),
+                },
+                context,
+            )
+            .await?;
+        if !observed.success || !entry_matches(&observed.stdout, request.mode, &oid) {
+            return Err(GitError::new(
+                GitErrorKind::Internal,
+                "candidate Index entry does not match the edited Blob",
             ));
         }
         let index_bytes = fs::read(request.temporary_index).map_err(|error| {
@@ -145,6 +162,28 @@ impl sealed::Sealed for UpdateIndexCommand {
     }
 }
 
+struct VerifyIndexEntryCommand {
+    cwd: PathBuf,
+    index: PathBuf,
+    path: OsString,
+}
+impl GitCliCommand for VerifyIndexEntryCommand {}
+impl sealed::Sealed for VerifyIndexEntryCommand {
+    fn into_invocation(self) -> GitCliInvocation {
+        GitCliInvocation::new(
+            None,
+            [
+                OsString::from("ls-files"),
+                OsString::from("--stage"),
+                OsString::from("--"),
+                self.path,
+            ],
+        )
+        .with_cwd(self.cwd)
+        .with_environment([EnvironmentVariable::public("GIT_INDEX_FILE", self.index)])
+    }
+}
+
 #[allow(clippy::result_large_err)]
 fn repo_path_arg(path: &git_domain::RepoPath) -> GitResult<OsString> {
     #[cfg(unix)]
@@ -171,6 +210,23 @@ fn cacheinfo_entry(mode: u32, oid: &ObjectId, path: &OsString) -> OsString {
     entry
 }
 
+fn entry_matches(output: &[u8], expected_mode: u32, expected_oid: &ObjectId) -> bool {
+    let mut fields = output.splitn(3, |byte| *byte == b' ' || *byte == b'\t');
+    let Some(mode) = fields
+        .next()
+        .and_then(|value| std::str::from_utf8(value).ok())
+    else {
+        return false;
+    };
+    let Some(oid) = fields
+        .next()
+        .and_then(|value| std::str::from_utf8(value).ok())
+    else {
+        return false;
+    };
+    mode == format!("{:o}", expected_mode) && oid == expected_oid.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,7 +245,9 @@ mod tests {
     #[tokio::test]
     async fn builds_candidate_index_without_touching_real_index() {
         let fixture = TestRepository::init().expect("fixture");
-        fixture.commit_file("file.txt", b"base\n").expect("commit");
+        fixture
+            .commit_file("glob[1].txt", b"base\n")
+            .expect("commit");
         let real_index = fixture.worktree.join(".git/index");
         let original = fs::read(&real_index).expect("real index");
         let temporary_index = fixture.temp_dir.path().join("editable-index");
@@ -215,8 +273,8 @@ mod tests {
             .build(
                 EditableIndexCandidateRequest {
                     target: SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
-                    path: RepoPath::try_from("file.txt").expect("path"),
-                    mode: 0o100644,
+                    path: RepoPath::try_from("glob[1].txt").expect("path"),
+                    mode: 0o100755,
                     content: b"edited\n".to_vec(),
                     temporary_index,
                 },

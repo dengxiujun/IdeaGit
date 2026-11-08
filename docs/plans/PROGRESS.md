@@ -21,8 +21,10 @@
 - 测试：新增 Apply 正常发布和候选内容不匹配拒绝测试；git-commit 专项当前 14 个测试通过。
 - 完成：新增 `EditableIndexCandidateBuilder` 端口和 Git CLI 实现；使用 `hash-object --stdin --path` 创建 Blob，在临时 Index 上通过 `update-index --cacheinfo` 更新条目，读取候选 Index 字节；真实 Index 保持不变，RepoPath 使用原始路径字节传递。
 - 测试：新增真实 Git 候选 Index 构造测试；workspace 全量门禁通过；Git CLI 当前 70 个测试、git-commit 当前 14 个测试通过。
-- 风险：Apply 后重新读取真实 Index Blob 的逐字节校验和 mode/filter 完整矩阵仍需补充；UI-012/UI-013 继续关闭。
-- 下一步：补 Apply 后 Blob 校验、特殊路径/mode/filter 集成测试，再进入 CCD-009/UI-012 依赖检查。
+- 完成：候选 Index 构造后重新读取临时 Index 条目，核对 mode 与 Blob OID；新增特殊路径和 executable mode 真实 Git 测试，真实 Index 保持不变。
+- 测试：workspace 全量门禁通过；Git CLI 当前 70 个测试、git-commit 当前 14 个测试通过。
+- 风险：Apply 后真实 Index 的最终 Blob 逐字节回读、clean filter 和冲突 stage 完整矩阵仍需补充；UI-012/UI-013 继续关闭。
+- 下一步：补 Apply 发布后的真实 Index Blob 回读与 filter/冲突 stage 拒绝测试，再进入 CCD-009/UI-012 依赖检查。
 
 ## M4 TEST-004 / CCD-006：提交副作用观察与恢复边界（2026-11-08）
 
