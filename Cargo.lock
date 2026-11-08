@@ -2196,6 +2196,7 @@ dependencies = [
  "git-changelist",
  "git-domain",
  "git-ports",
+ "git-shelf",
 ]
 
 [[package]]
