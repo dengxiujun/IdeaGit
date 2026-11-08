@@ -9,6 +9,7 @@ mod credential;
 mod head;
 mod history;
 mod index;
+mod index_reconciliation;
 mod journal;
 mod merge;
 mod process;
@@ -33,6 +34,9 @@ pub use history::HistoryReader;
 pub use index::{
     HunkStageStateReader, HunkStageWriter, IndexMutation, IndexMutationError, IndexWriter,
     StageHunksRequest, StageHunksState,
+};
+pub use index_reconciliation::{
+    IndexReconciliationOutcome, IndexReconciliationPublisher, IndexReconciliationRequest,
 };
 pub use journal::{JournalError, JournalStore, PendingJournalRecords};
 pub use merge::{MergeWriter, SequencerReader, SequencerWriter};

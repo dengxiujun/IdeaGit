@@ -1,6 +1,6 @@
 # ADR-M4-CCD-007：真实 Index Reconciliation 发布协议
 
-- 状态：Draft，待项目负责人批准
+- 状态：Accepted（方案二已于 2026-11-08 获批准）
 - 日期：2026-11-08
 - 范围：M4 CCD-007 / CCD-008 / TEST-004 / UI-013
 
