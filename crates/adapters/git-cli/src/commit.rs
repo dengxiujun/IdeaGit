@@ -7,9 +7,10 @@ use git_domain::{
     GitError, GitErrorKind, GitResult, ObjectId, SessionTarget, SigningMode, StandardCommitRequest,
 };
 use git_ports::{
-    CommitOutcome, CommitWriter, EnvironmentVariable, ExecutionContext, ProcessRunner,
-    ProcessStdin, RepositoryLocation,
+    CommitOutcome, CommitSideEffectObserver, CommitSideEffectSnapshot, CommitWriter,
+    EnvironmentVariable, ExecutionContext, ProcessRunner, ProcessStdin, RepositoryLocation,
 };
+use sha2::{Digest, Sha256};
 
 use crate::executor::{GitCliCommand, GitCliExecutor, GitCliInvocation, sealed};
 
@@ -103,6 +104,118 @@ pub struct GitCliCommitWriter<R> {
 #[derive(Debug)]
 pub struct GitCliTemporaryIndexCommitWriter<R> {
     inner: GitCliCommitWriter<R>,
+}
+
+/// Observes commit side effects without inheriting a temporary `GIT_INDEX_FILE`.
+#[derive(Debug)]
+pub struct GitCliCommitSideEffectObserver<R> {
+    executor: GitCliExecutor<R>,
+    location: RepositoryLocation,
+}
+
+impl<R> GitCliCommitSideEffectObserver<R> {
+    #[must_use]
+    pub fn new(runner: R, location: RepositoryLocation) -> Self {
+        Self {
+            executor: GitCliExecutor::new(runner),
+            location,
+        }
+    }
+}
+
+#[async_trait]
+impl<R: ProcessRunner> CommitSideEffectObserver for GitCliCommitSideEffectObserver<R> {
+    async fn capture(
+        &self,
+        _target: SessionTarget,
+        context: ExecutionContext,
+    ) -> GitResult<CommitSideEffectSnapshot> {
+        self.snapshot(context).await
+    }
+
+    async fn observe(
+        &self,
+        _target: SessionTarget,
+        context: ExecutionContext,
+    ) -> GitResult<CommitSideEffectSnapshot> {
+        self.snapshot(context).await
+    }
+}
+
+impl<R: ProcessRunner> GitCliCommitSideEffectObserver<R> {
+    #[allow(clippy::result_large_err)]
+    async fn snapshot(&self, context: ExecutionContext) -> GitResult<CommitSideEffectSnapshot> {
+        let cwd = self
+            .location
+            .worktree_root()
+            .ok_or_else(|| {
+                GitError::new(
+                    GitErrorKind::UnsupportedFeature,
+                    "commit side-effect observation is unavailable for a bare repository",
+                )
+            })?
+            .to_path_buf();
+        let head_output = self
+            .executor
+            .execute(HeadOidCommand { cwd: cwd.clone() }, context.clone())
+            .await?;
+        let head = if head_output.success {
+            Some(parse_oid(
+                &head_output.stdout,
+                "Git returned an invalid HEAD OID",
+            )?)
+        } else if head_output.exit_code == Some(1) {
+            None
+        } else {
+            return Err(GitError::new(
+                GitErrorKind::InvalidRepository,
+                "Git could not read HEAD",
+            ));
+        };
+        let worktree = self
+            .executor
+            .execute(
+                WorktreeObservationCommand { cwd: cwd.clone() },
+                context.clone(),
+            )
+            .await?;
+        if !worktree.success {
+            return Err(GitError::new(
+                GitErrorKind::InvalidRepository,
+                "Git could not observe Worktree",
+            ));
+        }
+        let untracked = self
+            .executor
+            .execute(
+                UntrackedObservationCommand { cwd: cwd.clone() },
+                context.clone(),
+            )
+            .await?;
+        if !untracked.success {
+            return Err(GitError::new(
+                GitErrorKind::InvalidRepository,
+                "Git could not observe untracked Worktree paths",
+            ));
+        }
+        let refs = self
+            .executor
+            .execute(RefsObservationCommand { cwd }, context)
+            .await?;
+        if !refs.success {
+            return Err(GitError::new(
+                GitErrorKind::InvalidRepository,
+                "Git could not observe refs",
+            ));
+        }
+        let mut worktree_bytes = worktree.stdout;
+        worktree_bytes.extend_from_slice(&untracked.stdout);
+        Ok(CommitSideEffectSnapshot {
+            head,
+            worktree_digest: Sha256::digest(&worktree_bytes).into(),
+            refs_digest: Sha256::digest(&refs.stdout).into(),
+        })
+    }
 }
 
 impl<R> GitCliTemporaryIndexCommitWriter<R> {
@@ -286,6 +399,64 @@ impl sealed::Sealed for HeadOidCommand {
                 OsString::from("--verify"),
                 OsString::from("--quiet"),
                 OsString::from("HEAD"),
+            ],
+        )
+        .with_cwd(self.cwd)
+    }
+}
+
+struct WorktreeObservationCommand {
+    cwd: PathBuf,
+}
+impl GitCliCommand for WorktreeObservationCommand {}
+impl sealed::Sealed for WorktreeObservationCommand {
+    fn into_invocation(self) -> GitCliInvocation {
+        GitCliInvocation::new(
+            None,
+            [
+                OsString::from("-c"),
+                OsString::from("core.quotepath=false"),
+                OsString::from("diff"),
+                OsString::from("--binary"),
+                OsString::from("--no-ext-diff"),
+            ],
+        )
+        .with_cwd(self.cwd)
+    }
+}
+
+struct UntrackedObservationCommand {
+    cwd: PathBuf,
+}
+impl GitCliCommand for UntrackedObservationCommand {}
+impl sealed::Sealed for UntrackedObservationCommand {
+    fn into_invocation(self) -> GitCliInvocation {
+        GitCliInvocation::new(
+            None,
+            [
+                OsString::from("ls-files"),
+                OsString::from("--others"),
+                OsString::from("--exclude-standard"),
+                OsString::from("-z"),
+            ],
+        )
+        .with_cwd(self.cwd)
+    }
+}
+
+struct RefsObservationCommand {
+    cwd: PathBuf,
+}
+impl GitCliCommand for RefsObservationCommand {}
+impl sealed::Sealed for RefsObservationCommand {
+    fn into_invocation(self) -> GitCliInvocation {
+        GitCliInvocation::new(
+            None,
+            [
+                OsString::from("for-each-ref"),
+                OsString::from("--format=%(refname)%00%(objectname)%00%(symref)"),
+                OsString::from("refs/tags"),
+                OsString::from("refs/remotes"),
             ],
         )
         .with_cwd(self.cwd)

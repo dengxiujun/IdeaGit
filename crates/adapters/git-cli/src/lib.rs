@@ -24,7 +24,8 @@ pub use branch::GitCliBranchWriter;
 pub use candidate_tree::GitCliCandidateTreeBuilder;
 pub use clone::GitCliCloneWriter;
 pub use commit::{
-    GitCliCommitState, GitCliCommitStateProbe, GitCliCommitWriter, GitCliTemporaryIndexCommitWriter,
+    GitCliCommitSideEffectObserver, GitCliCommitState, GitCliCommitStateProbe, GitCliCommitWriter,
+    GitCliTemporaryIndexCommitWriter,
 };
 pub use conflict::GitCliConflictStageReader;
 pub use executor::{GitCliCommand, GitCliExecutor, GitVersionCommand};

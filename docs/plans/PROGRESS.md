@@ -2,6 +2,16 @@
 
 更新日期：2026-11-08。
 
+## M4 TEST-004 / CCD-006：提交副作用观察与恢复边界（2026-11-08）
+
+- 分支：`feat/m4`；已统一承载全部已完成 M4 分支内容，保留用户未跟踪文件不动。
+- 完成：项目负责人已批准 ADR-M4-PARTIAL-COMMIT-RECOVERY-001 方案二；新增 `CommitSideEffectObserver` 端口、Git CLI 真实观察器和协调器提交前后 Worktree/非当前分支 refs 指纹核对；观察到副作用时将事务和 Journal 转入 `RecoveryRequired`，不虚报成功。
+- 修改：`git-ports` 端口、`git-commit` 协调器、`git-cli` 适配器及锁文件依赖边；ADR 状态更新为 Accepted。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；workspace 测试全量通过，Git CLI 65 个测试、git-commit 10 个测试通过。
+- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 未创建（当前环境无 GitHub 连接器），因此无 Runner ID/PR。
+- 风险：当前观察器将当前 HEAD 分支的预期 ref 更新排除在 refs 指纹之外；Hook 修改已存在的未暂存内容可检测，Hook 修改当前分支以外 refs 可检测；崩溃恢复仍需真实协调器装配入口和启动恢复演练。
+- 下一任务：补齐 TEST-004 的协调器级真实 Hook 副作用/崩溃恢复测试，再按 IP-001 依赖继续 UI-013 前的剩余门禁。
+
 ## M4 TEST-004：Partial Commit Safety Tests（2026-11-08）
 
 - 分支：`feat/TEST-004`；从 `main` 创建，带入 DIFF-003..007 与 CCD-001..009 的前置实现。

@@ -2042,6 +2042,7 @@ dependencies = [
  "git-fixture",
  "git-ports",
  "process-wrap",
+ "sha2 0.10.9",
  "tempfile",
  "tokio",
  "tokio-util",

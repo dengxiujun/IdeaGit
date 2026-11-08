@@ -12,7 +12,9 @@ use git_domain::{
     GitCommand, GitError, GitErrorKind, GitResult, JournalPhase, JournalRecord, JournalResult,
     ObjectId, OperationId, RecoveryScope, SelectionCommitRequest,
 };
-use git_ports::{CommitOutcome, CommitWriter, ExecutionContext, JournalStore};
+use git_ports::{
+    CommitOutcome, CommitSideEffectObserver, CommitWriter, ExecutionContext, JournalStore,
+};
 
 /// Durable state of a partial-commit transaction. The states deliberately mirror the CCD
 /// journal phases and never imply that a real commit is atomic with Index reconciliation.
@@ -48,19 +50,26 @@ pub struct PartialCommitJournal<J> {
 }
 
 #[derive(Debug)]
-pub struct PartialCommitCoordinator<W, J> {
+pub struct PartialCommitCoordinator<W, J, O> {
     writer: W,
     journal: PartialCommitJournal<J>,
+    observer: O,
 }
 
-impl<W, J> PartialCommitCoordinator<W, J> {
+impl<W, J, O> PartialCommitCoordinator<W, J, O> {
     #[must_use]
-    pub fn new(writer: W, journal: PartialCommitJournal<J>) -> Self {
-        Self { writer, journal }
+    pub fn new(writer: W, journal: PartialCommitJournal<J>, observer: O) -> Self {
+        Self {
+            writer,
+            journal,
+            observer,
+        }
     }
 }
 
-impl<W: CommitWriter, J: JournalStore> PartialCommitCoordinator<W, J> {
+impl<W: CommitWriter, J: JournalStore, O: CommitSideEffectObserver>
+    PartialCommitCoordinator<W, J, O>
+{
     #[allow(clippy::result_large_err)]
     pub async fn commit(
         &self,
@@ -70,15 +79,31 @@ impl<W: CommitWriter, J: JournalStore> PartialCommitCoordinator<W, J> {
         context: ExecutionContext,
     ) -> GitResult<CommitOutcome> {
         let mut record = self.journal.record_intent(operation, transaction).await?;
+        let before = self.observer.capture(target, context.clone()).await?;
         let _tree = transaction.begin_commit()?;
         record.phase = JournalPhase::CommitInProgress;
         self.journal.store.replace(record.clone()).await?;
         match self
             .writer
-            .commit(target, transaction.standard_request()?, context)
+            .commit(target, transaction.standard_request()?, context.clone())
             .await
         {
             Ok(outcome) => {
+                let after = self.observer.observe(target, context.clone()).await?;
+                if before.worktree_digest != after.worktree_digest
+                    || before.refs_digest != after.refs_digest
+                {
+                    transaction.phase = PartialCommitPhase::RecoveryRequired;
+                    record.phase = JournalPhase::RecoveryRequired;
+                    record.result = Some(JournalResult::RecoveryRequired {
+                        reason: "commit side effects changed observed Worktree or Refs".to_owned(),
+                    });
+                    let _ = self.journal.store.replace(record).await;
+                    return Err(GitError::new(
+                        GitErrorKind::HooksMutatedRepository,
+                        "commit side effects require recovery",
+                    ));
+                }
                 transaction.commit_observed(outcome.commit)?;
                 transaction.observe_head_after_commit(Some(outcome.commit))?;
                 record.phase = JournalPhase::CommitObserved;

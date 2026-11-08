@@ -15,6 +15,7 @@ mod process;
 mod remote;
 mod repository;
 mod resolution;
+mod side_effect;
 mod status;
 mod temporary_index;
 mod version;
@@ -47,6 +48,7 @@ pub use resolution::{
     validate_conflict_stages, validate_resolution_request, validate_worktree_digest,
     worktree_digest,
 };
+pub use side_effect::{CommitSideEffectObserver, CommitSideEffectSnapshot};
 pub use status::{StatusOptions, StatusParseError, StatusParser, StatusReader};
 pub use temporary_index::{TemporaryIndexContext, TemporaryIndexLease, TemporaryIndexManager};
 pub use version::{FileVersions, VersionDescriptor, VersionReader};

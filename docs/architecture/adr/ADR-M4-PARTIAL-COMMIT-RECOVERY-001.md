@@ -1,6 +1,6 @@
 # ADR-M4-PARTIAL-COMMIT-RECOVERY-001：Hook 副作用与崩溃恢复观察边界
 
-- 状态：Draft，待项目负责人批准
+- 状态：Accepted（方案二已于 2026-11-08 获批准）
 - 日期：2026-11-08
 - 范围：M4 TEST-004 / CCD-006 / CCD-007
 
