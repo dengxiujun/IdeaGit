@@ -2,6 +2,7 @@
 
 mod branch;
 mod commit;
+mod conflict;
 mod executor;
 mod head;
 mod history;
@@ -15,6 +16,7 @@ mod status;
 
 pub use branch::GitCliBranchWriter;
 pub use commit::{GitCliCommitState, GitCliCommitStateProbe, GitCliCommitWriter};
+pub use conflict::GitCliConflictStageReader;
 pub use executor::{GitCliCommand, GitCliExecutor, GitVersionCommand};
 pub use head::GitCliHeadReader;
 pub use history::GitCliHistoryReader;

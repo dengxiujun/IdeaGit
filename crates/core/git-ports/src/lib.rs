@@ -2,6 +2,7 @@
 
 mod branch;
 mod commit;
+mod conflict;
 mod credential;
 mod head;
 mod history;
@@ -15,6 +16,7 @@ mod status;
 
 pub use branch::BranchWriter;
 pub use commit::{CommitOutcome, CommitWriter};
+pub use conflict::ConflictStageReader;
 pub use credential::{
     CredentialBroker, CredentialError, CredentialKind, CredentialRequest, CredentialResponse,
 };

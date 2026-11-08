@@ -529,6 +529,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 该节点只做只读分类与安全门禁，不自动 Continue/Skip/Abort，也不重试未知结果；桌面恢复组合根仍需后续接入 `SequencerReader`。
 - 本机 Workspace `fmt/check/clippy/test` 通过；专项测试覆盖活动 sequencer 阻断与空状态兼容。
 
+## M3 MERGE-001 Conflict Stage Reader（2026-11-08）
+
+- `git-ports` 新增只读 `ConflictStageReader`；`git-cli` 新增 `GitCliConflictStageReader`，复用 porcelain v2 `StatusReader` 并仅筛选 `UnmergedChange`，保留 Stage 1/2/3 OID、mode 与冲突类型。
+- 该节点不写 Index、不执行 Resolve/Continue；真实三方内容构建与受控 Stage 留给 MERGE-002。
+- 本机 Workspace `fmt/check/clippy/test` 通过；Rust CI #84（Runner `42430531903`）三平台通过。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。
