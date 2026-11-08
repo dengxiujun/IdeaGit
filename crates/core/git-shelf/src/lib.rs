@@ -133,6 +133,27 @@ pub struct ShelfBundle {
     pub entries: Vec<ShelfEntry>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnshelveDecision {
+    Apply,
+    RequireExplicitConflictResolution,
+}
+
+/// Decides whether an unshelve may proceed without risking current user edits.
+/// A stale base or dirty worktree never silently overwrites the worktree.
+#[must_use]
+pub fn unshelve_decision(
+    entry: &ShelfEntry,
+    current_head: Option<ObjectId>,
+    worktree_dirty: bool,
+) -> UnshelveDecision {
+    if worktree_dirty || entry.base_head != current_head {
+        UnshelveDecision::RequireExplicitConflictResolution
+    } else {
+        UnshelveDecision::Apply
+    }
+}
+
 impl ShelfBundle {
     #[must_use]
     pub fn empty(target: SessionTarget) -> Self {
@@ -240,5 +261,33 @@ mod tests {
             .push(ShelfEntry::new(target, "saved", 0, None, bundle).expect("entry"));
         shelf.schema_version = 99;
         assert_eq!(shelf.validate(), Err(ShelfError::UnsupportedSchema));
+    }
+
+    #[test]
+    fn stale_base_or_dirty_worktree_requires_explicit_resolution() {
+        let target = target();
+        let entry = ShelfEntry::new(
+            target,
+            "saved",
+            0,
+            None,
+            PatchBundle::new(vec![file("a.txt")]).expect("bundle"),
+        )
+        .expect("entry");
+        assert_eq!(
+            unshelve_decision(&entry, None, false),
+            UnshelveDecision::Apply
+        );
+        assert_eq!(
+            unshelve_decision(&entry, None, true),
+            UnshelveDecision::RequireExplicitConflictResolution
+        );
+        let other_head: ObjectId = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+            .parse()
+            .expect("object id");
+        assert_eq!(
+            unshelve_decision(&entry, Some(other_head), false),
+            UnshelveDecision::RequireExplicitConflictResolution
+        );
     }
 }
