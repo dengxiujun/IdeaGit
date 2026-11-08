@@ -1256,4 +1256,7 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 安全校验：拒绝空计划、把 upstream 纳入计划以及未支持的 Todo action；bare repository 不伪造 worktree。
 - 修改文件：`crates/core/git-domain/src/command.rs`、`crates/core/git-domain/src/lib.rs`、`crates/core/git-ports/src/rebase.rs`、`crates/core/git-ports/src/lib.rs`、`crates/adapters/git-cli/src/rebase.rs`、`crates/adapters/git-cli/src/lib.rs`、`crates/adapters/git-cli/tests/m3_e2e.rs`、`docs/plans/PROGRESS.md`。
 - 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过；Git CLI 真实仓库测试 4 项通过。
-- 风险：尚未创建 PR，需等待 GitHub CI 和代码评审后再合并。
+- PR：[#5](https://github.com/dengxiujun/IdeaGit/pull/5) 已合并，合并提交为 `4c25d72acf6992223ef4dc989c8ab0e1a5199fd4`。
+- CI：Rust CI #128（Run ID `42483298100`）已通过；Format、macOS 15、Ubuntu 24.04、Windows 2022 全部成功。
+- 分支：已确认合并提交进入 `main`，本地和远程 `feat/REBASE-002` 均已清理。
+- 结论：REBASE-002 完成；下一任务为 `REBASE-003`。
