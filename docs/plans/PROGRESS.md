@@ -2,6 +2,15 @@
 
 更新日期：2026-11-08。
 
+## M4 UI-011：Side-by-side Viewer（2026-11-08）
+
+- 分支：`feat/UI-011`；从 `main` 创建并带入 DIFF-003/004。
+- 完成：新增只读 `SideBySideViewer` 投影，复用 Core `align_hunk` 的逻辑行映射，只保存行引用和对齐行，不复制内容；未接入 Stage/Apply 写操作。
+- 测试：`cargo test -p git-diff-ui --locked`、Clippy、fmt 通过，专项 1/1 通过。
+- Commit/Runner：`e73d13a`；GitHub Runner 尚未创建/执行 PR。
+- 风险：真实 GPUI 渲染、虚拟列表、导航和 Gutter 尚未接入；高级写操作仍受 CCD-007/TEST-004 门禁限制。
+- 下一任务：UI-012（Three-version Stage Viewer）。
+
 ## M4 DIFF-004：Side-by-side Alignment（2026-11-08）
 
 - 分支：`feat/DIFF-004`；从 `main` 创建并带入已验证的 DIFF-003 依赖提交。
