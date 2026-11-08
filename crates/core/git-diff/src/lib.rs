@@ -36,6 +36,98 @@ pub enum LineKind {
     Added,
     Removed,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DiffLineRef {
+    pub hunk_id: u32,
+    pub line_index: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AlignedRowKind {
+    Context,
+    Added,
+    Deleted,
+    Modified,
+    Spacer,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AlignedDiffRow {
+    pub left: Option<DiffLineRef>,
+    pub right: Option<DiffLineRef>,
+    pub kind: AlignedRowKind,
+}
+
+/// Align one hunk by logical lines.  It does not inspect rendered height or UI scroll offsets.
+pub fn align_hunk(hunk_id: u32, hunk: &Hunk) -> Vec<AlignedDiffRow> {
+    let mut rows = Vec::new();
+    let mut index = 0;
+    while index < hunk.lines.len() {
+        let line = &hunk.lines[index];
+        match line.kind {
+            LineKind::Context => {
+                rows.push(AlignedDiffRow {
+                    left: Some(DiffLineRef {
+                        hunk_id,
+                        line_index: index,
+                    }),
+                    right: Some(DiffLineRef {
+                        hunk_id,
+                        line_index: index,
+                    }),
+                    kind: AlignedRowKind::Context,
+                });
+                index += 1;
+            }
+            LineKind::Removed => {
+                let start = index;
+                while index < hunk.lines.len() && hunk.lines[index].kind == LineKind::Removed {
+                    index += 1;
+                }
+                let removed_end = index;
+                let added_start = index;
+                while index < hunk.lines.len() && hunk.lines[index].kind == LineKind::Added {
+                    index += 1;
+                }
+                let added_end = index;
+                let width = (removed_end - start).max(added_end - added_start);
+                for offset in 0..width {
+                    let left = (start + offset < removed_end).then_some(DiffLineRef {
+                        hunk_id,
+                        line_index: start + offset,
+                    });
+                    let right = (added_start + offset < added_end).then_some(DiffLineRef {
+                        hunk_id,
+                        line_index: added_start + offset,
+                    });
+                    rows.push(AlignedDiffRow {
+                        left,
+                        right,
+                        kind: match (left, right) {
+                            (Some(_), Some(_)) => AlignedRowKind::Modified,
+                            (Some(_), None) => AlignedRowKind::Deleted,
+                            (None, Some(_)) => AlignedRowKind::Added,
+                            (None, None) => AlignedRowKind::Spacer,
+                        },
+                    });
+                }
+            }
+            LineKind::Added => {
+                rows.push(AlignedDiffRow {
+                    left: None,
+                    right: Some(DiffLineRef {
+                        hunk_id,
+                        line_index: index,
+                    }),
+                    kind: AlignedRowKind::Added,
+                });
+                index += 1;
+            }
+        }
+    }
+    rows
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParseError {
     MissingFileHeader,
@@ -224,5 +316,48 @@ mod tests {
             parse(b"diff --git a/x b/x\n@@ -1,2 +1,1 @@\n-x\n"),
             Err(ParseError::HunkLineCountMismatch)
         );
+    }
+
+    #[test]
+    fn aligns_context_and_replacement_lines_by_identity() {
+        let patch = parse(
+            b"diff --git a/x b/x\n@@ -1,4 +1,3 @@\n same\n-old one\n-old two\n+new one\n tail\n",
+        )
+        .expect("valid");
+        let rows = align_hunk(7, &patch.files[0].hunks[0]);
+        assert_eq!(rows.len(), 4);
+        assert_eq!(rows[0].kind, AlignedRowKind::Context);
+        assert_eq!(rows[1].kind, AlignedRowKind::Modified);
+        assert_eq!(
+            rows[1].left,
+            Some(DiffLineRef {
+                hunk_id: 7,
+                line_index: 1
+            })
+        );
+        assert_eq!(
+            rows[1].right,
+            Some(DiffLineRef {
+                hunk_id: 7,
+                line_index: 3
+            })
+        );
+        assert_eq!(rows[2].kind, AlignedRowKind::Deleted);
+        assert_eq!(rows[3].kind, AlignedRowKind::Context);
+    }
+
+    #[test]
+    fn aligns_pure_addition_and_deletion_with_spacers() {
+        let added =
+            parse(b"diff --git a/x b/x\n@@ -1,1 +1,3 @@\n base\n+one\n+two\n").expect("valid");
+        let rows = align_hunk(1, &added.files[0].hunks[0]);
+        assert_eq!(rows[1].kind, AlignedRowKind::Added);
+        assert_eq!(rows[2].kind, AlignedRowKind::Added);
+
+        let deleted =
+            parse(b"diff --git a/x b/x\n@@ -1,3 +1,1 @@\n base\n-one\n-two\n").expect("valid");
+        let rows = align_hunk(2, &deleted.files[0].hunks[0]);
+        assert_eq!(rows[1].kind, AlignedRowKind::Deleted);
+        assert_eq!(rows[2].kind, AlignedRowKind::Deleted);
     }
 }
