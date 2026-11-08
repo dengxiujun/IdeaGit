@@ -9,7 +9,9 @@ mod refresh;
 mod selection_preview;
 mod session;
 
-pub use candidate_preview::{CandidateTreePreview, CandidateTreePreviewService};
+pub use candidate_preview::{
+    CandidateTreePreview, CandidateTreePreviewService, PreparedPartialCommit,
+};
 pub use refresh::{
     RefreshHealth, RefreshScheduler, RefreshSchedulerConfig, RefreshState, RefreshTrigger,
     ScheduledSnapshotRebuilder, SnapshotRefreshService,

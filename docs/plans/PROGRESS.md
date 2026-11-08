@@ -882,3 +882,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：Candidate Tree Preview 尚未绑定 HEAD/Index 原始摘要和真实 `PartialCommitTransaction`；提交执行器和 OperationCoordinator 入口继续关闭。
 - 下一步：补齐 Candidate Tree Preview 的真实仓库组合测试，并接入 PartialCommitTransaction 的确认前置状态。
+
+## M4 UI-013：Preview 到 PartialCommitTransaction 前置状态（2026-11-08）
+
+- 完成：Candidate Tree Preview 新增 `prepare_transaction`，读取候选 Index 字节，绑定原始 Index 摘要、预期 HEAD/Index、Candidate Tree 和 SelectionCommitRequest，生成 `PartialCommitTransaction::PreviewReady`。
+- 安全边界：只接受与 Preview 完全一致的单一 Selection；目标不一致或选区变化返回 `StaleSelection`；本切片仍不执行 Commit 或真实 Index 发布。
+- 测试：`git-application` 17 个测试通过；workspace `fmt/check/clippy/test/diff check` 全部通过；Git CLI 77 个测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：尚未接入 Preview Confirm/身份二次校验和 OperationCoordinator 执行器；Candidate Tree/Transaction 真实仓库组合测试仍需补充。
+- 下一步：实现确认阶段的 HEAD/Index 重验，并将已确认事务交给 PartialCommitCoordinator 的应用层执行入口。

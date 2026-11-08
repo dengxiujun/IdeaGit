@@ -1,3 +1,4 @@
+use git_commit::{PartialCommitPhase, PartialCommitTransaction};
 use git_domain::{GitError, GitErrorKind, GitResult, ObjectId, OperationId, SessionTarget};
 use git_ports::{
     CandidateTreeBuilder, CandidateTreeRequest, ExecutionContext, RepositoryLocation,
@@ -13,6 +14,12 @@ pub struct CandidateTreePreview {
     pub candidate_tree: ObjectId,
     pub patch: SelectionPatchPreview,
     pub temporary_index: TemporaryIndexLease,
+}
+
+#[derive(Debug)]
+pub struct PreparedPartialCommit {
+    pub preview: CandidateTreePreview,
+    pub transaction: PartialCommitTransaction,
 }
 
 #[derive(Debug)]
@@ -80,6 +87,42 @@ impl<T: TemporaryIndexManager, B: CandidateTreeBuilder> CandidateTreePreviewServ
             temporary_index,
         })
     }
+
+    #[allow(clippy::result_large_err)]
+    pub fn prepare_transaction(
+        preview: CandidateTreePreview,
+        request: git_domain::SelectionCommitRequest,
+        expected_head: Option<ObjectId>,
+        expected_index: Option<ObjectId>,
+        original_index_digest: [u8; 32],
+    ) -> GitResult<PreparedPartialCommit> {
+        if request.selections.len() != 1 || request.selections[0] != preview.patch.selection {
+            return Err(GitError::new(
+                GitErrorKind::StaleSelection,
+                "selection request does not match the prepared preview",
+            )
+            .with_target(preview.target)
+            .with_operation(preview.operation_id));
+        }
+        let candidate_index = std::fs::read(&preview.temporary_index.path).map_err(|error| {
+            GitError::new(
+                GitErrorKind::Internal,
+                "candidate Index could not be read for transaction preparation",
+            )
+            .with_diagnostic(error.to_string())
+            .with_target(preview.target)
+            .with_operation(preview.operation_id)
+        })?;
+        let mut transaction = PartialCommitTransaction::begin(request)?;
+        transaction.temp_index_prepared(expected_head, expected_index)?;
+        transaction.candidate_ready(preview.candidate_tree)?;
+        transaction.reconciliation_candidate(original_index_digest, candidate_index)?;
+        debug_assert_eq!(transaction.phase, PartialCommitPhase::PreviewReady);
+        Ok(PreparedPartialCommit {
+            preview,
+            transaction,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -108,6 +151,10 @@ mod tests {
             _context: ExecutionContext,
         ) -> GitResult<TemporaryIndexLease> {
             *self.operation.lock().expect("operation lock") = Some(operation);
+            std::fs::write(&self.path, b"candidate-index").map_err(|error| {
+                GitError::new(GitErrorKind::PermissionDenied, "test index write")
+                    .with_diagnostic(error.to_string())
+            })?;
             Ok(TemporaryIndexLease {
                 path: self.path.clone(),
                 transaction_id: operation,
@@ -194,6 +241,61 @@ mod tests {
             Some(b"patch".as_slice())
         );
         drop(preview);
+    }
+
+    #[tokio::test]
+    async fn binds_candidate_tree_and_index_identity_before_confirmation() {
+        let target = target();
+        let operation = OperationId::new();
+        let path = std::env::temp_dir().join(format!("ideagit-transaction-{operation}"));
+        let service = CandidateTreePreviewService::new(
+            Indexes {
+                path,
+                operation: Arc::new(Mutex::new(None)),
+            },
+            Trees {
+                seen: Arc::new(Mutex::new(None)),
+            },
+        );
+        let preview = service
+            .prepare(
+                &RepositoryLocation::worktree("/repo", "/repo/.git", "/repo/.git"),
+                target,
+                operation,
+                patch(target),
+                context(),
+            )
+            .await
+            .expect("preview");
+        let request = git_domain::SelectionCommitRequest {
+            options: git_domain::CommitOptions {
+                message: b"partial\n".to_vec(),
+                amend: false,
+                allow_empty: false,
+                signoff: false,
+                author: None,
+                committer: None,
+                signing: git_domain::SigningMode::Disable,
+            },
+            selections: vec![preview.patch.selection.clone()],
+            fingerprints: vec![git_domain::SelectionFingerprint {
+                expected_head: None,
+                expected_index: None,
+                diff_generation: preview.patch.generation,
+                content_digest: preview.patch.selection_digest.to_vec(),
+            }],
+            expected_revision: git_domain::SnapshotRevision::new(1),
+        };
+        let prepared = CandidateTreePreviewService::<Indexes, Trees>::prepare_transaction(
+            preview, request, None, None, [3; 32],
+        )
+        .expect("transaction");
+        assert_eq!(prepared.transaction.phase, PartialCommitPhase::PreviewReady);
+        assert_eq!(
+            prepared.transaction.candidate_tree,
+            Some(prepared.preview.candidate_tree)
+        );
+        assert_eq!(prepared.transaction.original_index_digest, Some([3; 32]));
     }
 
     #[tokio::test]

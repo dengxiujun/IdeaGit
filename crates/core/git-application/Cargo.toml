@@ -7,6 +7,7 @@ publish.workspace = true
 [dependencies]
 async-trait.workspace = true
 git-domain.workspace = true
+git-commit.workspace = true
 git-diff.workspace = true
 git-operations.workspace = true
 git-ports.workspace = true
