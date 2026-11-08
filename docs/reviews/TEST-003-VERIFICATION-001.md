@@ -29,6 +29,8 @@ git diff --check
 
 CI 最终结果以修复 fixture identity 与 `core.autocrlf` 隔离后的最新 `Rust CI` 为准；`Rust CI #109`（Runner ID `42443666319`）的 Format、Ubuntu、Windows、macOS 全部成功。
 
+最终文档提交由 `Rust CI #110`（Runner ID `42444369117`）再次在 Format、Ubuntu、Windows、macOS 全部验证成功。
+
 ## 4. 安全边界
 
 - 测试使用隔离临时仓库和本地 bare remote，不访问用户仓库或真实网络远端。
