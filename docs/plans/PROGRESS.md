@@ -1273,3 +1273,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - CI：Rust CI #129（Run ID `42484939040`）已通过；Format、macOS 15、Ubuntu 24.04、Windows 2022 全部成功。
 - 分支：已确认合并提交进入 `main`，本地和远程 `feat/REBASE-003` 均已清理。
 - 结论：REBASE-003 完成；下一任务为 `REBASE-004`。
+
+## M5 REBASE-004：Rebase Recovery（2026-11-08）
+
+- 完成：扩展 `SequencerSnapshot` 对 `rebase-merge` 与 `rebase-apply` 的恢复识别；从 `done`/`git-rebase-todo` 或 `msgnum`/`end` 恢复当前步骤和总步骤，避免重启后丢失 Rebase 进度信息。
+- 恢复动作：沿用启动恢复检查器提供的 Rebase Continue、Skip、Abort 动作；冲突状态仍明确标记为活动 Rebase，不降级为其他 Sequencer 类型。
+- 测试：真实 Git 仓库冲突 Rebase E2E 验证 `Rebase` 类型、当前/总进度以及 Abort 后状态清理。
+- 修改文件：`crates/adapters/git-cli/src/sequencer.rs`、`crates/adapters/git-cli/tests/m3_e2e.rs`、`docs/plans/PROGRESS.md`。
+- 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
+- 风险：PR、GitHub CI、代码审查和合并门禁尚未完成。
