@@ -1366,4 +1366,8 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 完成：新增真实 Git 仓库恢复 E2E，启动冲突 Rebase 后重建 Sequencer Reader，验证 Rebase 类型和进度在“重启”后保持一致，再通过 Abort 安全清理并恢复工作区。
 - 安全边界：测试只在隔离 fixture 中执行，不在用户真实仓库使用 `reset --hard`；Abort 后验证 Sequencer 已 inactive 且原分支内容恢复。
 - 修改文件：`crates/adapters/git-cli/tests/m3_e2e.rs`、`docs/plans/PROGRESS.md`。
-- 验证：专项恢复 E2E 已通过；完整工作区门禁、PR、GitHub CI 和合并门禁尚未完成。
+- 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
+- PR：[#14](https://github.com/dengxiujun/IdeaGit/pull/14) 已合并，合并提交为 `858e818abf8a18338bf41f07a24371c72f444a98`。
+- CI：Rust CI #137（Run ID `42494684611`，提交 `0b6c6713f7ac6e0f3e353989b03aeb97ff9d0629`）已成功；Format、Ubuntu 24.04、macOS 15、Windows 2022 全部通过。
+- 分支：已确认合并提交进入 `main`；本地和远程 `feat/TEST-005` 均已清理。
+- 结论：TEST-005 完成；M5 任务表中的全部任务均已完成，进入 M5 总体验收审计。
