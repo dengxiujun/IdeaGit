@@ -878,6 +878,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn m2_executor_never_downgrades_selection_commit_to_index_commit() {
+        let target = target();
+        let executor = M2OperationExecutor::new(
+            target,
+            RecordingIndexWriter {
+                seen: Arc::new(std::sync::Mutex::new(Vec::new())),
+            },
+            RecordingCommitWriter {
+                seen: Arc::new(std::sync::Mutex::new(0)),
+            },
+            RecordingBranchWriter {
+                seen: Arc::new(std::sync::Mutex::new(0)),
+            },
+        );
+        let error = executor
+            .execute(
+                GitCommand::CommitSelection {
+                    target,
+                    request: git_domain::SelectionCommitRequest {
+                        options: CommitOptions {
+                            message: b"selection".to_vec(),
+                            amend: false,
+                            allow_empty: false,
+                            signoff: false,
+                            author: None,
+                            committer: None,
+                            signing: SigningMode::UseGitConfig,
+                        },
+                        selections: Vec::new(),
+                        fingerprints: Vec::new(),
+                        expected_revision: SnapshotRevision::new(1),
+                    },
+                },
+                context(),
+            )
+            .await
+            .expect_err("selection commits need their dedicated coordinator");
+        assert_eq!(error.kind, GitErrorKind::UnsupportedFeature);
+    }
+
+    #[tokio::test]
     async fn m2_executor_rejects_stale_session_before_any_writer_runs() {
         let index_seen = Arc::new(std::sync::Mutex::new(Vec::new()));
         let commit_seen = Arc::new(std::sync::Mutex::new(0));

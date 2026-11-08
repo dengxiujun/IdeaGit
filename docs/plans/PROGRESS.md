@@ -100,7 +100,9 @@
 - 风险：真实提交入口仍关闭，尚未将 UI 操作接入 Partial Commit OperationCoordinator。
 - 完成补充：`idea-shell` 的 Commit Action 在 Changelist 模式下显式不生成 `CommitIndex` 请求，避免把逻辑选区误提交为真实 Index；待 Partial Commit Coordinator 入口完整装配后再开放。
 - 测试：新增入口隔离测试；workspace 全量 fmt、check、clippy、test、diff check 全部通过。
-- 下一步：继续审查 M4 全部任务的完成证据和 UI-013 应用层装配缺口。
+- 完成补充：`M2OperationExecutor` 对 `CommitSelection` 保持显式 `UnsupportedFeature`，新增回归测试，防止未来将 Changelist 选择提交降级为标准 Index Commit。
+- 测试补充：`git-operations` 专项通过；workspace 全量 fmt、check、clippy、test、diff check 全部通过。
+- 下一步：补齐 Selection Commit 的应用层协调器装配，或在未满足候选 Tree/Journal/Recovery 入口前维持能力关闭。
 
 ## M4 TEST-004 / CCD-006：提交副作用观察与恢复边界（2026-11-08）
 
