@@ -210,7 +210,7 @@ async fn m3_gate_rejects_clone_network_failure_and_external_conflict_edit() {
     let clone_error = GitCliCloneWriter::new(TokioProcessRunner)
         .clone_repository(
             CloneRequest {
-                source: "https://127.0.0.1:9/ideagit-unreachable.git".to_owned(),
+                source: "file:///ideagit-missing-remote.git".to_owned(),
                 destination: git_domain::LocalPath::new(destination),
             },
             context(),
