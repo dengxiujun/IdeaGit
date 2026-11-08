@@ -2,6 +2,15 @@
 
 更新日期：2026-11-08。
 
+## M4 CCD-007：真实 Index Reconciliation 发布协议阻塞（2026-11-08）
+
+- 当前分支：`feat/m4`；工作区原本干净，未修改用户文件。
+- 已验证事实：`RealIndexReconciler` 当前仅生成 Publish/RecoveryRequired 计划；没有真实 Index 发布端口，`PartialCommitCoordinator` 也尚未接入 `ReconcilingIndex` 阶段。
+- 阻塞原因：实现安全发布需要新增核心端口、适配器锁内比较/发布协议及 Journal 结果映射，属于核心写入边界变更，不能未经 ADR 批准实现。
+- ADR：新增 [ADR-M4-CCD-007-INDEX-PUBLISH-001](../architecture/adr/ADR-M4-CCD-007-INDEX-PUBLISH-001.md)，状态 Draft，待项目负责人批准。
+- 影响范围：CCD-007、CCD-008、TEST-004 的提交后 Index 协调和 UI-013 生产入口保持关闭；当前不修改核心代码。
+- 下一步：等待 ADR 批准；批准后先实现 CCD-007 端口与 Git CLI 适配器，再补真实仓库发布/竞争/恢复测试。
+
 ## M4 TEST-004 / CCD-006：提交副作用观察与恢复边界（2026-11-08）
 
 - 分支：`feat/m4`；已统一承载全部已完成 M4 分支内容，保留用户未跟踪文件不动。
