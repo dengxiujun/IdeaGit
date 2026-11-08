@@ -2,6 +2,15 @@
 
 更新日期：2026-11-08。
 
+## M4 DIFF-005：HEAD/Index/Worktree 三版本（2026-11-08）
+
+- 分支：`feat/DIFF-005`；从 `main` 创建并按依赖带入 DIFF-003/DIFF-004。
+- 完成：新增 `ContentSource`、三版本文件身份、HEAD↔Index、Index↔Worktree、HEAD↔Worktree 比较模型；保留路径、OID、mode 与来源身份，拒绝未定义的反向比较。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；专项 7 个 Diff 测试通过。
+- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
+- 风险：当前只提供只读三版本模型，尚未接入真实 DiffReader、Stage 操作或三版本 UI。
+- 下一任务：DIFF-006（Safe Hunk Stage）。
+
 ## M4 DIFF-004：Side-by-side Alignment（2026-11-08）
 
 - 分支：`feat/DIFF-004`；从 `main` 创建并带入已验证的 DIFF-003 依赖提交。
