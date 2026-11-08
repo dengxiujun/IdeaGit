@@ -2025,6 +2025,9 @@ name = "git-changelist"
 version = "0.1.0"
 dependencies = [
  "git-domain",
+ "serde",
+ "thiserror 2.0.21",
+ "uuid",
 ]
 
 [[package]]
