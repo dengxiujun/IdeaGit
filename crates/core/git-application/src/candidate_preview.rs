@@ -123,6 +123,18 @@ impl<T: TemporaryIndexManager, B: CandidateTreeBuilder> CandidateTreePreviewServ
             transaction,
         })
     }
+
+    #[allow(clippy::result_large_err)]
+    pub fn confirm_transaction(
+        prepared: &mut PreparedPartialCommit,
+        head: Option<ObjectId>,
+        index: Option<ObjectId>,
+    ) -> GitResult<ObjectId> {
+        prepared
+            .transaction
+            .revalidate_before_commit(head, index)
+            .map(|()| prepared.preview.candidate_tree)
+    }
 }
 
 #[cfg(test)]
@@ -286,7 +298,7 @@ mod tests {
             }],
             expected_revision: git_domain::SnapshotRevision::new(1),
         };
-        let prepared = CandidateTreePreviewService::<Indexes, Trees>::prepare_transaction(
+        let mut prepared = CandidateTreePreviewService::<Indexes, Trees>::prepare_transaction(
             preview, request, None, None, [3; 32],
         )
         .expect("transaction");
@@ -296,6 +308,21 @@ mod tests {
             Some(prepared.preview.candidate_tree)
         );
         assert_eq!(prepared.transaction.original_index_digest, Some([3; 32]));
+        let error = CandidateTreePreviewService::<Indexes, Trees>::confirm_transaction(
+            &mut prepared,
+            Some(
+                "1111111111111111111111111111111111111111"
+                    .parse()
+                    .expect("oid"),
+            ),
+            None,
+        )
+        .expect_err("changed HEAD must expire the transaction");
+        assert_eq!(error.kind, GitErrorKind::HeadChangedExternally);
+        assert_eq!(
+            prepared.transaction.phase,
+            PartialCommitPhase::RecoveryRequired
+        );
     }
 
     #[tokio::test]

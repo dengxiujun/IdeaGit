@@ -891,3 +891,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：尚未接入 Preview Confirm/身份二次校验和 OperationCoordinator 执行器；Candidate Tree/Transaction 真实仓库组合测试仍需补充。
 - 下一步：实现确认阶段的 HEAD/Index 重验，并将已确认事务交给 PartialCommitCoordinator 的应用层执行入口。
+
+## M4 UI-013：Preview 确认与 HEAD/Index 重验（2026-11-08）
+
+- 完成：新增应用层 `confirm_transaction`，在 Partial Commit 确认前重新校验预期 HEAD 与 Index 身份；一致时进入 `PreflightRevalidated`，不一致时进入 `RecoveryRequired`，拒绝继续提交。
+- 安全边界：确认只返回已验证的 Candidate Tree，不发布真实 Index、不执行 Commit；外部 HEAD 变化已由真实事务状态机映射为结构化错误。
+- 测试：`git-application` 17 个测试通过；workspace `fmt/check/clippy/test/diff check` 全部通过；Git CLI 77 个测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：尚未接入 OperationCoordinator 的确认事务执行器；Candidate Tree/Transaction 真实仓库组合测试、外部 Index 竞争、Hook/崩溃恢复矩阵仍需继续补齐。
+- 下一步：实现已确认 Partial Commit 的安全执行入口，并补充真实仓库失败恢复测试。
