@@ -79,6 +79,12 @@ pub struct LineSpan {
     pub end: u32,
 }
 
+/// Identity of a hunk selected for a safe Index update.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct HunkSelection {
+    pub hunk_id: u32,
+}
+
 /// Strong fingerprint binding a selection to the observed repository state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelectionFingerprint {
