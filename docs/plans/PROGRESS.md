@@ -1260,3 +1260,13 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - CI：Rust CI #128（Run ID `42483298100`）已通过；Format、macOS 15、Ubuntu 24.04、Windows 2022 全部成功。
 - 分支：已确认合并提交进入 `main`，本地和远程 `feat/REBASE-002` 均已清理。
 - 结论：REBASE-002 完成；下一任务为 `REBASE-003`。
+
+## M5 REBASE-003：Todo Validation/Execution（2026-11-08）
+
+- 完成：新增 Git Todo 解析、支持范围校验、重复 commit 检测、`squash/fixup` 顺序校验、`drop` 消息校验及强类型 Todo 渲染。
+- 执行：新增 `InteractiveRebaseWriter` 端口和 Git CLI 执行器；通过临时 Todo 文件与固定跨平台 sequence-editor 脚本启动 `git rebase --interactive`，失败时返回 Continue/Abort Rebase 恢复动作。
+- 安全边界：提交消息只写入临时 Todo 文件，不拼接进命令；计划不合法时不会启动 Git；bare repository 不伪造 worktree。
+- 测试：真实仓库验证计划读取、Todo 渲染/解析往返，以及 `drop` 执行结果。
+- 修改文件：`crates/core/git-domain/src/command.rs`、`crates/core/git-ports/src/rebase.rs`、`crates/core/git-ports/src/lib.rs`、`crates/adapters/git-cli/src/rebase.rs`、`crates/adapters/git-cli/src/lib.rs`、`crates/adapters/git-cli/tests/m3_e2e.rs`、`docs/plans/PROGRESS.md`。
+- 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
+- 风险：尚未创建 PR，需等待 GitHub CI 和代码评审后再合并。

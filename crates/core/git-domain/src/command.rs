@@ -4,6 +4,8 @@
 //! operation coordinator remain responsible for preflight, locking, execution, and reconcile.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::str::FromStr;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -204,6 +206,51 @@ pub struct InteractiveRebasePlan {
 }
 
 impl InteractiveRebasePlan {
+    /// Parses the supported, non-comment Git Todo lines into a typed plan.
+    pub fn parse_todo(
+        target: SessionTarget,
+        upstream: ObjectId,
+        input: &[u8],
+    ) -> Result<Self, RebaseTodoValidationError> {
+        let mut entries = Vec::new();
+        for raw_line in input.split(|byte| *byte == b'\n') {
+            let line = std::str::from_utf8(raw_line)
+                .map_err(|_| RebaseTodoValidationError::InvalidEncoding)?
+                .trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let mut fields = line.splitn(3, char::is_whitespace);
+            let action = fields
+                .next()
+                .ok_or(RebaseTodoValidationError::MalformedLine)?;
+            let commit = fields
+                .next()
+                .ok_or(RebaseTodoValidationError::MalformedLine)?;
+            let action = RebaseAction::parse_git_keyword(action)?;
+            let commit =
+                ObjectId::from_str(commit).map_err(|_| RebaseTodoValidationError::InvalidCommit)?;
+            let message_override = fields
+                .next()
+                .map(str::trim)
+                .filter(|message| !message.is_empty())
+                .map(ToOwned::to_owned);
+            entries.push(RebaseTodoEntry {
+                commit,
+                action,
+                message_override,
+            });
+        }
+        let plan = Self {
+            target,
+            upstream,
+            entries,
+        };
+        plan.validate()
+            .map_err(RebaseTodoValidationError::InvalidPlan)?;
+        Ok(plan)
+    }
+
     /// Validates plan-local invariants before the plan reaches an adapter.
     pub fn validate(&self) -> Result<(), RebasePlanValidationError> {
         if self.entries.is_empty() {
@@ -216,7 +263,40 @@ impl InteractiveRebasePlan {
         {
             return Err(RebasePlanValidationError::UpstreamIncluded);
         }
+        let mut commits = HashSet::with_capacity(self.entries.len());
+        if self
+            .entries
+            .iter()
+            .any(|entry| !commits.insert(entry.commit))
+        {
+            return Err(RebasePlanValidationError::DuplicateCommit);
+        }
+        for (index, entry) in self.entries.iter().enumerate() {
+            if matches!(entry.action, RebaseAction::Squash | RebaseAction::Fixup) && index == 0 {
+                return Err(RebasePlanValidationError::SquashOrFixupWithoutPrevious);
+            }
+            if entry.action == RebaseAction::Drop && entry.message_override.is_some() {
+                return Err(RebasePlanValidationError::DropMessageOverride);
+            }
+        }
         Ok(())
+    }
+
+    /// Renders the supported plan into Git's non-comment todo format.
+    pub fn render_todo(&self) -> Result<Vec<u8>, RebasePlanValidationError> {
+        self.validate()?;
+        let mut output = Vec::new();
+        for entry in &self.entries {
+            output.extend_from_slice(entry.action.git_keyword().as_bytes());
+            output.push(b' ');
+            output.extend_from_slice(entry.commit.to_string().as_bytes());
+            if let Some(message) = &entry.message_override {
+                output.push(b' ');
+                output.extend_from_slice(message.as_bytes());
+            }
+            output.push(b'\n');
+        }
+        Ok(output)
     }
 }
 
@@ -269,6 +349,14 @@ impl RebaseAction {
 pub enum RebaseTodoValidationError {
     #[error("interactive rebase todo action is not supported")]
     UnsupportedAction,
+    #[error("interactive rebase todo line is malformed")]
+    MalformedLine,
+    #[error("interactive rebase todo contains invalid UTF-8")]
+    InvalidEncoding,
+    #[error("interactive rebase todo contains an invalid commit")]
+    InvalidCommit,
+    #[error("interactive rebase todo plan is invalid: {0}")]
+    InvalidPlan(RebasePlanValidationError),
 }
 
 /// Local validation failures for an interactive rebase plan.
@@ -278,6 +366,12 @@ pub enum RebasePlanValidationError {
     EmptyEntries,
     #[error("interactive rebase plan must not include its upstream commit")]
     UpstreamIncluded,
+    #[error("interactive rebase plan contains a duplicate commit")]
+    DuplicateCommit,
+    #[error("squash or fixup requires a previous todo entry")]
+    SquashOrFixupWithoutPrevious,
+    #[error("drop todo entry cannot override a commit message")]
+    DropMessageOverride,
 }
 
 /// Sequencer operation kept separate from ordinary command state.
@@ -583,6 +677,97 @@ mod tests {
         }
         assert_eq!(
             RebaseAction::parse_git_keyword("merge"),
+            Err(RebaseTodoValidationError::UnsupportedAction)
+        );
+    }
+
+    #[test]
+    fn interactive_rebase_plan_rejects_invalid_todo_order_and_drop_message() {
+        let target = target();
+        let upstream =
+            ObjectId::from_str("0000000000000000000000000000000000000001").expect("test object id");
+        let commit =
+            ObjectId::from_str("0000000000000000000000000000000000000002").expect("test object id");
+        let first_squash = InteractiveRebasePlan {
+            target,
+            upstream,
+            entries: vec![RebaseTodoEntry {
+                commit,
+                action: RebaseAction::Squash,
+                message_override: None,
+            }],
+        };
+        assert_eq!(
+            first_squash.validate(),
+            Err(RebasePlanValidationError::SquashOrFixupWithoutPrevious)
+        );
+
+        let drop_with_message = InteractiveRebasePlan {
+            target,
+            upstream,
+            entries: vec![RebaseTodoEntry {
+                commit,
+                action: RebaseAction::Drop,
+                message_override: Some("must be rejected".to_owned()),
+            }],
+        };
+        assert_eq!(
+            drop_with_message.validate(),
+            Err(RebasePlanValidationError::DropMessageOverride)
+        );
+
+        let renderable = InteractiveRebasePlan {
+            target,
+            upstream,
+            entries: vec![RebaseTodoEntry {
+                commit,
+                action: RebaseAction::Pick,
+                message_override: Some("subject".to_owned()),
+            }],
+        };
+        assert_eq!(
+            renderable.render_todo().expect("todo should render"),
+            format!("pick {commit} subject\n").into_bytes()
+        );
+
+        let duplicate = InteractiveRebasePlan {
+            target,
+            upstream,
+            entries: vec![
+                RebaseTodoEntry {
+                    commit,
+                    action: RebaseAction::Pick,
+                    message_override: None,
+                },
+                RebaseTodoEntry {
+                    commit,
+                    action: RebaseAction::Drop,
+                    message_override: None,
+                },
+            ],
+        };
+        assert_eq!(
+            duplicate.validate(),
+            Err(RebasePlanValidationError::DuplicateCommit)
+        );
+
+        let parsed = InteractiveRebasePlan::parse_todo(
+            target,
+            upstream,
+            format!("# generated\npick {commit} subject\n").as_bytes(),
+        )
+        .expect("todo should parse");
+        assert_eq!(parsed.entries[0].commit, commit);
+        assert_eq!(
+            parsed.entries[0].message_override.as_deref(),
+            Some("subject")
+        );
+        assert_eq!(
+            InteractiveRebasePlan::parse_todo(
+                target,
+                upstream,
+                format!("merge {commit} subject\n").as_bytes(),
+            ),
             Err(RebaseTodoValidationError::UnsupportedAction)
         );
     }
