@@ -2,6 +2,7 @@
 
 use async_trait::async_trait;
 use git_domain::{GitResult, RepoPath, SessionTarget, SnapshotRevision};
+use sha2::{Digest, Sha256};
 
 use crate::ExecutionContext;
 
@@ -33,6 +34,12 @@ impl ApplyResolutionRequest {
         }
         Ok(())
     }
+}
+
+/// Computes the byte-level digest used to reject an externally changed worktree file.
+#[must_use]
+pub fn worktree_digest(bytes: &[u8]) -> [u8; 32] {
+    Sha256::digest(bytes).into()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
@@ -82,5 +89,11 @@ mod tests {
             result: Vec::new(),
         };
         assert_eq!(request.validate(), Err(ResolutionRequestError::InvalidMode));
+    }
+
+    #[test]
+    fn worktree_digest_is_deterministic_and_sensitive_to_bytes() {
+        assert_eq!(worktree_digest(b"same"), worktree_digest(b"same"));
+        assert_ne!(worktree_digest(b"same"), worktree_digest(b"changed"));
     }
 }

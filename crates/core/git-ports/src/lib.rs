@@ -37,6 +37,7 @@ pub use remote::{PushPreviewReader, RemoteReader, RemoteWriter};
 pub use repository::{RepositoryLocation, RepositoryReader};
 pub use resolution::{
     ApplyResolutionRequest, ConflictResolutionWriter, ConflictStages, ResolutionRequestError,
+    worktree_digest,
 };
 pub use status::{StatusOptions, StatusParseError, StatusParser, StatusReader};
 pub use version::{FileVersions, VersionDescriptor, VersionReader};

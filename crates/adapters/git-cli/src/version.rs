@@ -61,18 +61,18 @@ impl<R: ProcessRunner> VersionReader for GitCliVersionReader<R> {
             .await?;
         let worktree = if let Some(root) = location.worktree_root() {
             let full = root.join(&path);
-            fs::symlink_metadata(&full).ok().and_then(|metadata| {
+            fs::symlink_metadata(&full).ok().map(|metadata| {
                 let kind = if metadata.file_type().is_symlink() {
                     FileKind::Symlink
                 } else {
                     FileKind::Regular
                 };
-                Some(VersionDescriptor {
+                VersionDescriptor {
                     kind,
                     oid: None,
                     mode: Some(worktree_mode(&metadata)),
-                    byte_length: metadata.is_file().then(|| metadata.len()),
-                })
+                    byte_length: metadata.is_file().then_some(metadata.len()),
+                }
             })
         } else {
             None
@@ -96,6 +96,7 @@ fn worktree_mode(_metadata: &fs::Metadata) -> FileMode {
     FileMode::new(0o100644)
 }
 
+#[allow(clippy::result_large_err)]
 fn path_utf8(path: &RepoPath) -> GitResult<String> {
     std::str::from_utf8(path.as_bytes())
         .map(str::to_owned)
@@ -107,6 +108,7 @@ fn path_utf8(path: &RepoPath) -> GitResult<String> {
         })
 }
 
+#[allow(clippy::result_large_err)]
 fn parse_index(raw: &[u8]) -> GitResult<Option<VersionDescriptor>> {
     let Some(record) = raw
         .split(|byte| *byte == 0)
@@ -132,6 +134,7 @@ fn parse_index(raw: &[u8]) -> GitResult<Option<VersionDescriptor>> {
     }))
 }
 
+#[allow(clippy::result_large_err)]
 fn parse_tree(raw: &[u8]) -> GitResult<Option<VersionDescriptor>> {
     let Some(record) = raw
         .split(|byte| *byte == 0)
@@ -157,6 +160,7 @@ fn parse_tree(raw: &[u8]) -> GitResult<Option<VersionDescriptor>> {
     }))
 }
 
+#[allow(clippy::result_large_err)]
 fn parse_mode(raw: &[u8]) -> GitResult<FileMode> {
     let text = std::str::from_utf8(raw).map_err(|_| invalid_output("file mode is not UTF-8"))?;
     u32::from_str_radix(text, 8)
@@ -164,6 +168,7 @@ fn parse_mode(raw: &[u8]) -> GitResult<FileMode> {
         .map_err(|_| invalid_output("file mode is invalid"))
 }
 
+#[allow(clippy::result_large_err)]
 fn parse_oid(raw: &[u8]) -> GitResult<ObjectId> {
     let text = std::str::from_utf8(raw).map_err(|_| invalid_output("object id is not UTF-8"))?;
     text.parse()
@@ -183,6 +188,7 @@ fn invalid_output(message: &'static str) -> GitError {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
     use crate::{GitCliRepositoryReader, TokioProcessRunner};
