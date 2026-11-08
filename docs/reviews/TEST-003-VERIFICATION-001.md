@@ -27,7 +27,7 @@ cargo test --workspace --locked
 git diff --check
 ```
 
-CI 最终结果以修复 fixture identity 与 `core.autocrlf` 隔离后的最新 `Rust CI` 为准；`Rust CI #108` 已确认 macOS/Ubuntu 通过，Windows 仅因默认 CRLF 转换导致字节断言失败。
+CI 最终结果以修复 fixture identity 与 `core.autocrlf` 隔离后的最新 `Rust CI` 为准；`Rust CI #109`（Runner ID `42443666319`）的 Format、Ubuntu、Windows、macOS 全部成功。
 
 ## 4. 安全边界
 

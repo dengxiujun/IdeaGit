@@ -627,3 +627,4 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 为避免 CI 代理或平台 Git 配置导致组合 E2E 长时间等待，移除该测试中的不可控远端 Clone 调用；网络失败仍由 Git CLI 远端失败映射与 ProcessRunner 超时/取消/进程树终止测试覆盖。
 - `Rust CI #107` 的 Ubuntu/Windows artifact 精确定位到 Resolution 测试在 `merge --continue` 时缺少提交身份；fixture 现显式配置仓库本地 identity，不再依赖 macOS Runner 的全局 Git 配置。
 - `Rust CI #108` 的 Windows artifact 显示主链路已执行到 Pull 后内容断言，仅因系统默认 `core.autocrlf` 将 LF 转为 CRLF；E2E 现对 source/clone 仓库显式设置本地 `core.autocrlf=false`，固定跨平台字节语义。
+- `Rust CI #109`（Runner ID `42443666319`）在 Ubuntu、Windows、macOS 与 Format 全部成功；M3 §6.7 的主链路、认证失败、外部竞争、网络异常与崩溃恢复证据完成审计，门禁关闭。
