@@ -7,8 +7,10 @@ publish.workspace = true
 [dependencies]
 async-trait.workspace = true
 git-domain.workspace = true
+git-diff.workspace = true
 git-operations.workspace = true
 git-ports.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true

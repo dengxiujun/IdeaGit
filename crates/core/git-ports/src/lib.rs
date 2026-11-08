@@ -6,6 +6,7 @@ mod clone;
 mod commit;
 mod conflict;
 mod credential;
+mod diff;
 mod editable_index;
 mod head;
 mod history;
@@ -30,6 +31,7 @@ pub use conflict::ConflictStageReader;
 pub use credential::{
     CredentialBroker, CredentialError, CredentialKind, CredentialRequest, CredentialResponse,
 };
+pub use diff::{DiffDocument, DiffReadRequest, DiffReader};
 pub use editable_index::{
     EditableIndexCandidate, EditableIndexCandidateBuilder, EditableIndexCandidateRequest,
 };

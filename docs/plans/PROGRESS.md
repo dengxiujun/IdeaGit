@@ -856,3 +856,13 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - ADR：新增 [ADR-M4-SELECTION-COMMIT-APPLICATION-001](../architecture/adr/ADR-M4-SELECTION-COMMIT-APPLICATION-001.md)，状态 Draft，等待项目负责人批准。
 - 影响范围：UI-013 真实入口保持关闭；TEST-004 已继续补充底层真实协调器证据，但 M4 生产开放门禁尚未关闭。
 - 下一步：等待 ADR 批准；批准后先实现 Diff/Patch 读取与 Preview 准备边界，再接 OperationCoordinator 执行器。
+
+## M4 UI-013：Diff/Patch Preview 应用边界（2026-11-08）
+
+- ADR-M4-SELECTION-COMMIT-APPLICATION-001 已获批准，状态更新为 Accepted。
+- 完成：新增只读 `DiffReader` 端口和 `DiffDocument`/`DiffReadRequest` 契约；新增 `SelectionPatchPreviewService`，校验 SessionTarget，读取 Diff，调用安全 Selection Patch Builder 并生成 selection digest。
+- 安全边界：该切片不创建 Temporary Index、不写真实 Index、不执行 Commit；跨 Session、未知文件、空/越界/二进制选择均拒绝或映射为结构化错误。
+- 测试：`git-application` 14 个测试通过（新增 Preview 正常路径和跨 Session 拒绝）；workspace `fmt/check/clippy/test/diff check` 全部通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：尚未实现 Git CLI DiffReader 适配器、Candidate Tree/Temporary Index Preview 装配和 OperationCoordinator Selection Commit 执行器；UI-013 真实入口继续关闭。
+- 下一步：实现 Git CLI DiffReader 适配器及真实仓库 Preview/Candidate Tree 集成测试。

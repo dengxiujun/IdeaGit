@@ -2004,9 +2004,11 @@ name = "git-application"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "git-diff",
  "git-domain",
  "git-operations",
  "git-ports",
+ "sha2 0.10.9",
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",
@@ -2158,6 +2160,7 @@ name = "git-ports"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "git-diff",
  "git-domain",
  "secrecy",
  "serde_json",

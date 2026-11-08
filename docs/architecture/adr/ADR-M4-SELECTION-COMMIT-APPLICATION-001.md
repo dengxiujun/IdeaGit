@@ -1,8 +1,10 @@
 # ADR-M4-SELECTION-COMMIT-APPLICATION-001：Selection Commit 应用层装配边界
 
-状态：Draft
+状态：Accepted
 
 日期：2026-11-08
+
+批准：项目负责人于 2026-11-08 批准方案三。
 
 ## 问题背景
 
