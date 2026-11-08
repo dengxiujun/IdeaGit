@@ -69,6 +69,16 @@ impl<R: ProcessRunner> EditableIndexCandidateBuilder for GitCliEditableIndexCand
                 ));
             }
         }
+        let index_bytes = fs::read(&request.temporary_index).map_err(|error| {
+            GitError::new(GitErrorKind::PermissionDenied, "read candidate Index")
+                .with_diagnostic(error.to_string())
+        })?;
+        if !index_extensions_are_supported(&index_bytes) {
+            return Err(GitError::new(
+                GitErrorKind::UnsupportedFeature,
+                "editable Index Apply does not support this Index version or extension",
+            ));
+        }
         let conflict = self
             .executor
             .execute(
@@ -160,6 +170,65 @@ impl<R: ProcessRunner> EditableIndexCandidateBuilder for GitCliEditableIndexCand
 
 fn is_editable_mode(mode: u32) -> bool {
     matches!(mode, 0o100644 | 0o100755 | 0o120000)
+}
+
+fn index_extensions_are_supported(bytes: &[u8]) -> bool {
+    if bytes.len() < 12 || &bytes[..4] != b"DIRC" {
+        return false;
+    }
+    let version = u32::from_be_bytes(bytes[4..8].try_into().unwrap_or_default());
+    if !matches!(version, 2 | 3) {
+        return false;
+    }
+    let entries = u32::from_be_bytes(bytes[8..12].try_into().unwrap_or_default()) as usize;
+    [20usize, 32usize]
+        .iter()
+        .any(|hash_len| parse_index_extensions(bytes, version, entries, *hash_len))
+}
+
+fn parse_index_extensions(bytes: &[u8], _version: u32, entries: usize, hash_len: usize) -> bool {
+    let Some(extension_end) = bytes.len().checked_sub(hash_len) else {
+        return false;
+    };
+    let fixed = 40usize.saturating_add(hash_len).saturating_add(2);
+    let mut cursor = 12usize;
+    for _ in 0..entries {
+        let Some(path_start) = cursor.checked_add(fixed) else {
+            return false;
+        };
+        if path_start > extension_end {
+            return false;
+        }
+        let Some(nul_offset) = bytes[path_start..extension_end]
+            .iter()
+            .position(|byte| *byte == 0)
+        else {
+            return false;
+        };
+        let entry_end = path_start + nul_offset + 1;
+        let padding = (8 - ((entry_end - cursor) % 8)) % 8;
+        cursor = entry_end.saturating_add(padding);
+        if cursor > extension_end {
+            return false;
+        }
+    }
+    while cursor < extension_end {
+        if extension_end - cursor < 8 {
+            return false;
+        }
+        let signature = &bytes[cursor..cursor + 4];
+        let size = u32::from_be_bytes(bytes[cursor + 4..cursor + 8].try_into().unwrap_or_default())
+            as usize;
+        cursor += 8;
+        let Some(next) = cursor.checked_add(size) else {
+            return false;
+        };
+        if next > extension_end || signature != b"TREE" {
+            return false;
+        }
+        cursor = next;
+    }
+    cursor == extension_end
 }
 
 struct IndexFeatureCheckCommand {
@@ -565,6 +634,54 @@ mod tests {
             )
             .await
             .expect_err("split Index configuration must be rejected");
+        assert_eq!(error.kind, GitErrorKind::UnsupportedFeature);
+    }
+
+    #[tokio::test]
+    async fn rejects_an_unknown_index_extension_before_candidate_write() {
+        let fixture = TestRepository::init().expect("fixture");
+        fixture
+            .commit_file("file.txt", b"base\n")
+            .expect("fixture commit");
+        let temporary_index = fixture.temp_dir.path().join("editable-unknown-index");
+        let mut read_tree = Command::new("git");
+        read_tree
+            .args(["read-tree", "HEAD"])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (name, value) in fixture.isolated_environment() {
+            read_tree.env(name, value);
+        }
+        assert!(read_tree.status().expect("git starts").success());
+        let mut bytes = fs::read(&temporary_index).expect("candidate Index");
+        let extension = bytes
+            .windows(4)
+            .position(|value| value == b"TREE")
+            .expect("fixture Index should contain TREE extension");
+        bytes[extension..extension + 4].copy_from_slice(b"UNKN");
+        fs::write(&temporary_index, bytes).expect("corrupt extension signature");
+
+        let builder = GitCliEditableIndexCandidateBuilder::new(
+            crate::TokioProcessRunner,
+            RepositoryLocation::worktree(
+                &fixture.worktree,
+                fixture.worktree.join(".git"),
+                fixture.worktree.join(".git"),
+            ),
+        );
+        let error = builder
+            .build(
+                EditableIndexCandidateRequest {
+                    target: SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                    path: RepoPath::try_from("file.txt").expect("path"),
+                    mode: 0o100644,
+                    content: b"edited\n".to_vec(),
+                    temporary_index,
+                },
+                context(),
+            )
+            .await
+            .expect_err("unknown Index extension must be rejected");
         assert_eq!(error.kind, GitErrorKind::UnsupportedFeature);
     }
 }
