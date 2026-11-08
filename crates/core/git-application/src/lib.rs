@@ -17,7 +17,10 @@ pub use refresh::{
     RefreshHealth, RefreshScheduler, RefreshSchedulerConfig, RefreshState, RefreshTrigger,
     ScheduledSnapshotRebuilder, SnapshotRefreshService,
 };
-pub use selection_commit::{ConfirmedPartialCommitRunner, SelectionCommitExecutionService};
+pub use selection_commit::{
+    ConfirmedPartialCommitRunner, PreparedSelectionCommitHandler, SelectionCommitExecutionService,
+    SelectionCommitStateReader,
+};
 pub use selection_preview::{SelectionPatchPreview, SelectionPatchPreviewService};
 pub use session::{
     RepositoryRegistry, RepositorySessionHandle, RepositorySessionView, SessionRegistryError,
