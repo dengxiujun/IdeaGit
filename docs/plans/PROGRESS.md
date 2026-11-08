@@ -558,6 +558,7 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `worktree_digest` 已导出为共享纯函数并覆盖确定性/字节敏感测试；本机 Clippy `-D warnings` 与 git-ports/git-cli 测试通过。
 - 新增 `validate_worktree_digest`，匹配时允许继续，外部修改时返回结构化 `ChangedExternally`；在阶段 OID 三方读取完成前不执行真实写入。
 - 新增 `validate_conflict_stages`，逐项比较路径及 Stage 1/2/3 OID；路径或任一阶段变化时返回结构化错误并阻止写入。
+- `GitCliConflictStageReader` 新增真实 Merge 冲突集成测试，验证 Stage 1/2/3 OID 均从真实 Index 读取；读取—校验链路已具备真实 Git 证据。
 
 ## GIT-001 Stage / Unstage（2026-11-07）
 
