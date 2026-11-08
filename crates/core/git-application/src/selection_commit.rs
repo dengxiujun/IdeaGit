@@ -169,6 +169,20 @@ mod tests {
         calls: Arc<Mutex<u32>>,
     }
 
+    #[derive(Debug, Clone, Copy)]
+    struct State;
+
+    #[async_trait]
+    impl SelectionCommitStateReader for State {
+        async fn read(
+            &self,
+            _target: SessionTarget,
+            _context: ExecutionContext,
+        ) -> GitResult<(Option<ObjectId>, Option<ObjectId>)> {
+            Ok((None, None))
+        }
+    }
+
     #[async_trait]
     impl ConfirmedPartialCommitRunner for Runner {
         async fn commit(
@@ -265,5 +279,41 @@ mod tests {
             .expect_err("unprepared transaction must be rejected");
         assert_eq!(error.kind, git_domain::GitErrorKind::Internal);
         assert_eq!(*calls.lock().expect("calls lock"), 0);
+    }
+
+    #[tokio::test]
+    async fn armed_handler_reads_identity_before_reaching_runner() {
+        let calls = Arc::new(Mutex::new(0));
+        let service = SelectionCommitExecutionService::new(Runner {
+            calls: Arc::clone(&calls),
+        });
+        let handler = PreparedSelectionCommitHandler::new(service, State);
+        let mut prepared = prepared();
+        let target = prepared.preview.target;
+        prepared
+            .transaction
+            .temp_index_prepared(None, None)
+            .expect("temporary Index");
+        prepared
+            .transaction
+            .candidate_ready(prepared.preview.candidate_tree)
+            .expect("candidate tree");
+        prepared
+            .transaction
+            .reconciliation_candidate([1; 32], b"candidate-index".to_vec())
+            .expect("candidate Index");
+        let request = prepared.transaction.request.clone();
+        handler.arm(prepared).await;
+        let (progress, _receiver) = mpsc::channel(1);
+        let error = handler
+            .commit_selection(
+                target,
+                request,
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect_err("test runner returns a sentinel error");
+        assert_eq!(error.kind, git_domain::GitErrorKind::Internal);
+        assert_eq!(*calls.lock().expect("calls lock"), 1);
     }
 }

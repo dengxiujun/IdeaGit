@@ -1008,3 +1008,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：尚未在 `apps/desktop` 组合根实际连通 state reader、handler、Git CLI coordinator 和 OperationCoordinator；真实 Git fixture 成功/恢复组合测试仍待补齐，UI-013 入口继续关闭。
 - 下一步：新增真实 Git fixture 的应用 handler + OperationCoordinator 成功提交与失败恢复测试。
+
+## M4 UI-013：Prepared Handler 身份读取验证（2026-11-08）
+
+- 完成：新增应用层 handler 测试，验证 arm 后按 request/target 匹配 Preview，读取最新身份，再进入确认执行；底层 runner 的调用仅发生在身份确认成功后。
+- 测试：workspace `fmt/check/clippy/test/diff check` 全部通过；git-application 19 项测试通过，Git CLI 78 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：仍缺 `apps/desktop` + 真实 Git fixture + OperationCoordinator + Git CLI PartialCommitCoordinator 的成功/恢复端到端组合测试；UI-013 入口继续关闭。
+- 下一步：实现真实 Git fixture 的完整应用/Coordinator 组合测试。
