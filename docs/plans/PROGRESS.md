@@ -547,6 +547,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Clone 失败保留残留目录并返回结构化 NetworkFailure，不递归删除用户数据；凭据继续由 REMOTE-002 的 AskPass/组合根注入，取消语义沿用 ExecutionContext。
 - 真实 local repository Clone 与已存在目标失败路径已覆盖；本机 fmt/check/clippy/专项 test 通过。完整三平台 Runner 待推送后验证。
 
+## M3 MERGE-002 Resolution Contract（2026-11-08）
+
+- `git-ports` 新增 `ApplyResolutionRequest`、`ConflictStages` 与 `ConflictResolutionWriter`，固定 Resolution 必须携带 Snapshot revision、三阶段 OID、工作区摘要、文件 mode 和候选内容。
+- 请求在适配器执行前拒绝非法 mode；允许空候选内容表达删除，不把普通 Stage 请求冒充冲突解决。
+- 本节点仅冻结 Core Port 与失败路径测试，真实三方内容读取、外部竞争校验、工作区写入、Stage 与 Continue 留给同一 MERGE-002 的后续实现切片。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。

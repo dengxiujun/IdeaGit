@@ -13,6 +13,7 @@ mod merge;
 mod process;
 mod remote;
 mod repository;
+mod resolution;
 mod status;
 
 pub use branch::BranchWriter;
@@ -33,4 +34,7 @@ pub use process::{
 };
 pub use remote::{PushPreviewReader, RemoteReader, RemoteWriter};
 pub use repository::{RepositoryLocation, RepositoryReader};
+pub use resolution::{
+    ApplyResolutionRequest, ConflictResolutionWriter, ConflictStages, ResolutionRequestError,
+};
 pub use status::{StatusOptions, StatusParseError, StatusParser, StatusReader};
