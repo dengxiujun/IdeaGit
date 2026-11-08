@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::str::FromStr;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -205,6 +206,51 @@ pub struct InteractiveRebasePlan {
 }
 
 impl InteractiveRebasePlan {
+    /// Parses the supported, non-comment Git Todo lines into a typed plan.
+    pub fn parse_todo(
+        target: SessionTarget,
+        upstream: ObjectId,
+        input: &[u8],
+    ) -> Result<Self, RebaseTodoValidationError> {
+        let mut entries = Vec::new();
+        for raw_line in input.split(|byte| *byte == b'\n') {
+            let line = std::str::from_utf8(raw_line)
+                .map_err(|_| RebaseTodoValidationError::InvalidEncoding)?
+                .trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let mut fields = line.splitn(3, char::is_whitespace);
+            let action = fields
+                .next()
+                .ok_or(RebaseTodoValidationError::MalformedLine)?;
+            let commit = fields
+                .next()
+                .ok_or(RebaseTodoValidationError::MalformedLine)?;
+            let action = RebaseAction::parse_git_keyword(action)?;
+            let commit =
+                ObjectId::from_str(commit).map_err(|_| RebaseTodoValidationError::InvalidCommit)?;
+            let message_override = fields
+                .next()
+                .map(str::trim)
+                .filter(|message| !message.is_empty())
+                .map(ToOwned::to_owned);
+            entries.push(RebaseTodoEntry {
+                commit,
+                action,
+                message_override,
+            });
+        }
+        let plan = Self {
+            target,
+            upstream,
+            entries,
+        };
+        plan.validate()
+            .map_err(|error| RebaseTodoValidationError::InvalidPlan(error))?;
+        Ok(plan)
+    }
+
     /// Validates plan-local invariants before the plan reaches an adapter.
     pub fn validate(&self) -> Result<(), RebasePlanValidationError> {
         if self.entries.is_empty() {
@@ -303,6 +349,14 @@ impl RebaseAction {
 pub enum RebaseTodoValidationError {
     #[error("interactive rebase todo action is not supported")]
     UnsupportedAction,
+    #[error("interactive rebase todo line is malformed")]
+    MalformedLine,
+    #[error("interactive rebase todo contains invalid UTF-8")]
+    InvalidEncoding,
+    #[error("interactive rebase todo contains an invalid commit")]
+    InvalidCommit,
+    #[error("interactive rebase todo plan is invalid: {0}")]
+    InvalidPlan(RebasePlanValidationError),
 }
 
 /// Local validation failures for an interactive rebase plan.
@@ -695,6 +749,26 @@ mod tests {
         assert_eq!(
             duplicate.validate(),
             Err(RebasePlanValidationError::DuplicateCommit)
+        );
+
+        let parsed = InteractiveRebasePlan::parse_todo(
+            target,
+            upstream,
+            format!("# generated\npick {commit} subject\n").as_bytes(),
+        )
+        .expect("todo should parse");
+        assert_eq!(parsed.entries[0].commit, commit);
+        assert_eq!(
+            parsed.entries[0].message_override.as_deref(),
+            Some("subject")
+        );
+        assert_eq!(
+            InteractiveRebasePlan::parse_todo(
+                target,
+                upstream,
+                format!("merge {commit} subject\n").as_bytes(),
+            ),
+            Err(RebaseTodoValidationError::UnsupportedAction)
         );
     }
 }
