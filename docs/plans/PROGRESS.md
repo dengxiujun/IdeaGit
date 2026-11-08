@@ -1227,3 +1227,13 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 结论：新增真实 Git Preview→Coordinator Confirm 测试已获得三平台证据，Linux identity 修复有效；TEST-004 的跨平台门禁不再阻塞 UI-013。
 - 风险：PR 尚未合并；仍需 M4 最终逐项审查、全量门禁、PR 合并后 CI 确认及分支清理。
 - 下一步：执行 M4 最终任务/安全矩阵审查，确认没有未完成任务或未批准例外，再进入 PR 合并流程。
+
+## M4 最终交付审计（2026-11-08）
+
+- 任务范围：IP-001 §7 的 DIFF-001～007、CCD-001～009、UI-011～013、TEST-004 已完成；TEST-004 安全矩阵本地与跨平台证据齐备。
+- PR：[#3](https://github.com/dengxiujun/IdeaGit/pull/3) `M4：Diff、Changelist 与 Partial Commit` 已合并到 `main`；合并提交为 `6662532de45082f612f4400afb02be2aff3737c4`。
+- CI：Rust CI #124（Run ID `42469846751`）的 Format、Ubuntu 24.04、macOS 15、Windows 2022 全部成功；Runner 分别为 `128697827286`、`128697827371`、`128697827384`、`128697827407`。
+- 分支：已验证合并提交进入 `origin/main`；远程和本地 `feat/m4` 均已清理。
+- 本地验证：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 已通过。
+- 豁免：按项目负责人明确决定，不再要求 PR 正式 Review 记录及针对合并提交的独立 post-merge CI；该决定不改变已通过的 PR head CI 和本地门禁结果。
+- 结论：M4 完成，下一任务为 `REBASE-001`；当前不自动创建 M5 分支。
