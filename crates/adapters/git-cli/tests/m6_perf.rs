@@ -13,6 +13,7 @@ use std::{
 };
 
 use git_cli::{GitCliHistoryReader, GitCliStatusReader, TokioProcessRunner};
+use git_domain::GitErrorKind;
 use git_domain::{LogQuery, OperationId, RepositoryId, SessionTarget, WorktreeId};
 use git_fixture::TestRepository;
 use git_ports::{
@@ -28,6 +29,13 @@ const SAMPLES: usize = 11;
 fn context() -> ExecutionContext {
     let (progress, _receiver) = mpsc::channel(8);
     ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress)
+}
+
+fn cancelled_context() -> ExecutionContext {
+    let (progress, _receiver) = mpsc::channel(8);
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    ExecutionContext::new(OperationId::new(), cancellation, progress)
 }
 
 fn environment(fixture: &TestRepository) -> Vec<EnvironmentVariable> {
@@ -190,4 +198,28 @@ async fn perf_001_large_repository_baseline() {
     println!("cache.cold_os_cache=not_cleared; first_pass_is_not_strict_cold_cache");
     println!("dataset.commit_count={COMMIT_COUNT}");
     println!("dataset.samples={SAMPLES}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "scheduled M6 benchmark"]
+async fn perf_001_cancelled_status_is_bounded() {
+    let fixture = TestRepository::init().expect("fixture");
+    fixture
+        .commit_file("status.txt", b"status\n")
+        .expect("commit");
+    let location = RepositoryLocation::worktree(
+        &fixture.worktree,
+        fixture.worktree.join(".git"),
+        fixture.worktree.join(".git"),
+    );
+    let reader =
+        GitCliStatusReader::new(TokioProcessRunner).with_environment(environment(&fixture));
+    let started = Instant::now();
+    let error = reader
+        .status(&location, StatusOptions::default(), cancelled_context())
+        .await
+        .expect_err("cancelled status must fail closed");
+    let elapsed = started.elapsed();
+    assert_eq!(error.kind, GitErrorKind::Cancelled);
+    println!("cancelled_status_ms={:.3}", elapsed.as_secs_f64() * 1000.0);
 }
