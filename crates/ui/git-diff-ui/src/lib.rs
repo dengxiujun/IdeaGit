@@ -1,7 +1,61 @@
 //! Diff viewers and staging presentation.
 
-use git_diff::ThreeVersionDocument;
+use git_diff::{AlignedDiffRow, Patch, ThreeVersionDocument, align_hunk};
 use git_domain::EditedIndexSessionId;
+
+/// Read-only side-by-side projection of a parsed patch.
+///
+/// The projection keeps the original [`Patch`] immutable and stores only logical row mappings;
+/// rendering and scrolling layers can therefore use the same mapping without writing Git state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SideBySideDiffViewer {
+    patch: Patch,
+    rows: Vec<AlignedDiffRow>,
+    selected_hunk: Option<u32>,
+}
+
+impl SideBySideDiffViewer {
+    #[must_use]
+    pub fn new(patch: Patch) -> Self {
+        let rows = patch
+            .files
+            .iter()
+            .flat_map(|file| file.hunks.iter())
+            .enumerate()
+            .flat_map(|(hunk_id, hunk)| align_hunk(hunk_id as u32, hunk))
+            .collect();
+        Self {
+            patch,
+            rows,
+            selected_hunk: None,
+        }
+    }
+
+    #[must_use]
+    pub fn patch(&self) -> &Patch {
+        &self.patch
+    }
+
+    #[must_use]
+    pub fn rows(&self) -> &[AlignedDiffRow] {
+        &self.rows
+    }
+
+    #[must_use]
+    pub fn selected_hunk(&self) -> Option<u32> {
+        self.selected_hunk
+    }
+
+    /// Select a logical hunk without mutating the underlying patch or repository state.
+    pub fn select_hunk(&mut self, hunk_id: Option<u32>) {
+        self.selected_hunk = hunk_id.filter(|id| (*id as usize) < self.hunk_count());
+    }
+
+    #[must_use]
+    fn hunk_count(&self) -> usize {
+        self.patch.files.iter().map(|file| file.hunks.len()).sum()
+    }
+}
 
 /// The visible columns in the three-version stage viewer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,7 +117,10 @@ impl ThreeVersionStageViewer {
 
 #[cfg(test)]
 mod tests {
-    use git_diff::{ContentSource, ThreeVersionFile, VersionIdentity};
+    use git_diff::{
+        AlignedRowKind, ContentSource, FilePatch, Hunk, Line, LineKind, ThreeVersionFile,
+        VersionIdentity,
+    };
     use git_domain::RepoPath;
 
     use super::*;
@@ -108,5 +165,57 @@ mod tests {
         viewer.select_side(StageViewerSide::Worktree);
         assert_eq!(viewer.active_side(), StageViewerSide::Worktree);
         assert_eq!(viewer.document(), &before);
+    }
+
+    #[test]
+    fn side_by_side_projection_aligns_logical_rows_without_mutating_patch() {
+        let patch = Patch {
+            files: vec![FilePatch {
+                old_path: Some(b"old.txt".to_vec()),
+                new_path: Some(b"new.txt".to_vec()),
+                binary: false,
+                hunks: vec![Hunk {
+                    old_start: 1,
+                    old_count: 2,
+                    new_start: 1,
+                    new_count: 2,
+                    lines: vec![
+                        Line {
+                            kind: LineKind::Removed,
+                            old_line: Some(1),
+                            new_line: None,
+                            content: b"old\n".to_vec(),
+                            has_newline: true,
+                        },
+                        Line {
+                            kind: LineKind::Added,
+                            old_line: None,
+                            new_line: Some(1),
+                            content: b"new\n".to_vec(),
+                            has_newline: true,
+                        },
+                        Line {
+                            kind: LineKind::Context,
+                            old_line: Some(2),
+                            new_line: Some(2),
+                            content: b"same\n".to_vec(),
+                            has_newline: true,
+                        },
+                    ],
+                }],
+            }],
+            binary: false,
+        };
+        let original = patch.clone();
+        let mut viewer = SideBySideDiffViewer::new(patch);
+
+        assert_eq!(viewer.rows().len(), 2);
+        assert_eq!(viewer.rows()[0].kind, AlignedRowKind::Modified);
+        assert_eq!(viewer.rows()[1].kind, AlignedRowKind::Context);
+        viewer.select_hunk(Some(0));
+        assert_eq!(viewer.selected_hunk(), Some(0));
+        viewer.select_hunk(Some(1));
+        assert_eq!(viewer.selected_hunk(), None);
+        assert_eq!(viewer.patch(), &original);
     }
 }

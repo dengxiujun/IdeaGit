@@ -1026,3 +1026,13 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：当前覆盖真实成功组合路径；Hook 失败、外部并发、崩溃恢复等 UI-013 组合失败路径仍待补齐，UI-013 生产 UI 入口继续关闭。
 - 下一步：补充真实 Git fixture 的失败/恢复组合测试，并继续按 IP-001 依赖顺序推进。
+
+## M4 UI-011：Side-by-side Viewer 只读投影（2026-11-08）
+
+- 完成：`git-diff-ui` 新增 `SideBySideDiffViewer`，从不可变 `Patch` 生成跨文件 Hunk 的逻辑行对齐投影，暴露 `AlignedDiffRow` 映射和受校验的 Hunk 选择状态。
+- 安全边界：Viewer 只保存 Patch 和 UI 投影，不直接访问 Git CLI、不写 Index/Refs/Worktree；选择无效 Hunk 会被清除，原始 Patch 保持不变。
+- 修改文件：`crates/ui/git-diff-ui/src/lib.rs`。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过；git-diff-ui 3 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：当前是纯 Rust 只读投影，尚未接入真实 GPUI 绘制、滚动/导航和 Diff Gutter；这些不应绕过 Core 对齐模型。
+- 下一步：按 IP-001 继续审查尚未完成的 M4 任务，并补 UI-013 的真实失败/恢复组合门禁。
