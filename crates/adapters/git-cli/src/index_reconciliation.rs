@@ -65,6 +65,11 @@ impl IndexReconciliationPublisher for GitCliIndexReconciliationPublisher {
             let _ = fs::remove_file(&lock);
             return Err(io_error("publish real Git Index", error));
         }
+        match fs::read(&index) {
+            Ok(published) if published == request.candidate_index => {}
+            Ok(_) => return Ok(IndexReconciliationOutcome::Unknown),
+            Err(_) => return Ok(IndexReconciliationOutcome::Unknown),
+        }
         Ok(IndexReconciliationOutcome::Published)
     }
 }
