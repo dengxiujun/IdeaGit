@@ -1331,4 +1331,8 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 安全边界：过滤器只改变只读 Graph 投影，不修改提交、Refs 或工作区状态；lane 计算仍基于提交父关系。
 - 测试：新增多 Ref、HEAD 和过滤条件的 Graph 单元测试；`git-graph` 测试与 Clippy 已通过。
 - 修改文件：`crates/core/git-graph/src/lib.rs`、`docs/plans/PROGRESS.md`。
-- 风险：PR、完整工作区门禁、GitHub CI 和合并门禁尚未完成。
+- 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
+- PR：[#11](https://github.com/dengxiujun/IdeaGit/pull/11) 已合并，合并提交为 `fddf4e2b8ff8b2bd71cc8f0bc11e5fc592f24726`。
+- CI：Rust CI #134（Run ID `42491134519`，提交 `2e6881dee6e924a3e23acb346195fe2f3ad0d70c`）已成功；Format、Ubuntu 24.04、macOS 15、Windows 2022 全部通过。
+- 分支：已确认合并提交进入 `main`；本地和远程 `feat/GRAPH-002` 均已清理。
+- 结论：GRAPH-002 完成；下一任务为 `UI-014`，必须从已验证的 `main` 按串行规则创建新分支。
