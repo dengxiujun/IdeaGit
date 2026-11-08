@@ -2,6 +2,15 @@
 
 更新日期：2026-11-08。
 
+## M4 CCD-004：Temporary Index Manager（2026-11-08）
+
+- 分支：`feat/CCD-004`；从 `main` 创建并带入 CCD-001/002/003。
+- 完成：新增临时 Index 端口与 Git CLI 实现；使用独立临时目录和 `GIT_INDEX_FILE` 初始化 HEAD/空树，RAII 租约释放临时文件，不触碰真实 Index；裸仓库安全拒绝。
+- 测试：专项 2/2 通过，覆盖真实 Git 仓库有 HEAD 创建、真实 Index 不变、租约释放，以及 unborn HEAD 判定。
+- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
+- 风险：Journal 清理失败记录、Index 原始摘要/备份和崩溃恢复上下文将在后续 Partial Commit 事务任务中接入；当前未修改真实 Index。
+- 下一任务：CCD-005（Candidate Tree Builder）。
+
 ## M4 CCD-003：Changelist Persistence（2026-11-08）
 
 - 分支：`feat/CCD-003`；从 `main` 创建并带入 CCD-001/002。
