@@ -15,6 +15,7 @@ mod remote;
 mod repository;
 mod resolution;
 mod status;
+mod version;
 
 pub use branch::BranchWriter;
 pub use clone::{CloneRequest, CloneWriter};
@@ -38,3 +39,4 @@ pub use resolution::{
     ApplyResolutionRequest, ConflictResolutionWriter, ConflictStages, ResolutionRequestError,
 };
 pub use status::{StatusOptions, StatusParseError, StatusParser, StatusReader};
+pub use version::{FileVersions, VersionDescriptor, VersionReader};
