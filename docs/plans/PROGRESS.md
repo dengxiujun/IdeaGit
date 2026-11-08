@@ -1,6 +1,15 @@
 # IdeaGit 开发进度
 
-更新日期：2026-11-07。
+更新日期：2026-11-08。
+
+## M4 DIFF-003：Patch AST/Hunk/Line（2026-11-08）
+
+- 分支：`feat/DIFF-003`；已从干净 `main` 创建。
+- 完成：在 `git-diff` 中实现字节保持的 Patch/FilePatch/Hunk/Line AST、统一 Diff 解析、行号与无换行标记、二进制与 `/dev/null` 元数据及 Hunk 行数校验。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；专项 3 个解析测试通过。
+- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
+- 风险：当前仅覆盖 Git unified diff 的基础 AST；side-by-side 对齐、三版本、Hunk/Line Stage 和 Partial Commit 仍未开放。
+- 下一任务：DIFF-004（Side-by-side Alignment）。
 
 ## 当前状态
 
