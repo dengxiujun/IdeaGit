@@ -556,6 +556,7 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `GitCliVersionReader` 使用 typed `git ls-files --stage -z` 与 `git ls-tree -z HEAD` 读取 Index/HEAD 的 mode 与 OID，并以只读文件元数据投影 Worktree；非 UTF-8 路径显式返回 `UnsupportedEncoding`。
 - 为 MERGE-002 的字节级外部竞争校验新增直接 `sha2` 依赖与 `worktree_digest`；该依赖仅用于确定性 SHA-256，不改变架构边界。
 - `worktree_digest` 已导出为共享纯函数并覆盖确定性/字节敏感测试；本机 Clippy `-D warnings` 与 git-ports/git-cli 测试通过。
+- 新增 `validate_worktree_digest`，匹配时允许继续，外部修改时返回结构化 `ChangedExternally`；在阶段 OID 三方读取完成前不执行真实写入。
 
 ## GIT-001 Stage / Unstage（2026-11-07）
 

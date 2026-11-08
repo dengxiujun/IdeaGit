@@ -42,10 +42,29 @@ pub fn worktree_digest(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
 
+/// Verifies that the bytes presented for resolution are still the bytes observed by the UI.
+pub fn validate_worktree_digest(
+    expected: [u8; 32],
+    current: &[u8],
+) -> Result<(), WorktreeConflictError> {
+    let actual = worktree_digest(current);
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(WorktreeConflictError::ChangedExternally)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ResolutionRequestError {
     #[error("conflict resolution requires a non-zero file mode")]
     InvalidMode,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum WorktreeConflictError {
+    #[error("worktree file changed externally while resolving conflict")]
+    ChangedExternally,
 }
 
 /// Applies a previously validated conflict result and stages it atomically with respect to the
@@ -95,5 +114,15 @@ mod tests {
     fn worktree_digest_is_deterministic_and_sensitive_to_bytes() {
         assert_eq!(worktree_digest(b"same"), worktree_digest(b"same"));
         assert_ne!(worktree_digest(b"same"), worktree_digest(b"changed"));
+    }
+
+    #[test]
+    fn rejects_external_worktree_change() {
+        let expected = worktree_digest(b"before");
+        assert_eq!(validate_worktree_digest(expected, b"before"), Ok(()));
+        assert_eq!(
+            validate_worktree_digest(expected, b"after"),
+            Err(WorktreeConflictError::ChangedExternally)
+        );
     }
 }
