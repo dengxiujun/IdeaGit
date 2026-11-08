@@ -1244,5 +1244,7 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 测试：新增真实 Git 仓库 Rebase Abort E2E，并固定 `core.autocrlf=false` 以保持跨平台断言语义。
 - 修改文件：`crates/core/git-domain/src/command.rs`、`crates/adapters/git-cli/src/sequencer.rs`、`crates/adapters/git-cli/tests/m3_e2e.rs`、`docs/plans/PROGRESS.md`。
 - 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
-- PR：[#4](https://github.com/dengxiujun/IdeaGit/pull/4)；此前 Rust CI #126（Run ID `42481439583`）已通过代码变更的四个平台检查，文档提交后需再次确认 CI。
-- 风险：PR 尚未合并；合并前需完成文档提交的 CI、主分支验证及分支清理。
+- PR：[#4](https://github.com/dengxiujun/IdeaGit/pull/4) 已合并，合并提交为 `c68e7be875565b1ffecf452408294dcdf90bc505`。
+- CI：Rust CI #127（Run ID `42482071200`）已通过；Format、macOS 15、Ubuntu 24.04、Windows 2022 全部成功。
+- 分支：已确认合并提交进入 `main`，本地和远程 `feat/REBASE-001` 均已清理。
+- 结论：REBASE-001 完成；下一任务为 `REBASE-002`，但必须从已验证的 `main` 按串行规则创建新分支。
