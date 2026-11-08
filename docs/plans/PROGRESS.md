@@ -1336,3 +1336,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - CI：Rust CI #134（Run ID `42491134519`，提交 `2e6881dee6e924a3e23acb346195fe2f3ad0d70c`）已成功；Format、Ubuntu 24.04、macOS 15、Windows 2022 全部通过。
 - 分支：已确认合并提交进入 `main`；本地和远程 `feat/GRAPH-002` 均已清理。
 - 结论：GRAPH-002 完成；下一任务为 `UI-014`，必须从已验证的 `main` 按串行规则创建新分支。
+
+## M5 UI-014：Interactive Rebase Dialog（2026-11-08）
+
+- 完成：在 `git-ui-model` 新增 Interactive Rebase Dialog ViewModel，支持 Todo 行排序、动作选择、消息覆盖编辑、选中行和 Editing/Running/Conflict/Completed/Failed 生命周期状态。
+- 安全边界：ViewModel 只生成经过 `InteractiveRebasePlan::validate` 校验的领域计划；不直接启动 Git、不修改 Index/Refs，并明确拒绝非法 `squash/fixup` 首行和 Drop 消息覆盖。
+- 测试：新增正常编辑生成计划、非法动作组合拒绝两项测试。
+- 修改文件：`crates/ui/git-ui-model/src/lib.rs`、`docs/plans/PROGRESS.md`。
+- 风险：PR、完整工作区门禁、GitHub CI 和合并门禁尚未完成。

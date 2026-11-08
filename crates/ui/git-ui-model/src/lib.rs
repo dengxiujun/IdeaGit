@@ -5,10 +5,123 @@ use std::{collections::HashMap, time::SystemTime};
 use git_application::{RefreshHealth, RefreshState, RepositorySessionView};
 use git_changelist::ChangelistId;
 use git_domain::{
-    BranchCommand, ChangeKind, ChangeSelection, GitCommand, HeadState, ObjectId, OperationId,
-    RefName, RepoPath, RepositorySnapshot, SelectionCommitRequest, SessionTarget, SnapshotRevision,
+    BranchCommand, ChangeKind, ChangeSelection, GitCommand, HeadState, InteractiveRebasePlan,
+    ObjectId, OperationId, RebaseAction, RebasePlanValidationError, RebaseTodoEntry, RefName,
+    RepoPath, RepositorySnapshot, SelectionCommitRequest, SessionTarget, SnapshotRevision,
     StandardCommitRequest,
 };
+
+/// Lifecycle state shown by the Interactive Rebase dialog.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RebaseDialogPhase {
+    Editing,
+    Running,
+    Conflict,
+    Completed,
+    Failed(String),
+}
+
+/// One editable row in the Interactive Rebase dialog.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RebaseTodoRowModel {
+    pub commit: ObjectId,
+    pub action: RebaseAction,
+    pub subject: Vec<u8>,
+    pub message_override: Option<String>,
+}
+
+/// Pure UI state for an Interactive Rebase dialog.
+///
+/// The model only edits a validated domain plan. Execution and conflict recovery remain owned by
+/// the application and Git ports.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RebaseDialogViewModel {
+    pub target: SessionTarget,
+    pub upstream: ObjectId,
+    pub rows: Vec<RebaseTodoRowModel>,
+    pub selected_row: Option<usize>,
+    pub phase: RebaseDialogPhase,
+}
+
+impl RebaseDialogViewModel {
+    #[must_use]
+    pub fn from_plan(plan: &InteractiveRebasePlan, subjects: &[(ObjectId, Vec<u8>)]) -> Self {
+        let rows = plan
+            .entries
+            .iter()
+            .map(|entry| RebaseTodoRowModel {
+                commit: entry.commit,
+                action: entry.action,
+                subject: subjects
+                    .iter()
+                    .find(|(commit, _)| *commit == entry.commit)
+                    .map_or_else(Vec::new, |(_, subject)| subject.clone()),
+                message_override: entry.message_override.clone(),
+            })
+            .collect();
+        Self {
+            target: plan.target,
+            upstream: plan.upstream,
+            rows,
+            selected_row: None,
+            phase: RebaseDialogPhase::Editing,
+        }
+    }
+
+    pub fn move_row(&mut self, from: usize, to: usize) -> bool {
+        if from >= self.rows.len() || to >= self.rows.len() || from == to {
+            return false;
+        }
+        let row = self.rows.remove(from);
+        self.rows.insert(to, row);
+        self.selected_row = Some(to);
+        true
+    }
+
+    pub fn set_action(&mut self, row: usize, action: RebaseAction) -> bool {
+        let Some(entry) = self.rows.get_mut(row) else {
+            return false;
+        };
+        entry.action = action;
+        if action == RebaseAction::Drop {
+            entry.message_override = None;
+        }
+        true
+    }
+
+    pub fn set_message_override(&mut self, row: usize, message: Option<String>) -> bool {
+        let Some(entry) = self.rows.get_mut(row) else {
+            return false;
+        };
+        if entry.action == RebaseAction::Drop {
+            return false;
+        }
+        entry.message_override = message.filter(|value| !value.trim().is_empty());
+        true
+    }
+
+    pub fn plan(&self) -> Result<InteractiveRebasePlan, RebasePlanValidationError> {
+        let plan = InteractiveRebasePlan {
+            target: self.target,
+            upstream: self.upstream,
+            entries: self
+                .rows
+                .iter()
+                .map(|row| RebaseTodoEntry {
+                    commit: row.commit,
+                    action: row.action,
+                    message_override: row.message_override.clone(),
+                })
+                .collect(),
+        };
+        plan.validate().map(|()| plan)
+    }
+
+    #[must_use]
+    pub fn validation_error(&self) -> Option<RebasePlanValidationError> {
+        self.plan().err()
+    }
+}
 
 /// Immutable source selected by a read-only change-tree entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -755,6 +868,10 @@ mod tests {
         ObjectId::from_bytes(ObjectFormat::Sha1, &[1; 20]).expect("test OID should be valid")
     }
 
+    fn oid_value(value: u8) -> ObjectId {
+        ObjectId::from_bytes(ObjectFormat::Sha1, &[value; 20]).expect("test OID should be valid")
+    }
+
     fn test_target() -> SessionTarget {
         SessionTarget::worktree(
             git_domain::RepositoryId::new(),
@@ -1223,6 +1340,75 @@ mod tests {
         assert!(matches!(
             to_git_command(&branch),
             Ok(GitCommand::Branch { target: actual, .. }) if actual == target
+        ));
+    }
+
+    #[test]
+    fn rebase_dialog_edits_order_actions_and_builds_a_validated_plan() {
+        let target = SessionTarget::worktree(
+            git_domain::RepositoryId::new(),
+            git_domain::WorktreeId::new(),
+            1,
+        );
+        let source = InteractiveRebasePlan {
+            target,
+            upstream: oid_value(1),
+            entries: vec![
+                RebaseTodoEntry {
+                    commit: oid_value(2),
+                    action: RebaseAction::Pick,
+                    message_override: None,
+                },
+                RebaseTodoEntry {
+                    commit: oid_value(3),
+                    action: RebaseAction::Pick,
+                    message_override: None,
+                },
+            ],
+        };
+        let mut dialog = RebaseDialogViewModel::from_plan(
+            &source,
+            &[
+                (oid_value(2), b"first".to_vec()),
+                (oid_value(3), b"second".to_vec()),
+            ],
+        );
+        assert!(dialog.move_row(1, 0));
+        assert!(dialog.set_action(0, RebaseAction::Reword));
+        assert!(dialog.set_message_override(0, Some("updated message".to_owned())));
+        let plan = dialog.plan().expect("dialog should produce a valid plan");
+        assert_eq!(plan.entries[0].commit, oid_value(3));
+        assert_eq!(plan.entries[0].action, RebaseAction::Reword);
+        assert_eq!(
+            plan.entries[0].message_override.as_deref(),
+            Some("updated message")
+        );
+        assert_eq!(dialog.rows[0].subject, b"second".to_vec());
+    }
+
+    #[test]
+    fn rebase_dialog_rejects_invalid_squash_and_drop_message() {
+        let target = SessionTarget::worktree(
+            git_domain::RepositoryId::new(),
+            git_domain::WorktreeId::new(),
+            1,
+        );
+        let plan = InteractiveRebasePlan {
+            target,
+            upstream: oid_value(1),
+            entries: vec![RebaseTodoEntry {
+                commit: oid_value(2),
+                action: RebaseAction::Pick,
+                message_override: None,
+            }],
+        };
+        let mut dialog = RebaseDialogViewModel::from_plan(&plan, &[]);
+        assert!(dialog.set_action(0, RebaseAction::Drop));
+        assert!(!dialog.set_message_override(0, Some("cannot apply".to_owned())));
+        assert!(dialog.set_action(0, RebaseAction::Squash));
+        assert!(matches!(
+            dialog.validation_error(),
+            Some(git_domain::RebasePlanValidationError::SquashOrFixupWithoutPrevious)
         ));
     }
 }
