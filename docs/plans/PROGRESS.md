@@ -606,3 +606,9 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `JournaledBranchWriter` 在分支变更前记录 CommitInProgress，随后持久化 Completed 或 RecoveryRequired，保留崩溃审计线索。
 - `ReconciledCommitWriter` 只有在实际提交成功且权威 RepositorySnapshot 重建成功后才返回完整成功结果。
 - 详细结果见 [GIT-001-VERIFICATION-001](../reviews/GIT-001-VERIFICATION-001.md)。
+
+## RECOVERY-001 启动恢复动作映射（2026-11-08）
+
+- `StartupRecoveryReport::recovery_actions` 根据实际活动中的 Merge、Rebase、Cherry-pick sequencer 返回受限的安全后续动作；无活动 sequencer 仅返回刷新动作。
+- Revert 当前没有专用的 Continue/Abort 端口契约，因此只提供 `InspectRepository`，避免虚构或误执行恢复操作。
+- 新增四类 sequencer 及空状态的单元测试；`cargo fmt`、专项测试与 `git diff --check` 已通过。

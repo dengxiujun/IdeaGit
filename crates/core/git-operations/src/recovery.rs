@@ -2,8 +2,8 @@
 
 use async_trait::async_trait;
 use git_domain::{
-    GitError, GitErrorKind, GitResult, JournalRecord, ObjectId, RecoveryScope, SequencerSnapshot,
-    SessionTarget,
+    GitError, GitErrorKind, GitResult, JournalRecord, ObjectId, RecoveryAction, RecoveryScope,
+    SequencerKind, SequencerSnapshot, SessionTarget,
 };
 use git_ports::{ExecutionContext, JournalStore};
 
@@ -65,6 +65,34 @@ impl StartupRecoveryReport {
                     RecoveryDisposition::CommittedNeedsReconcile | RecoveryDisposition::Unknown
                 )
             })
+    }
+
+    /// Returns the safe follow-up actions for an observed startup state.
+    ///
+    /// The returned actions are affordances only. Each action still requires a fresh preflight
+    /// and must be executed through the operation coordinator. Revert is intentionally reduced to
+    /// inspection because the current port does not expose a revert-specific continue/abort pair.
+    #[must_use]
+    pub fn recovery_actions(&self) -> Vec<RecoveryAction> {
+        let Some(sequencer) = self.sequencer.as_ref().filter(|state| state.active) else {
+            return vec![RecoveryAction::RefreshOnly];
+        };
+
+        match sequencer.kind {
+            SequencerKind::Merge => {
+                vec![RecoveryAction::ContinueMerge, RecoveryAction::AbortMerge]
+            }
+            SequencerKind::Rebase => vec![
+                RecoveryAction::ContinueRebase,
+                RecoveryAction::SkipRebase,
+                RecoveryAction::AbortRebase,
+            ],
+            SequencerKind::CherryPick => vec![
+                RecoveryAction::ContinueCherryPick,
+                RecoveryAction::AbortCherryPick,
+            ],
+            SequencerKind::Revert => vec![RecoveryAction::InspectRepository],
+        }
     }
 }
 
@@ -350,6 +378,56 @@ mod tests {
             }),
         };
         assert!(report.blocks_writes());
+    }
+
+    #[test]
+    fn recovery_actions_follow_active_sequencer_kind() {
+        let cases = [
+            (
+                SequencerKind::Merge,
+                vec![RecoveryAction::ContinueMerge, RecoveryAction::AbortMerge],
+            ),
+            (
+                SequencerKind::Rebase,
+                vec![
+                    RecoveryAction::ContinueRebase,
+                    RecoveryAction::SkipRebase,
+                    RecoveryAction::AbortRebase,
+                ],
+            ),
+            (
+                SequencerKind::CherryPick,
+                vec![
+                    RecoveryAction::ContinueCherryPick,
+                    RecoveryAction::AbortCherryPick,
+                ],
+            ),
+            (
+                SequencerKind::Revert,
+                vec![RecoveryAction::InspectRepository],
+            ),
+        ];
+
+        for (kind, expected) in cases {
+            let report = StartupRecoveryReport {
+                inspections: Vec::new(),
+                orphaned: Vec::new(),
+                sequencer: Some(SequencerSnapshot {
+                    kind,
+                    active: true,
+                    current: None,
+                    total: None,
+                    conflicts: Vec::new(),
+                }),
+            };
+            assert_eq!(report.recovery_actions(), expected);
+        }
+    }
+
+    #[test]
+    fn inactive_or_missing_sequencer_only_allows_refresh() {
+        let report = StartupRecoveryReport::default();
+        assert_eq!(report.recovery_actions(), vec![RecoveryAction::RefreshOnly]);
     }
 
     #[test]
