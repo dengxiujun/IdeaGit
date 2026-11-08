@@ -147,7 +147,7 @@ mod tests {
                 String::from_utf8_lossy(&output.stderr)
             );
         };
-        git(&["switch", "-c", "feature/cherry"]);
+        git(&["checkout", "-b", "feature/cherry"]);
         fixture
             .commit_file("cherry.txt", b"cherry\n")
             .expect("feature");
@@ -165,7 +165,7 @@ mod tests {
         )
         .trim()
         .to_owned();
-        git(&["switch", &initial_branch]);
+        git(&["checkout", &initial_branch]);
         let writer = GitCliSequencerWriter::new(
             crate::TokioProcessRunner,
             RepositoryLocation::worktree(
