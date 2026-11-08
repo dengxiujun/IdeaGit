@@ -41,7 +41,7 @@ pub use hunk_stage::GitCliHunkStageWriter;
 pub use index::GitCliIndexWriter;
 pub use index_reconciliation::GitCliIndexReconciliationPublisher;
 pub use merge::GitCliMergeWriter;
-pub use rebase::GitCliInteractiveRebasePlanReader;
+pub use rebase::{GitCliInteractiveRebasePlanReader, GitCliInteractiveRebaseWriter};
 pub use remote::GitCliRemoteAdapter;
 pub use repository::GitCliRepositoryReader;
 pub use resolution::GitCliConflictResolutionWriter;

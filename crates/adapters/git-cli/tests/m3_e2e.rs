@@ -2,8 +2,8 @@ use std::{fs, process::Command, str::FromStr};
 
 use git_cli::{
     GitCliCloneWriter, GitCliCommitWriter, GitCliConflictResolutionWriter,
-    GitCliConflictStageReader, GitCliInteractiveRebasePlanReader, GitCliMergeWriter,
-    GitCliRemoteAdapter, GitCliSequencerWriter, TokioProcessRunner,
+    GitCliConflictStageReader, GitCliInteractiveRebasePlanReader, GitCliInteractiveRebaseWriter,
+    GitCliMergeWriter, GitCliRemoteAdapter, GitCliSequencerWriter, TokioProcessRunner,
 };
 use git_domain::{
     CommitOptions, MergeCommand, OperationId, RefName, RemoteCommand, RepoPath, RepositoryId,
@@ -13,8 +13,8 @@ use git_domain::{
 use git_fixture::TestRepository;
 use git_ports::{
     ApplyResolutionRequest, CloneRequest, CloneWriter, CommitWriter, ConflictResolutionWriter,
-    ConflictStageReader, ExecutionContext, IndexWriter, InteractiveRebasePlanReader, MergeWriter,
-    RemoteWriter, SequencerWriter,
+    ConflictStageReader, ExecutionContext, IndexWriter, InteractiveRebasePlanReader,
+    InteractiveRebaseWriter, MergeWriter, RemoteWriter, SequencerWriter,
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -363,4 +363,14 @@ async fn interactive_rebase_plan_reads_linear_commits_in_git_order() {
         .expect("rendered todo should parse");
     assert_eq!(reparsed.upstream, plan.upstream);
     assert_eq!(reparsed.entries, plan.entries);
+
+    let mut execution = plan;
+    execution.entries[1].action = git_domain::RebaseAction::Drop;
+    execution.entries[1].message_override = None;
+    GitCliInteractiveRebaseWriter::new(TokioProcessRunner, location(&fixture.worktree))
+        .apply(target(), execution, context())
+        .await
+        .expect("interactive rebase should execute");
+    assert!(!fixture.worktree.join("second.txt").exists());
+    assert!(fixture.worktree.join("first.txt").exists());
 }
