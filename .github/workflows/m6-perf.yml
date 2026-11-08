@@ -1,0 +1,81 @@
+name: M6 Performance Baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "触发原因"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmark:
+    name: Benchmark / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - windows-2022
+          - macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust 1.99.1
+        run: >-
+          rustup toolchain install 1.99.1
+          --profile minimal
+
+      - name: Record runner environment
+        shell: bash
+        run: |
+          {
+            echo "runner.os=${{ runner.os }}"
+            echo "runner.name=${{ runner.name }}"
+            echo "ImageOS=${ImageOS:-unknown}"
+            echo "ImageVersion=${ImageVersion:-unknown}"
+            rustc --version --verbose
+            cargo --version
+            git --version
+            uname -a || true
+          } | tee "m6-perf-environment-${{ runner.os }}.log"
+
+      - name: Run Git CLI benchmark
+        shell: bash
+        run: >-
+          cargo test -p git-cli --test m6_perf --locked
+          -- --ignored --nocapture
+          2>&1 | tee "m6-perf-git-cli-${{ runner.os }}.log"
+
+      - name: Run UI projection benchmark
+        shell: bash
+        run: >-
+          cargo test -p git-ui-model --test m6_perf_ui --locked
+          -- --ignored --nocapture
+          2>&1 | tee "m6-perf-ui-${{ runner.os }}.log"
+
+      - name: Run large diff parser benchmark
+        shell: bash
+        run: >-
+          cargo test -p git-diff --test m6_perf_diff --locked
+          -- --ignored --nocapture
+          2>&1 | tee "m6-perf-diff-${{ runner.os }}.log"
+
+      - name: Upload benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: m6-perf-${{ runner.os }}-${{ github.run_id }}
+          path: m6-perf-*.log
+          if-no-files-found: warn
+          retention-days: 30
