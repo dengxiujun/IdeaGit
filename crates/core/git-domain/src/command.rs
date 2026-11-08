@@ -4,6 +4,7 @@
 //! operation coordinator remain responsible for preflight, locking, execution, and reconcile.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -216,6 +217,14 @@ impl InteractiveRebasePlan {
         {
             return Err(RebasePlanValidationError::UpstreamIncluded);
         }
+        let mut commits = HashSet::with_capacity(self.entries.len());
+        if self
+            .entries
+            .iter()
+            .any(|entry| !commits.insert(entry.commit))
+        {
+            return Err(RebasePlanValidationError::DuplicateCommit);
+        }
         for (index, entry) in self.entries.iter().enumerate() {
             if matches!(entry.action, RebaseAction::Squash | RebaseAction::Fixup) && index == 0 {
                 return Err(RebasePlanValidationError::SquashOrFixupWithoutPrevious);
@@ -303,6 +312,8 @@ pub enum RebasePlanValidationError {
     EmptyEntries,
     #[error("interactive rebase plan must not include its upstream commit")]
     UpstreamIncluded,
+    #[error("interactive rebase plan contains a duplicate commit")]
+    DuplicateCommit,
     #[error("squash or fixup requires a previous todo entry")]
     SquashOrFixupWithoutPrevious,
     #[error("drop todo entry cannot override a commit message")]
@@ -663,6 +674,27 @@ mod tests {
         assert_eq!(
             renderable.render_todo().expect("todo should render"),
             format!("pick {commit} subject\n").into_bytes()
+        );
+
+        let duplicate = InteractiveRebasePlan {
+            target,
+            upstream,
+            entries: vec![
+                RebaseTodoEntry {
+                    commit,
+                    action: RebaseAction::Pick,
+                    message_override: None,
+                },
+                RebaseTodoEntry {
+                    commit,
+                    action: RebaseAction::Drop,
+                    message_override: None,
+                },
+            ],
+        };
+        assert_eq!(
+            duplicate.validate(),
+            Err(RebasePlanValidationError::DuplicateCommit)
         );
     }
 }
