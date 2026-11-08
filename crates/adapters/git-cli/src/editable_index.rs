@@ -48,6 +48,27 @@ impl<R: ProcessRunner> EditableIndexCandidateBuilder for GitCliEditableIndexCand
             ));
         }
         let path = repo_path_arg(&request.path)?;
+        for key in ["core.splitIndex", "core.sparseCheckout", "index.sparse"] {
+            let features = self
+                .executor
+                .execute(
+                    IndexFeatureCheckCommand {
+                        cwd: cwd.to_path_buf(),
+                        key: OsString::from(key),
+                    },
+                    context.clone(),
+                )
+                .await?;
+            if String::from_utf8_lossy(&features.stdout)
+                .trim()
+                .eq_ignore_ascii_case("true")
+            {
+                return Err(GitError::new(
+                    GitErrorKind::UnsupportedFeature,
+                    "editable Index Apply does not support sparse or split Index configuration",
+                ));
+            }
+        }
         let conflict = self
             .executor
             .execute(
@@ -139,6 +160,26 @@ impl<R: ProcessRunner> EditableIndexCandidateBuilder for GitCliEditableIndexCand
 
 fn is_editable_mode(mode: u32) -> bool {
     matches!(mode, 0o100644 | 0o100755 | 0o120000)
+}
+
+struct IndexFeatureCheckCommand {
+    cwd: PathBuf,
+    key: OsString,
+}
+impl GitCliCommand for IndexFeatureCheckCommand {}
+impl sealed::Sealed for IndexFeatureCheckCommand {
+    fn into_invocation(self) -> GitCliInvocation {
+        GitCliInvocation::new(
+            None,
+            [
+                OsString::from("config"),
+                OsString::from("--bool"),
+                OsString::from("--get"),
+                self.key,
+            ],
+        )
+        .with_cwd(self.cwd)
+    }
 }
 
 struct HashObjectCommand {
@@ -476,5 +517,54 @@ mod tests {
                 .expect_err("unsupported mode must be rejected");
             assert_eq!(error.kind, GitErrorKind::UnsupportedFileKind);
         }
+    }
+
+    #[tokio::test]
+    async fn rejects_split_index_configuration_before_candidate_write() {
+        let fixture = TestRepository::init().expect("fixture");
+        fixture
+            .commit_file("file.txt", b"base\n")
+            .expect("fixture commit");
+        let temporary_index = fixture.temp_dir.path().join("editable-split-index");
+        let mut read_tree = Command::new("git");
+        read_tree
+            .args(["read-tree", "HEAD"])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (name, value) in fixture.isolated_environment() {
+            read_tree.env(name, value);
+        }
+        assert!(read_tree.status().expect("git starts").success());
+        let mut config = Command::new("git");
+        config
+            .args(["config", "core.splitIndex", "true"])
+            .current_dir(&fixture.worktree);
+        for (name, value) in fixture.isolated_environment() {
+            config.env(name, value);
+        }
+        assert!(config.status().expect("git config starts").success());
+
+        let builder = GitCliEditableIndexCandidateBuilder::new(
+            crate::TokioProcessRunner,
+            RepositoryLocation::worktree(
+                &fixture.worktree,
+                fixture.worktree.join(".git"),
+                fixture.worktree.join(".git"),
+            ),
+        );
+        let error = builder
+            .build(
+                EditableIndexCandidateRequest {
+                    target: SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                    path: RepoPath::try_from("file.txt").expect("path"),
+                    mode: 0o100644,
+                    content: b"edited\n".to_vec(),
+                    temporary_index,
+                },
+                context(),
+            )
+            .await
+            .expect_err("split Index configuration must be rejected");
+        assert_eq!(error.kind, GitErrorKind::UnsupportedFeature);
     }
 }

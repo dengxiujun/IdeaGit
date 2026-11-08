@@ -61,8 +61,17 @@
 - 完成：候选 Index Apply 仅允许 regular、executable、symlink 三类 mode；gitlink、未知 mode 和不规范 regular mode 在任何 Git 写操作前返回 `UnsupportedFileKind`。
 - 测试：workspace 全量 fmt、check、clippy、test、diff check 全部通过；Git CLI 当前 73 个测试通过。
 - Commit/Runner：提交待生成；GitHub Runner 未创建（当前环境无 GitHub 连接器）。
-- 风险：sparse/split Index 和未知 Index 扩展拒绝矩阵仍需补充；UI-012/UI-013 继续关闭。
-- 下一步：补 Index 扩展/sparse/split 状态拒绝审查，再进入 UI-012 依赖检查。
+- 风险：未知 Index 扩展拒绝矩阵仍需补充；UI-012/UI-013 继续关闭。
+- 下一步：补未知 Index 扩展拒绝审查，再进入 UI-012 依赖检查。
+
+## M4 CCD-008：sparse/split Index 配置拒绝（2026-11-08）
+
+- 分支：`feat/m4`。
+- 完成：候选 Index Apply 逐项探测 `core.splitIndex`、`core.sparseCheckout` 和 `index.sparse`；任一配置为 true 时返回 `UnsupportedFeature`，普通 Index 保持可用。
+- 测试：新增真实仓库 `core.splitIndex=true` 拒绝测试；workspace 全量 fmt、check、clippy、test、diff check 全部通过；Git CLI 当前 74 个测试通过。
+- Commit/Runner：提交待生成；GitHub Runner 未创建（当前环境无 GitHub 连接器）。
+- 风险：未知 Index 扩展拒绝矩阵仍需补充；UI-012/UI-013 继续关闭。
+- 下一步：补未知 Index 扩展审查，再进入 UI-012 依赖检查。
 
 ## M4 TEST-004 / CCD-006：提交副作用观察与恢复边界（2026-11-08）
 
