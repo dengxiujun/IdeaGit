@@ -2,35 +2,14 @@
 
 更新日期：2026-11-08。
 
-## M4 CCD-003：Changelist Persistence（2026-11-08）
+## M4 DIFF-003：Patch AST/Hunk/Line（2026-11-08）
 
-- 分支：`feat/CCD-003`；从 `main` 创建并带入 CCD-001/002。
-- 完成：新增版本化 `ChangelistBundle` 与 `ChangelistStore` 端口；`JsonChangelistStore` 实现目标/Schema 校验、乐观版本控制、原子临时文件替换和写前 `.json.bak` 备份。
-- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；Persistence 测试 6 个通过，新增持久化专项 2 个通过。
-- 依赖：仅使用 workspace 已锁定的 `git-changelist` 与既有异步/序列化依赖，Cargo.lock 已更新依赖边，未升级版本。
+- 分支：`feat/DIFF-003`；已从干净 `main` 创建。
+- 完成：在 `git-diff` 中实现字节保持的 Patch/FilePatch/Hunk/Line AST、统一 Diff 解析、行号与无换行标记、二进制与 `/dev/null` 元数据及 Hunk 行数校验。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；专项 3 个解析测试通过。
 - Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
-- 风险：当前为 JSON 文件存储，尚未接入 SQLite 迁移；Temporary Index 与 Partial Commit 不在本任务范围。
-- 下一任务：CCD-004（Temporary Index Manager）。
-
-## M4 CCD-002：Selection Fingerprints（2026-11-08）
-
-- 分支：`feat/CCD-002`；从 `main` 创建并带入 CCD-001。
-- 完成：新增确定性 SHA-256 选区指纹引擎，绑定 Repository/Worktree、HEAD/Index、Diff Generation、ChangeSelection 与原始内容字节；状态变化分类为 Valid、Stale 或 Ambiguous，跨目标选择拒绝。
-- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；专项测试 4/4 通过。
-- 依赖：仅使用 workspace 已锁定的 `serde_json`/`sha2`，更新 Cargo.lock 依赖边，未升级版本或引入外部依赖。
-- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
-- 风险：指纹重定位仍是保守分类，不自动移动选区；持久化事务留给 CCD-003。
-- 下一任务：CCD-003（Changelist Persistence）。
-
-## M4 CCD-001：Changelist Domain（2026-11-08）
-
-- 分支：`feat/CCD-001`；从 `main` 创建，未提前引入后续 M4 实现。
-- 完成：新增 Changelist/Binding 强类型模型、稳定 UUID 身份、仓库/Worktree 目标隔离、默认列表/Schema 版本、绑定 Valid/Stale/Ambiguous 状态及跨 Session 拒绝。
-- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；专项测试 2/2 通过。
-- 依赖：`git-changelist` 首次直接使用 workspace 已锁定的 `serde`/`thiserror`/`uuid`，先离线更新 Cargo.lock 依赖边，再完成 locked 门禁；未引入新版本或外部依赖。
-- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
-- 风险：指纹重定位、持久化事务和 Selection 语义校验留给 CCD-002/003；当前不修改 Git Index。
-- 下一任务：CCD-002（Selection Fingerprints）。
+- 风险：当前仅覆盖 Git unified diff 的基础 AST；side-by-side 对齐、三版本、Hunk/Line Stage 和 Partial Commit 仍未开放。
+- 下一任务：DIFF-004（Side-by-side Alignment）。
 
 ## 当前状态
 
