@@ -2,51 +2,15 @@
 
 更新日期：2026-11-08。
 
-## M4 DIFF-007：Line Patch Builder（2026-11-08）
+## M4 CCD-001：Changelist Domain（2026-11-08）
 
-- 分支：`feat/DIFF-007`；从 `main` 创建并按依赖带入 DIFF-003～006。
-- 完成：新增字节保持的 `build_line_patch`，按零起点半开 `LineSpan` 选择变更行，生成完整 unified Patch 头；拒绝空/越界/上下文-only/二进制选区，并保留 no-newline 标记。
-- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；专项 10 个 Diff 测试通过。
+- 分支：`feat/CCD-001`；从 `main` 创建，未提前引入后续 M4 实现。
+- 完成：新增 Changelist/Binding 强类型模型、稳定 UUID 身份、仓库/Worktree 目标隔离、默认列表/Schema 版本、绑定 Valid/Stale/Ambiguous 状态及跨 Session 拒绝。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；专项测试 2/2 通过。
+- 依赖：`git-changelist` 首次直接使用 workspace 已锁定的 `serde`/`thiserror`/`uuid`，先离线更新 Cargo.lock 依赖边，再完成 locked 门禁；未引入新版本或外部依赖。
 - Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
-- 风险：当前构建器按选中变更行生成最小 Patch，复杂上下文重定位、Rename 与 Partial Commit 事务由后续任务验证。
-- 下一任务：CCD-001（Changelist Domain）。
-
-## M4 DIFF-006：Safe Hunk Stage（2026-11-08）
-
-- 分支：`feat/DIFF-006`；从 `main` 创建并按依赖带入 DIFF-003/004/005。
-- 完成：新增强类型 `HunkSelection`、`StageHunksRequest` 与状态读取端口；Git CLI 适配器在真实 Index/Worktree 身份校验后执行 `git apply --cached --check`，校验通过才发布到 Index。
-- 安全测试：真实隔离 Git fixture 验证 Hunk Patch 应用、过期 Index 拒绝、过期 Worktree 指纹拒绝；3 个专项测试通过。
-- 门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；Workspace Git CLI 测试 57 个通过。
-- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
-- 风险：候选 Patch 的 Hunk/Line 构建仍留给 DIFF-007；协调器生产装配需在后续写操作链路接入。
-- 下一任务：DIFF-007（Line Patch Builder）。
-
-## M4 DIFF-005：HEAD/Index/Worktree 三版本（2026-11-08）
-
-- 分支：`feat/DIFF-005`；从 `main` 创建并按依赖带入 DIFF-003/DIFF-004。
-- 完成：新增 `ContentSource`、三版本文件身份、HEAD↔Index、Index↔Worktree、HEAD↔Worktree 比较模型；保留路径、OID、mode 与来源身份，拒绝未定义的反向比较。
-- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；专项 7 个 Diff 测试通过。
-- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
-- 风险：当前只提供只读三版本模型，尚未接入真实 DiffReader、Stage 操作或三版本 UI。
-- 下一任务：DIFF-006（Safe Hunk Stage）。
-
-## M4 DIFF-004：Side-by-side Alignment（2026-11-08）
-
-- 分支：`feat/DIFF-004`；从 `main` 创建并带入已验证的 DIFF-003 依赖提交。
-- 完成：新增独立于 UI 的逻辑行对齐引擎，保留 Hunk/Line 身份，支持上下文、成对替换、纯新增和纯删除行。
-- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；专项 5 个 Diff 测试通过。
-- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
-- 风险：当前仍未实现三版本 Diff、Hunk/Line Stage 和 UI Viewer；对齐算法按连续删除/新增块配对，不做文本相似度重排。
-- 下一任务：DIFF-005（HEAD/Index/Worktree 三版本）。
-
-## M4 DIFF-003：Patch AST/Hunk/Line（2026-11-08）
-
-- 分支：`feat/DIFF-003`；已从干净 `main` 创建。
-- 完成：在 `git-diff` 中实现字节保持的 Patch/FilePatch/Hunk/Line AST、统一 Diff 解析、行号与无换行标记、二进制与 `/dev/null` 元数据及 Hunk 行数校验。
-- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；专项 3 个解析测试通过。
-- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
-- 风险：当前仅覆盖 Git unified diff 的基础 AST；side-by-side 对齐、三版本、Hunk/Line Stage 和 Partial Commit 仍未开放。
-- 下一任务：DIFF-004（Side-by-side Alignment）。
+- 风险：指纹重定位、持久化事务和 Selection 语义校验留给 CCD-002/003；当前不修改 Git Index。
+- 下一任务：CCD-002（Selection Fingerprints）。
 
 ## 当前状态
 
