@@ -191,6 +191,8 @@ pub struct PushPreview {
 pub enum SequencerCommand {
     CherryPick { commit: ObjectId },
     Revert { commit: ObjectId, no_edit: bool },
+    ContinueMerge,
+    AbortMerge,
     Continue,
     Skip,
     Abort,

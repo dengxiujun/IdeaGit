@@ -153,6 +153,12 @@ impl sealed::Sealed for SequencerMutation {
                 }
                 args.push(OsString::from(commit.to_string()));
             }
+            SequencerCommand::ContinueMerge => {
+                args.extend([OsString::from("merge"), OsString::from("--continue")]);
+            }
+            SequencerCommand::AbortMerge => {
+                args.extend([OsString::from("merge"), OsString::from("--abort")]);
+            }
             SequencerCommand::Continue => {
                 args.extend([OsString::from("cherry-pick"), OsString::from("--continue")])
             }
@@ -235,6 +241,58 @@ mod tests {
         assert_eq!(
             args[2].to_string_lossy(),
             "0123456789012345678901234567890123456789"
+        );
+    }
+
+    #[tokio::test]
+    async fn builds_typed_merge_continue_and_abort_arguments() {
+        let args = Arc::new(Mutex::new(Vec::new()));
+        let writer = GitCliSequencerWriter::new(
+            RecordingRunner {
+                args: Arc::clone(&args),
+                success: true,
+            },
+            RepositoryLocation::worktree(".", ".git", ".git"),
+        );
+        let (progress, _) = mpsc::channel(4);
+        let context = || {
+            ExecutionContext::new(
+                OperationId::new(),
+                CancellationToken::new(),
+                progress.clone(),
+            )
+        };
+        writer
+            .apply(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                SequencerCommand::ContinueMerge,
+                context(),
+            )
+            .await
+            .expect("merge continue");
+        assert_eq!(
+            args.lock()
+                .expect("test mutex")
+                .iter()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect::<Vec<_>>(),
+            vec!["merge", "--continue"]
+        );
+        writer
+            .apply(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                SequencerCommand::AbortMerge,
+                context(),
+            )
+            .await
+            .expect("merge abort");
+        assert_eq!(
+            args.lock()
+                .expect("test mutex")
+                .iter()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect::<Vec<_>>(),
+            vec!["merge", "--abort"]
         );
     }
 
