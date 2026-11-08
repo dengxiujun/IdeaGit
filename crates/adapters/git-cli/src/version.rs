@@ -70,7 +70,7 @@ impl<R: ProcessRunner> VersionReader for GitCliVersionReader<R> {
                 Some(VersionDescriptor {
                     kind,
                     oid: None,
-                    mode: Some(FileMode::new(0o100644)),
+                    mode: Some(worktree_mode(&metadata)),
                     byte_length: metadata.is_file().then(|| metadata.len()),
                 })
             })
@@ -83,6 +83,17 @@ impl<R: ProcessRunner> VersionReader for GitCliVersionReader<R> {
             worktree,
         })
     }
+}
+
+#[cfg(unix)]
+fn worktree_mode(metadata: &fs::Metadata) -> FileMode {
+    use std::os::unix::fs::PermissionsExt;
+    FileMode::new(metadata.permissions().mode() & 0o177777)
+}
+
+#[cfg(not(unix))]
+fn worktree_mode(_metadata: &fs::Metadata) -> FileMode {
+    FileMode::new(0o100644)
 }
 
 fn path_utf8(path: &RepoPath) -> GitResult<String> {
