@@ -1348,3 +1348,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - CI：Rust CI #135（Run ID `42492053587`，提交 `3ab5593cc4c9eb265bd979be10e52324ca228d63`）已成功；Format、Ubuntu 24.04、macOS 15、Windows 2022 全部通过。
 - 分支：已确认合并提交进入 `main`；本地和远程 `feat/UI-014` 均已清理。
 - 结论：UI-014 完成；下一任务为 `UI-015`，必须从已验证的 `main` 按串行规则创建新分支。
+
+## M5 UI-015：Shelf/Stash Views（2026-11-08）
+
+- 完成：新增纯 UI 投影模型，展示 Shelf 条目名称、创建时间、基线、文件数量、搜索和选择状态，并区分 Shelf/Stash 视图模式。
+- 安全边界：ViewModel 通过 Shelf 领域的 `unshelve_decision` 显示 Apply 或显式冲突解决状态；过期基线或脏工作区不会被标记为可直接恢复，UI 不直接运行 Git 或修改工作区。
+- 测试：新增匹配基线可恢复、过期基线冲突标记、搜索过滤和选择测试。
+- 修改文件：`crates/ui/git-ui-model/Cargo.toml`、`Cargo.lock`、`crates/ui/git-ui-model/src/lib.rs`、`docs/plans/PROGRESS.md`。
+- 风险：PR、完整工作区门禁、GitHub CI 和合并门禁尚未完成。

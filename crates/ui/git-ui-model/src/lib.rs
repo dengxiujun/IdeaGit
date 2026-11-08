@@ -10,6 +10,110 @@ use git_domain::{
     RepoPath, RepositorySnapshot, SelectionCommitRequest, SessionTarget, SnapshotRevision,
     StandardCommitRequest,
 };
+use git_shelf::{ShelfEntry, ShelfId, UnshelveDecision, unshelve_decision};
+
+/// Which saved-change collection is visible in the Shelf/Stash panel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SavedChangesView {
+    Shelf,
+    Stash,
+}
+
+/// A read-only row projected from an application-owned Shelf entry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShelfRowViewModel {
+    pub id: ShelfId,
+    pub name: String,
+    pub created_at: i64,
+    pub base_head: Option<ObjectId>,
+    pub file_count: usize,
+    pub selected: bool,
+    pub unshelve_decision: UnshelveDecision,
+}
+
+/// Pure state for the Shelf/Stash view.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShelfStashViewModel {
+    pub target: SessionTarget,
+    pub view: SavedChangesView,
+    pub search_query: String,
+    pub selected: Option<ShelfId>,
+    pub rows: Vec<ShelfRowViewModel>,
+    pub worktree_dirty: bool,
+    pub current_head: Option<ObjectId>,
+}
+
+impl ShelfStashViewModel {
+    #[must_use]
+    pub fn from_entries(
+        target: SessionTarget,
+        entries: &[ShelfEntry],
+        current_head: Option<ObjectId>,
+        worktree_dirty: bool,
+    ) -> Self {
+        Self {
+            target,
+            view: SavedChangesView::Shelf,
+            search_query: String::new(),
+            selected: None,
+            rows: entries
+                .iter()
+                .map(|entry| Self::row(entry, None, current_head, worktree_dirty))
+                .collect(),
+            worktree_dirty,
+            current_head,
+        }
+    }
+
+    fn row(
+        entry: &ShelfEntry,
+        selected: Option<ShelfId>,
+        current_head: Option<ObjectId>,
+        worktree_dirty: bool,
+    ) -> ShelfRowViewModel {
+        ShelfRowViewModel {
+            id: entry.id,
+            name: entry.name.clone(),
+            created_at: entry.created_at,
+            base_head: entry.base_head,
+            file_count: entry.bundle.files.len(),
+            selected: selected == Some(entry.id),
+            unshelve_decision: unshelve_decision(entry, current_head, worktree_dirty),
+        }
+    }
+
+    pub fn select(&mut self, id: Option<ShelfId>) {
+        self.selected = id;
+        for row in &mut self.rows {
+            row.selected = Some(row.id) == id;
+        }
+    }
+
+    pub fn set_search_query(&mut self, query: impl Into<String>) {
+        self.search_query = query.into();
+    }
+
+    #[must_use]
+    pub fn visible_rows(&self) -> Vec<ShelfRowViewModel> {
+        let query = self.search_query.trim().to_lowercase();
+        self.rows
+            .iter()
+            .filter(|row| query.is_empty() || row.name.to_lowercase().contains(&query))
+            .cloned()
+            .collect()
+    }
+
+    #[must_use]
+    pub fn selected_row(&self) -> Option<&ShelfRowViewModel> {
+        self.rows.iter().find(|row| Some(row.id) == self.selected)
+    }
+
+    #[must_use]
+    pub fn can_unshelve_selected(&self) -> bool {
+        self.selected_row()
+            .is_some_and(|row| row.unshelve_decision == UnshelveDecision::Apply)
+    }
+}
 
 /// Lifecycle state shown by the Interactive Rebase dialog.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1410,5 +1514,63 @@ mod tests {
             dialog.validation_error(),
             Some(git_domain::RebasePlanValidationError::SquashOrFixupWithoutPrevious)
         ));
+    }
+
+    #[test]
+    fn shelf_view_filters_and_marks_stale_unshelve_as_conflict() {
+        let target = test_target();
+        let entry = git_shelf::ShelfEntry::new(
+            target,
+            "before refactor",
+            1,
+            Some(oid_value(1)),
+            git_shelf::PatchBundle::new(vec![
+                git_shelf::ShelvedFile::new(
+                    RepoPath::try_from("a.txt").expect("path"),
+                    b"diff".to_vec(),
+                    vec![1],
+                )
+                .expect("file"),
+            ])
+            .expect("bundle"),
+        )
+        .expect("entry");
+        let mut view = ShelfStashViewModel::from_entries(
+            target,
+            std::slice::from_ref(&entry),
+            Some(oid_value(2)),
+            false,
+        );
+        assert_eq!(view.view, SavedChangesView::Shelf);
+        assert!(!view.can_unshelve_selected());
+        view.select(Some(entry.id));
+        assert!(!view.can_unshelve_selected());
+        view.set_search_query("refactor");
+        assert_eq!(view.visible_rows().len(), 1);
+        view.set_search_query("missing");
+        assert!(view.visible_rows().is_empty());
+    }
+
+    #[test]
+    fn shelf_view_allows_clean_matching_base() {
+        let target = test_target();
+        let entry = git_shelf::ShelfEntry::new(
+            target,
+            "saved",
+            1,
+            Some(oid_value(1)),
+            git_shelf::PatchBundle::new(vec![
+                git_shelf::ShelvedFile::new(
+                    RepoPath::try_from("a.txt").expect("path"),
+                    b"diff".to_vec(),
+                    vec![1],
+                )
+                .expect("file"),
+            ])
+            .expect("bundle"),
+        )
+        .expect("entry");
+        let view = ShelfStashViewModel::from_entries(target, &[entry], Some(oid_value(1)), false);
+        assert_eq!(view.rows[0].unshelve_decision, UnshelveDecision::Apply);
     }
 }
