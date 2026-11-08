@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 git-application.workspace = true
+git-changelist.workspace = true
 git-domain.workspace = true
 
 [dev-dependencies]

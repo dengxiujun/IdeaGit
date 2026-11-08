@@ -4,13 +4,26 @@
 //! session for the same normalized worktree location, while linked worktrees share a logical
 //! repository identity through their common Git directory.
 
+mod candidate_preview;
 mod refresh;
+mod selection_commit;
+mod selection_preparation;
+mod selection_preview;
 mod session;
 
+pub use candidate_preview::{
+    CandidateTreePreview, CandidateTreePreviewService, PreparedPartialCommit,
+};
 pub use refresh::{
     RefreshHealth, RefreshScheduler, RefreshSchedulerConfig, RefreshState, RefreshTrigger,
     ScheduledSnapshotRebuilder, SnapshotRefreshService,
 };
+pub use selection_commit::{
+    ConfirmedPartialCommitRunner, PreparedSelectionCommitHandler, SelectionCommitExecutionService,
+    SelectionCommitPreviewSession, SelectionCommitStateReader,
+};
+pub use selection_preparation::{SelectionCommitPreparationService, SelectionCommitPreviewRequest};
+pub use selection_preview::{SelectionPatchPreview, SelectionPatchPreviewService};
 pub use session::{
     RepositoryRegistry, RepositorySessionHandle, RepositorySessionView, SessionRegistryError,
 };

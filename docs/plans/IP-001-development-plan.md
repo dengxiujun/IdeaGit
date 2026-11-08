@@ -636,7 +636,7 @@ pub trait TemporaryIndexManager: Send + Sync {
 3. 验证选择仍针对正确的 Blob/Hunk/Line。
 4. 建立临时 Index，生成 Candidate Tree。
 5. 向用户预览将要提交的 Tree 内容。
-6. 受控执行 Commit，尊重适用 Hooks/签名行为。
+6. 通过 Partial Commit 专用写端口传递当前 Preview 的 `TemporaryIndexLease`，核对 Operation 身份后受控执行 Commit，尊重适用 Hooks/签名行为；不得复用固定临时路径或回退到真实 Index。
 7. 核对 HEAD、Refs、Hook 副作用。
 8. 在不覆盖外部修改的情况下协调真实 Index。
 9. 验证未选择的 Staged/Unstaged/Worktree 内容仍保留。

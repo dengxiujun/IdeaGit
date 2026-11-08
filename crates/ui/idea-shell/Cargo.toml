@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 gpui-kit.workspace = true
+git-changelist.workspace = true
 git-workbench.workspace = true
 git-log-ui.workspace = true
 git-domain.workspace = true

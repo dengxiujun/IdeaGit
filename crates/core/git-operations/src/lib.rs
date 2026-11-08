@@ -8,6 +8,7 @@ mod commit;
 mod index;
 mod lock;
 mod recovery;
+mod selection_commit;
 
 pub use branch::{CoordinatedBranchWriter, JournaledBranchWriter, ReconciledBranchWriter};
 pub use commit::{
@@ -24,6 +25,7 @@ pub use recovery::{
     RecoveryDisposition, RecoveryInspection, RecoveryObservation, RecoveryStateReader,
     StartupRecoveryInspector, StartupRecoveryReport, classify as classify_recovery,
 };
+pub use selection_commit::{SelectionCommitHandler, SelectionCommitOperationExecutor};
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -874,6 +876,47 @@ mod tests {
             )
             .await
             .expect_err("M3 command should remain unavailable");
+        assert_eq!(error.kind, GitErrorKind::UnsupportedFeature);
+    }
+
+    #[tokio::test]
+    async fn m2_executor_never_downgrades_selection_commit_to_index_commit() {
+        let target = target();
+        let executor = M2OperationExecutor::new(
+            target,
+            RecordingIndexWriter {
+                seen: Arc::new(std::sync::Mutex::new(Vec::new())),
+            },
+            RecordingCommitWriter {
+                seen: Arc::new(std::sync::Mutex::new(0)),
+            },
+            RecordingBranchWriter {
+                seen: Arc::new(std::sync::Mutex::new(0)),
+            },
+        );
+        let error = executor
+            .execute(
+                GitCommand::CommitSelection {
+                    target,
+                    request: git_domain::SelectionCommitRequest {
+                        options: CommitOptions {
+                            message: b"selection".to_vec(),
+                            amend: false,
+                            allow_empty: false,
+                            signoff: false,
+                            author: None,
+                            committer: None,
+                            signing: SigningMode::UseGitConfig,
+                        },
+                        selections: Vec::new(),
+                        fingerprints: Vec::new(),
+                        expected_revision: SnapshotRevision::new(1),
+                    },
+                },
+                context(),
+            )
+            .await
+            .expect_err("selection commits need their dedicated coordinator");
         assert_eq!(error.kind, GitErrorKind::UnsupportedFeature);
     }
 

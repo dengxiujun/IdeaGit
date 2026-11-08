@@ -1254,7 +1254,9 @@ dependencies = [
  "git-application",
  "git-branch-ui",
  "git-cli",
+ "git-commit",
  "git-commit-ui",
+ "git-diff",
  "git-diff-ui",
  "git-domain",
  "git-fixture",
@@ -1270,6 +1272,7 @@ dependencies = [
  "proptest",
  "repository-watcher",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "tokio",
  "tokio-util",
@@ -2004,9 +2007,12 @@ name = "git-application"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "git-commit",
+ "git-diff",
  "git-domain",
  "git-operations",
  "git-ports",
+ "sha2 0.10.9",
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",
@@ -2024,7 +2030,13 @@ dependencies = [
 name = "git-changelist"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "git-domain",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
+ "uuid",
 ]
 
 [[package]]
@@ -2032,10 +2044,13 @@ name = "git-cli"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "git-commit",
+ "git-diff",
  "git-domain",
  "git-fixture",
  "git-ports",
  "process-wrap",
+ "sha2 0.10.9",
  "tempfile",
  "tokio",
  "tokio-util",
@@ -2045,8 +2060,14 @@ dependencies = [
 name = "git-commit"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "git-diff",
+ "git-domain",
+ "git-fixture",
  "git-ports",
+ "sha2 0.10.9",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -2068,6 +2089,8 @@ dependencies = [
 name = "git-diff-ui"
 version = "0.1.0"
 dependencies = [
+ "git-diff",
+ "git-domain",
  "git-ui-model",
  "idea-ui-primitives",
 ]
@@ -2142,6 +2165,7 @@ name = "git-ports"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "git-diff",
  "git-domain",
  "secrecy",
  "serde_json",
@@ -2156,6 +2180,7 @@ name = "git-ui-model"
 version = "0.1.0"
 dependencies = [
  "git-application",
+ "git-changelist",
  "git-domain",
  "git-ports",
 ]
@@ -3305,6 +3330,7 @@ checksum = "913a7d294ad056474749152107309fdee3ec17d2482d1ab70fdc61a81c64b9a3"
 name = "idea-shell"
 version = "0.1.0"
 dependencies = [
+ "git-changelist",
  "git-domain",
  "git-log-ui",
  "git-operations",
@@ -4859,6 +4885,7 @@ name = "persistence"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "git-changelist",
  "git-domain",
  "git-ports",
  "serde",

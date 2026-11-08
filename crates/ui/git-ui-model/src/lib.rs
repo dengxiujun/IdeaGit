@@ -3,9 +3,11 @@
 use std::{collections::HashMap, time::SystemTime};
 
 use git_application::{RefreshHealth, RefreshState, RepositorySessionView};
+use git_changelist::ChangelistId;
 use git_domain::{
     BranchCommand, ChangeKind, ChangeSelection, GitCommand, HeadState, ObjectId, OperationId,
-    RefName, RepoPath, RepositorySnapshot, SessionTarget, SnapshotRevision, StandardCommitRequest,
+    RefName, RepoPath, RepositorySnapshot, SelectionCommitRequest, SessionTarget, SnapshotRevision,
+    StandardCommitRequest,
 };
 
 /// Immutable source selected by a read-only change-tree entry.
@@ -168,6 +170,15 @@ pub enum CommitSubmissionState {
     Indeterminate(OperationId),
 }
 
+/// Commit semantics selected by the Commit Panel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommitMode {
+    /// Git Index is the authoritative selection source.
+    Staging,
+    /// Application-owned Changelist selections are committed through the partial-commit flow.
+    Changelist,
+}
+
 /// Repository-scoped editable state that must survive refreshes and failed submissions.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CommitDraft {
@@ -264,6 +275,8 @@ pub struct CommitPanelViewModel {
     pub selected: Vec<ChangeSelection>,
     pub message: String,
     pub amend: bool,
+    pub mode: CommitMode,
+    pub changelist: Option<ChangelistId>,
     pub draft_revision: u64,
     pub expected_head: Option<ObjectId>,
     pub expected_index: Option<ObjectId>,
@@ -291,11 +304,27 @@ impl CommitPanelViewModel {
             selected: draft.selected_changes,
             message: draft.message,
             amend: draft.amend,
+            mode: CommitMode::Staging,
+            changelist: None,
             draft_revision: draft.draft_revision,
             expected_head,
             expected_index,
             submission: CommitSubmissionState::Idle,
         })
+    }
+
+    /// Switches the visible commit mode without staging, unstaging, or mutating Git state.
+    pub fn set_mode(&mut self, mode: CommitMode) {
+        self.mode = mode;
+        if mode == CommitMode::Staging {
+            self.changelist = None;
+        }
+    }
+
+    /// Binds a Changelist identity before the Changelist commit mode can be submitted.
+    pub fn bind_changelist(&mut self, changelist: ChangelistId) {
+        self.mode = CommitMode::Changelist;
+        self.changelist = Some(changelist);
     }
 }
 
@@ -493,6 +522,9 @@ pub struct ActionRequest {
 pub enum ActionPayload {
     None,
     Commit(StandardCommitRequest),
+    /// A confirmed Changelist request; it must retain selection fingerprints and cannot
+    /// downgrade to a normal Index commit.
+    SelectionCommit(SelectionCommitRequest),
     Branch(BranchCommand),
 }
 
@@ -542,6 +574,10 @@ pub fn to_git_command(request: &ActionRequest) -> Result<GitCommand, String> {
         }),
         ActionId::Commit => match &request.payload {
             ActionPayload::Commit(commit) => Ok(GitCommand::CommitIndex {
+                target,
+                request: commit.clone(),
+            }),
+            ActionPayload::SelectionCommit(commit) => Ok(GitCommand::CommitSelection {
                 target,
                 request: commit.clone(),
             }),
@@ -785,6 +821,33 @@ mod tests {
         assert_eq!(panel.message, "keep after failure");
         assert_eq!(panel.revision, SnapshotRevision::new(9));
         assert_eq!(panel.draft_revision, initial_revision);
+    }
+
+    #[test]
+    fn changelist_mode_requires_identity_and_never_mutates_git_selection() {
+        let target = test_target();
+        let changes = ChangesTreeModel {
+            target: Some(target),
+            revision: Some(SnapshotRevision::new(1)),
+            ..ChangesTreeModel::default()
+        };
+        let drafts = CommitDraftStore::default();
+        let mut panel = CommitPanelViewModel::from_changes(&changes, &drafts, None, None)
+            .expect("panel should project");
+        assert_eq!(panel.mode, CommitMode::Staging);
+        assert!(panel.changelist.is_none());
+
+        let selected = whole_file(target, "selected.txt");
+        panel.selected.push(selected.clone());
+        let changelist = ChangelistId::new();
+        panel.bind_changelist(changelist);
+        assert_eq!(panel.mode, CommitMode::Changelist);
+        assert_eq!(panel.changelist, Some(changelist));
+        assert_eq!(panel.selected, vec![selected]);
+
+        panel.set_mode(CommitMode::Staging);
+        assert_eq!(panel.changelist, None);
+        assert_eq!(panel.selected.len(), 1);
     }
 
     #[test]
@@ -1116,6 +1179,35 @@ mod tests {
         assert!(matches!(
             to_git_command(&commit),
             Ok(GitCommand::CommitIndex { target: actual, .. }) if actual == target
+        ));
+
+        let selection = whole_file(target, "a.txt");
+        let selection_commit = ActionRequest {
+            action: ActionId::Commit,
+            context: commit.context.clone(),
+            payload: ActionPayload::SelectionCommit(SelectionCommitRequest {
+                options: git_domain::CommitOptions {
+                    message: b"selection commit".to_vec(),
+                    amend: false,
+                    allow_empty: false,
+                    signoff: false,
+                    author: None,
+                    committer: None,
+                    signing: git_domain::SigningMode::Disable,
+                },
+                selections: vec![selection],
+                fingerprints: vec![git_domain::SelectionFingerprint {
+                    expected_head: None,
+                    expected_index: None,
+                    diff_generation: SnapshotRevision::new(1),
+                    content_digest: vec![7; 32],
+                }],
+                expected_revision: SnapshotRevision::new(1),
+            }),
+        };
+        assert!(matches!(
+            to_git_command(&selection_commit),
+            Ok(GitCommand::CommitSelection { target: actual, .. }) if actual == target
         ));
 
         let branch = ActionRequest {

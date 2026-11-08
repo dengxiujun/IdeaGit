@@ -127,6 +127,21 @@ impl<R: git_ports::ProcessRunner> git_operations::RecoveryStateReader
     }
 }
 
+#[async_trait::async_trait]
+impl<R: git_ports::ProcessRunner> git_application::SelectionCommitStateReader
+    for DesktopCommitStateReader<R>
+{
+    async fn read(
+        &self,
+        target: git_domain::SessionTarget,
+        context: git_ports::ExecutionContext,
+    ) -> git_domain::GitResult<(Option<git_domain::ObjectId>, Option<git_domain::ObjectId>)> {
+        git_operations::CommitStateReader::read(self, target, context)
+            .await
+            .map(|state| (state.head, state.index))
+    }
+}
+
 /// Complete M2 Index writer stack assembled by the desktop composition root.
 pub type DesktopIndexWriter = git_operations::ReconciledIndexWriter<
     git_operations::CoordinatedIndexWriter<
@@ -170,6 +185,128 @@ pub type DesktopM2Executor = git_operations::M2OperationExecutor<
     DesktopCommitWriter,
     DesktopBranchWriter,
 >;
+
+/// Complete M4 Preview/Confirm session assembled for one repository.
+pub type DesktopSelectionCommitSession = git_application::SelectionCommitPreviewSession<
+    git_cli::GitCliDiffReader<git_cli::TokioProcessRunner>,
+    git_cli::GitCliTemporaryIndexManager<git_cli::TokioProcessRunner>,
+    git_cli::GitCliCandidateTreeBuilder<git_cli::TokioProcessRunner>,
+    git_commit::PartialCommitCoordinator<
+        git_cli::GitCliTemporaryIndexCommitWriter<git_cli::TokioProcessRunner>,
+        persistence::JsonJournalStore,
+        git_cli::GitCliCommitSideEffectObserver<git_cli::TokioProcessRunner>,
+        git_cli::GitCliIndexReconciliationPublisher,
+    >,
+    DesktopCommitStateReader<git_cli::TokioProcessRunner>,
+>;
+
+/// Coordinator used exclusively for confirmed Selection Commit commands.
+pub type DesktopSelectionCommitCoordinator = git_operations::OperationCoordinator<
+    git_operations::SelectionCommitOperationExecutor<
+        Arc<
+            git_application::PreparedSelectionCommitHandler<
+                git_commit::PartialCommitCoordinator<
+                    git_cli::GitCliTemporaryIndexCommitWriter<git_cli::TokioProcessRunner>,
+                    persistence::JsonJournalStore,
+                    git_cli::GitCliCommitSideEffectObserver<git_cli::TokioProcessRunner>,
+                    git_cli::GitCliIndexReconciliationPublisher,
+                >,
+                DesktopCommitStateReader<git_cli::TokioProcessRunner>,
+            >,
+        >,
+    >,
+>;
+
+/// Builds the M4 Preview session without opening a write operation.
+///
+/// The returned session only prepares and arms a one-shot handler. The caller must compose
+/// `session.handler()` into `SelectionCommitOperationExecutor` and submit confirmation through an
+/// `OperationCoordinator`; no direct confirmation method exists on the session.
+#[allow(clippy::result_large_err)]
+pub fn build_selection_commit_session(
+    target: git_domain::SessionTarget,
+    location: git_ports::RepositoryLocation,
+    journal_path: PathBuf,
+) -> git_domain::GitResult<DesktopSelectionCommitSession> {
+    let scope = location.recovery_scope().map_err(|error| {
+        git_domain::GitError::new(
+            git_domain::GitErrorKind::InvalidRepository,
+            "repository has no usable persistent recovery scope",
+        )
+        .with_diagnostic(error.to_string())
+        .with_target(target)
+    })?;
+    let journal = persistence::JsonJournalStore::new(journal_path);
+    let preparation = git_application::SelectionCommitPreparationService::new(
+        git_cli::GitCliDiffReader::new(git_cli::TokioProcessRunner),
+        git_cli::GitCliTemporaryIndexManager::system(git_cli::GitCliExecutor::new(
+            git_cli::TokioProcessRunner,
+        )),
+        git_cli::GitCliCandidateTreeBuilder::new(git_cli::GitCliExecutor::new(
+            git_cli::TokioProcessRunner,
+        )),
+    );
+    let runner = git_commit::PartialCommitCoordinator::new(
+        git_cli::GitCliTemporaryIndexCommitWriter::new(
+            git_cli::TokioProcessRunner,
+            location.clone(),
+        ),
+        git_commit::PartialCommitJournal::new(journal.clone(), scope),
+        git_cli::GitCliCommitSideEffectObserver::new(git_cli::TokioProcessRunner, location.clone()),
+        git_cli::GitCliIndexReconciliationPublisher::new(location.clone()),
+    );
+    let state = DesktopCommitStateReader::new(
+        target,
+        git_cli::GitCliCommitStateProbe::new(git_cli::TokioProcessRunner, location),
+    );
+    let handler = git_application::PreparedSelectionCommitHandler::new(
+        git_application::SelectionCommitExecutionService::new(runner),
+        state,
+    );
+    Ok(git_application::SelectionCommitPreviewSession::new(
+        preparation,
+        handler,
+    ))
+}
+
+/// Composes a Preview Session's armed Handler into the only coordinator accepted for
+/// `CommitSelection`. Standard Index commands cannot enter this coordinator.
+#[allow(clippy::result_large_err)]
+pub fn build_selection_commit_coordinator(
+    target: git_domain::SessionTarget,
+    session: &DesktopSelectionCommitSession,
+    capacity: usize,
+) -> git_domain::GitResult<DesktopSelectionCommitCoordinator> {
+    let executor = git_operations::SelectionCommitOperationExecutor::new(target, session.handler());
+    git_operations::OperationCoordinator::new(executor, capacity).map_err(|error| {
+        git_domain::GitError::new(
+            git_domain::GitErrorKind::Internal,
+            "failed to construct Selection Commit coordinator",
+        )
+        .with_diagnostic(error.to_string())
+        .with_target(target)
+    })
+}
+
+/// Runtime-owned M4 resources. Keeping both values alive is required because the Coordinator
+/// owns the shared Handler while the Session owns Preview preparation and its Temporary Index.
+pub struct DesktopSelectionCommitRuntime {
+    pub session: DesktopSelectionCommitSession,
+    pub coordinator: Arc<DesktopSelectionCommitCoordinator>,
+}
+
+impl DesktopSelectionCommitRuntime {
+    #[must_use]
+    pub fn new(
+        session: DesktopSelectionCommitSession,
+        coordinator: DesktopSelectionCommitCoordinator,
+    ) -> Self {
+        Self {
+            session,
+            coordinator: Arc::new(coordinator),
+        }
+    }
+}
 
 /// Builds the production M2 writer stack without opening any GUI write capability by itself.
 #[allow(clippy::result_large_err)]
@@ -246,6 +383,7 @@ pub fn build_m2_executor(
 /// Composition-root dispatcher that queues typed UI actions without blocking GPUI.
 pub struct DesktopActionDispatcher<E: OperationExecutor> {
     coordinator: Arc<OperationCoordinator<E>>,
+    selection_commit: Option<Arc<DesktopSelectionCommitRuntime>>,
     runtime: tokio::runtime::Handle,
     updates: tokio::sync::mpsc::UnboundedSender<OperationSnapshot>,
 }
@@ -263,17 +401,59 @@ impl<E: OperationExecutor> DesktopActionDispatcher<E> {
         (
             Self {
                 coordinator,
+                selection_commit: None,
                 runtime,
                 updates,
             },
             receiver,
         )
     }
+
+    #[must_use]
+    pub fn with_selection_commit(
+        mut self,
+        selection_commit: Arc<DesktopSelectionCommitRuntime>,
+    ) -> Self {
+        self.selection_commit = Some(selection_commit);
+        self
+    }
 }
 
 impl<E: OperationExecutor> ActionDispatcher for DesktopActionDispatcher<E> {
     fn dispatch(&self, request: ActionRequest) -> Result<(), String> {
         let command = to_git_command(&request)?;
+        if matches!(command, git_domain::GitCommand::CommitSelection { .. }) {
+            let Some(selection_commit) = self.selection_commit.as_ref() else {
+                return Err("Changelist commit is unavailable until Preview is prepared".to_owned());
+            };
+            let coordinator = Arc::clone(&selection_commit.coordinator);
+            let updates = self.updates.clone();
+            let runtime = self.runtime.clone();
+            let failed_command = command.clone();
+            runtime.spawn(async move {
+                let id = match coordinator.submit(command).await {
+                    Ok(id) => id,
+                    Err(error) => {
+                        let _ = updates.send(queue_failure_snapshot(failed_command, error));
+                        return;
+                    }
+                };
+                let Some(mut snapshots) = coordinator.subscribe(id).await else {
+                    return;
+                };
+                loop {
+                    let snapshot = snapshots.borrow().clone();
+                    let finished = snapshot.phase == OperationPhase::Finished;
+                    if updates.send(snapshot).is_err() || finished {
+                        break;
+                    }
+                    if snapshots.changed().await.is_err() {
+                        break;
+                    }
+                }
+            });
+            return Ok(());
+        }
         let failed_command = command.clone();
         let coordinator = Arc::clone(&self.coordinator);
         let updates = self.updates.clone();
@@ -580,7 +760,7 @@ async fn run_repository_bridge(
         let executor = build_m2_executor(
             handle.target(),
             location.clone(),
-            journal_path,
+            journal_path.clone(),
             scheduler.rebuilder(),
         )
         .map_err(|error| error.to_string())?;
@@ -589,8 +769,19 @@ async fn run_repository_bridge(
             OperationCoordinator::new(executor, 32)
                 .map_err(|error| format!("failed to start operation coordinator: {error}"))?,
         );
+        let selection_session =
+            build_selection_commit_session(handle.target(), location.clone(), journal_path)
+                .map_err(|error| error.to_string())?;
+        let selection_coordinator =
+            build_selection_commit_coordinator(handle.target(), &selection_session, 32)
+                .map_err(|error| error.to_string())?;
+        let selection_runtime = Arc::new(DesktopSelectionCommitRuntime::new(
+            selection_session,
+            selection_coordinator,
+        ));
         let (dispatcher, updates) =
             DesktopActionDispatcher::new(coordinator, tokio::runtime::Handle::current());
+        let dispatcher = dispatcher.with_selection_commit(selection_runtime);
         if sender
             .send(DesktopUiUpdate::WriteReady {
                 dispatcher: Arc::new(dispatcher),
@@ -813,7 +1004,10 @@ fn parse_smoke_duration(value: Option<&str>) -> Result<Option<Duration>, String>
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
-    use git_domain::{GitResult, RepoPath, RepositoryId, SessionTarget, WorktreeId};
+    use git_domain::{
+        CommitOptions, GitResult, RepoPath, RepositoryId, SelectionCommitRequest, SessionTarget,
+        SigningMode, SnapshotRevision, WorktreeId,
+    };
     use git_ports::ExecutionContext;
     use git_ports::JournalStore as _;
     use git_ui_model::{ActionContext, ActionId, ActionPanel, ActionPayload};
@@ -1130,6 +1324,105 @@ mod tests {
             git_operations::RecoveryDisposition::Unknown
         );
         assert!(changed.blocks_writes());
+    }
+
+    #[tokio::test]
+    async fn startup_recovery_diagnoses_commit_with_unreconciled_index_after_restart() {
+        use git_operations::CommitStateReader as _;
+
+        let repository =
+            git_fixture::TestRepository::init().expect("real Git fixture should initialize");
+        repository
+            .commit_file("tracked.txt", b"content\n")
+            .expect("fixture commit should succeed");
+        let location = git_ports::RepositoryLocation::worktree(
+            &repository.worktree,
+            repository.worktree.join(".git"),
+            repository.worktree.join(".git"),
+        );
+        let registry = git_application::RepositoryRegistry::new();
+        let handle = registry
+            .open(location.clone())
+            .expect("repository session should open");
+        let target = handle.target();
+        let reader = DesktopCommitStateReader::new(
+            target,
+            git_cli::GitCliCommitStateProbe::new(git_cli::TokioProcessRunner, location.clone()),
+        );
+        let (progress, _receiver) = tokio::sync::mpsc::channel(4);
+        let before = reader
+            .read(
+                target,
+                ExecutionContext::new(
+                    git_domain::OperationId::new(),
+                    tokio_util::sync::CancellationToken::new(),
+                    progress,
+                ),
+            )
+            .await
+            .expect("pre-commit state should be readable");
+        let old_head = before.head.expect("initial HEAD");
+        let old_index = before.index.expect("initial Index");
+
+        repository
+            .commit_file("external.txt", b"external\n")
+            .expect("external commit should succeed");
+        let committed_head: git_domain::ObjectId = repository
+            .head_oid()
+            .expect("HEAD should be readable")
+            .expect("external HEAD")
+            .parse()
+            .expect("valid external commit OID");
+        assert_ne!(old_head, committed_head);
+
+        let scope = location.recovery_scope().expect("recovery scope");
+        let mut record = git_domain::JournalRecord::intent(
+            git_domain::OperationId::new(),
+            git_domain::GitCommand::CommitSelection {
+                target,
+                request: SelectionCommitRequest {
+                    options: CommitOptions {
+                        message: b"partial commit recovery\n".to_vec(),
+                        amend: false,
+                        allow_empty: false,
+                        signoff: false,
+                        author: None,
+                        committer: None,
+                        signing: SigningMode::Disable,
+                    },
+                    selections: Vec::new(),
+                    fingerprints: Vec::new(),
+                    expected_revision: SnapshotRevision::new(1),
+                },
+            },
+            scope,
+        );
+        record.expected_head = Some(old_head);
+        record.expected_index = Some(old_index);
+        record.observed_commit = Some(committed_head);
+        record.phase = git_domain::JournalPhase::ReconcilingIndex;
+        let temporary = TempDir::new().expect("journal directory");
+        let journal_path = temporary.path().join("journal.json");
+        persistence::JsonJournalStore::new(&journal_path)
+            .append(record)
+            .await
+            .expect("reconciliation Journal should persist");
+
+        let report = inspect_startup_recovery(
+            target,
+            &location,
+            Some(&journal_path),
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .expect("restart inspection should succeed");
+
+        assert_eq!(report.inspections.len(), 1);
+        assert_eq!(
+            report.inspections[0].disposition,
+            git_operations::RecoveryDisposition::CommittedNeedsReconcile
+        );
+        assert!(report.blocks_writes());
     }
 
     #[tokio::test]
@@ -1563,6 +1856,426 @@ mod tests {
             .join()
             .await
             .expect("refresh scheduler should stop cleanly");
+    }
+
+    #[tokio::test]
+    async fn selection_commit_runtime_previews_then_confirms_through_coordinator() {
+        use git_operations::CommitStateReader as _;
+        use sha2::{Digest, Sha256};
+
+        let repository = git_fixture::TestRepository::init().expect("fixture should initialize");
+        repository
+            .configure_local_identity()
+            .expect("repository-local identity should be configured");
+        repository
+            .commit_file("selected.txt", b"base\n")
+            .expect("initial commit");
+        repository
+            .write_file("selected.txt", b"selected\n")
+            .expect("worktree edit");
+        let location = git_ports::RepositoryLocation::worktree(
+            &repository.worktree,
+            repository.worktree.join(".git"),
+            repository.worktree.join(".git"),
+        );
+        let target = SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1);
+        let state_reader = DesktopCommitStateReader::new(
+            target,
+            git_cli::GitCliCommitStateProbe::new(git_cli::TokioProcessRunner, location.clone()),
+        );
+        let context = ExecutionContext::new(
+            git_domain::OperationId::new(),
+            tokio_util::sync::CancellationToken::new(),
+            tokio::sync::mpsc::channel(4).0,
+        );
+        let state = state_reader
+            .read(target, context.clone())
+            .await
+            .expect("state should be readable");
+        let real_index = repository.worktree.join(".git/index");
+        let original_index = fs::read(&real_index).expect("real Index");
+        let selection = git_domain::ChangeSelection::WholeFile {
+            file: git_domain::FileIdentity {
+                target,
+                path: RepoPath::try_from("selected.txt").expect("path"),
+                previous_path: None,
+                kind: git_domain::FileKind::Regular,
+            },
+        };
+        let session = build_selection_commit_session(
+            target,
+            location.clone(),
+            repository
+                .temp_dir
+                .path()
+                .join("selection-runtime-journal.json"),
+        )
+        .expect("M4 session should build");
+        let request = git_application::SelectionCommitPreviewRequest {
+            target,
+            diff_request: git_ports::DiffReadRequest {
+                target,
+                before: git_diff::ContentSource::Head,
+                after: git_diff::ContentSource::Worktree,
+                paths: vec![RepoPath::try_from("selected.txt").expect("path")],
+                context_lines: 3,
+            },
+            selection,
+            options: CommitOptions {
+                message: b"runtime partial commit\n".to_vec(),
+                amend: false,
+                allow_empty: false,
+                signoff: false,
+                author: None,
+                committer: None,
+                signing: SigningMode::Disable,
+            },
+            expected_head: state.head,
+            expected_index: state.index,
+            original_index_digest: Sha256::digest(&original_index).into(),
+            expected_revision: SnapshotRevision::new(1),
+        };
+        let preview_request = session
+            .prepare_preview(&location, git_domain::OperationId::new(), request, context)
+            .await
+            .expect("Preview should prepare");
+        let coordinator = build_selection_commit_coordinator(target, &session, 1)
+            .expect("M4 coordinator should build");
+        let operation = coordinator
+            .submit(git_domain::GitCommand::CommitSelection {
+                target,
+                request: preview_request,
+            })
+            .await
+            .expect("Selection Commit should queue");
+        let mut updates = coordinator
+            .subscribe(operation)
+            .await
+            .expect("operation should be observable");
+        while updates.borrow().phase != OperationPhase::Finished {
+            updates.changed().await.expect("operation should finish");
+        }
+        let snapshot = coordinator
+            .operation(operation)
+            .await
+            .expect("operation snapshot should exist");
+        assert!(matches!(
+            snapshot.outcome,
+            Some(git_operations::OperationOutcome::Success)
+        ));
+        assert_ne!(
+            fs::read(&real_index).expect("real Index"),
+            original_index,
+            "successful reconciliation should publish the committed candidate Index"
+        );
+        let status = std::process::Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(&repository.worktree)
+            .output()
+            .expect("git status");
+        assert!(status.status.success());
+        assert!(
+            status.stdout.is_empty(),
+            "committed worktree should be clean"
+        );
+        let head = std::process::Command::new("git")
+            .args(["show", "HEAD:selected.txt"])
+            .current_dir(&repository.worktree)
+            .output()
+            .expect("HEAD blob");
+        assert_eq!(head.stdout, b"selected\n");
+        coordinator
+            .join()
+            .await
+            .expect("Selection Commit coordinator should stop");
+    }
+
+    #[tokio::test]
+    async fn selection_commit_handler_runs_real_coordinator_transaction() {
+        use git_application::{
+            CandidateTreePreview, PreparedPartialCommit, PreparedSelectionCommitHandler,
+            SelectionCommitExecutionService, SelectionPatchPreview,
+        };
+        use git_commit::{PartialCommitCoordinator, PartialCommitJournal};
+        use git_operations::{CommitStateReader as _, SelectionCommitOperationExecutor};
+        use git_ports::TemporaryIndexLease;
+        use sha2::{Digest, Sha256};
+        use std::process::Command;
+
+        let repository = git_fixture::TestRepository::init().expect("fixture should initialize");
+        repository
+            .commit_file("selected.txt", b"base\n")
+            .expect("initial commit");
+        repository
+            .write_file("selected.txt", b"selected\n")
+            .expect("worktree edit");
+        let location = git_ports::RepositoryLocation::worktree(
+            &repository.worktree,
+            repository.worktree.join(".git"),
+            repository.worktree.join(".git"),
+        );
+        let target = SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1);
+        let state_reader = DesktopCommitStateReader::new(
+            target,
+            git_cli::GitCliCommitStateProbe::new(git_cli::TokioProcessRunner, location.clone()),
+        );
+        let state = state_reader
+            .read(
+                target,
+                ExecutionContext::new(
+                    git_domain::OperationId::new(),
+                    tokio_util::sync::CancellationToken::new(),
+                    tokio::sync::mpsc::channel(2).0,
+                ),
+            )
+            .await
+            .expect("state should be readable");
+        let real_index = repository.worktree.join(".git/index");
+        let original_index = fs::read(&real_index).expect("real Index");
+        let operation = git_domain::OperationId::new();
+        let temporary_index = repository.temp_dir.path().join("selection-handler-index");
+        let mut read_tree = Command::new("git");
+        read_tree
+            .args(["read-tree", "HEAD"])
+            .current_dir(&repository.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (name, value) in repository.isolated_environment() {
+            read_tree.env(name, value);
+        }
+        assert!(read_tree.status().expect("git starts").success());
+        let mut add = Command::new("git");
+        add.args(["add", "--", "selected.txt"])
+            .current_dir(&repository.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (name, value) in repository.isolated_environment() {
+            add.env(name, value);
+        }
+        assert!(add.status().expect("git starts").success());
+        let tree = Command::new("git")
+            .args(["write-tree"])
+            .current_dir(&repository.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index)
+            .output()
+            .expect("git write-tree");
+        assert!(tree.status.success());
+        let candidate_tree = String::from_utf8_lossy(&tree.stdout)
+            .trim()
+            .parse()
+            .expect("candidate tree OID");
+
+        let file = git_domain::FileIdentity {
+            target,
+            path: RepoPath::try_from("selected.txt").expect("path"),
+            previous_path: None,
+            kind: git_domain::FileKind::Regular,
+        };
+        let selection = git_domain::ChangeSelection::WholeFile { file };
+        let request = git_domain::SelectionCommitRequest {
+            options: git_domain::CommitOptions {
+                message: b"application partial commit\n".to_vec(),
+                amend: false,
+                allow_empty: false,
+                signoff: false,
+                author: None,
+                committer: None,
+                signing: git_domain::SigningMode::Disable,
+            },
+            selections: vec![selection.clone()],
+            fingerprints: vec![git_domain::SelectionFingerprint {
+                expected_head: state.head,
+                expected_index: state.index,
+                diff_generation: git_domain::SnapshotRevision::new(1),
+                content_digest: vec![1; 32],
+            }],
+            expected_revision: git_domain::SnapshotRevision::new(1),
+        };
+        let mut transaction =
+            git_commit::PartialCommitTransaction::begin(request.clone()).expect("transaction");
+        transaction
+            .temp_index_prepared(state.head, state.index)
+            .expect("temporary Index phase");
+        transaction
+            .candidate_ready(candidate_tree)
+            .expect("candidate tree phase");
+        transaction
+            .reconciliation_candidate(
+                Sha256::digest(&original_index).into(),
+                fs::read(&temporary_index).expect("candidate Index"),
+            )
+            .expect("candidate Index phase");
+        let preview = CandidateTreePreview {
+            target,
+            operation_id: operation,
+            candidate_tree,
+            patch: SelectionPatchPreview {
+                target,
+                generation: git_domain::SnapshotRevision::new(1),
+                selection,
+                patch: Vec::new(),
+                selection_digest: [1; 32],
+            },
+            temporary_index: TemporaryIndexLease {
+                path: temporary_index,
+                transaction_id: operation,
+            },
+        };
+        let prepared = PreparedPartialCommit {
+            preview,
+            transaction,
+        };
+        let journal_path = repository.temp_dir.path().join("selection-journal.json");
+        let scope = location.recovery_scope().expect("recovery scope");
+        let writer = git_cli::GitCliTemporaryIndexCommitWriter::new(
+            git_cli::TokioProcessRunner,
+            location.clone(),
+        )
+        .with_environment(repository.isolated_environment());
+        let observer = git_cli::GitCliCommitSideEffectObserver::new(
+            git_cli::TokioProcessRunner,
+            location.clone(),
+        );
+        let publisher = git_cli::GitCliIndexReconciliationPublisher::new(location);
+        let journal = persistence::JsonJournalStore::new(&journal_path);
+        let coordinator = PartialCommitCoordinator::new(
+            writer,
+            PartialCommitJournal::new(journal, scope),
+            observer,
+            publisher,
+        );
+        let service = SelectionCommitExecutionService::new(coordinator);
+        let handler = PreparedSelectionCommitHandler::new(service, state_reader);
+        handler.arm(prepared).await;
+        let executor = SelectionCommitOperationExecutor::new(target, handler);
+        let operation_coordinator = OperationCoordinator::new(executor, 1).expect("coordinator");
+        let operation_id = operation_coordinator
+            .submit(git_domain::GitCommand::CommitSelection { target, request })
+            .await
+            .expect("selection command should queue");
+        let mut updates = operation_coordinator
+            .subscribe(operation_id)
+            .await
+            .expect("operation subscription");
+        while updates.borrow().phase != OperationPhase::Finished {
+            updates.changed().await.expect("operation should finish");
+        }
+        let snapshot = operation_coordinator
+            .operation(operation_id)
+            .await
+            .expect("operation snapshot");
+        assert!(matches!(
+            snapshot.outcome,
+            Some(git_operations::OperationOutcome::Success)
+        ));
+        let head = Command::new("git")
+            .args(["show", "HEAD:selected.txt"])
+            .current_dir(&repository.worktree)
+            .output()
+            .expect("HEAD blob");
+        assert_eq!(head.stdout, b"selected\n");
+        operation_coordinator
+            .join()
+            .await
+            .expect("coordinator join");
+    }
+
+    #[tokio::test]
+    async fn selection_commit_preparation_uses_real_git_without_touching_real_index() {
+        use git_application::SelectionCommitPreparationService;
+        use git_cli::GitCliExecutor;
+        use git_operations::CommitStateReader as _;
+        use git_ports::DiffReadRequest;
+        use sha2::{Digest, Sha256};
+
+        let repository = git_fixture::TestRepository::init().expect("fixture should initialize");
+        repository
+            .commit_file("prepared.txt", b"base\n")
+            .expect("initial commit");
+        repository
+            .write_file("prepared.txt", b"prepared\n")
+            .expect("worktree edit");
+        let location = git_ports::RepositoryLocation::worktree(
+            &repository.worktree,
+            repository.worktree.join(".git"),
+            repository.worktree.join(".git"),
+        );
+        let target = SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1);
+        let file = git_domain::FileIdentity {
+            target,
+            path: RepoPath::try_from("prepared.txt").expect("path"),
+            previous_path: None,
+            kind: git_domain::FileKind::Regular,
+        };
+        let selection = git_domain::ChangeSelection::WholeFile { file };
+        let operation = git_domain::OperationId::new();
+        let (progress, _receiver) = tokio::sync::mpsc::channel(2);
+        let context = ExecutionContext::new(
+            operation,
+            tokio_util::sync::CancellationToken::new(),
+            progress,
+        );
+        let real_index = repository.worktree.join(".git/index");
+        let original_index = fs::read(&real_index).expect("real Index");
+        let state_reader = DesktopCommitStateReader::new(
+            target,
+            git_cli::GitCliCommitStateProbe::new(git_cli::TokioProcessRunner, location.clone()),
+        );
+        let state = state_reader
+            .read(target, context.clone())
+            .await
+            .expect("state should be readable");
+        let request = git_domain::SelectionCommitRequest {
+            options: git_domain::CommitOptions {
+                message: b"prepared commit\n".to_vec(),
+                amend: false,
+                allow_empty: false,
+                signoff: false,
+                author: None,
+                committer: None,
+                signing: git_domain::SigningMode::Disable,
+            },
+            selections: vec![selection.clone()],
+            fingerprints: vec![git_domain::SelectionFingerprint {
+                expected_head: state.head,
+                expected_index: state.index,
+                diff_generation: git_domain::SnapshotRevision::new(1),
+                content_digest: vec![1; 32],
+            }],
+            expected_revision: git_domain::SnapshotRevision::new(1),
+        };
+        let service = SelectionCommitPreparationService::new(
+            git_cli::GitCliDiffReader::new(git_cli::TokioProcessRunner),
+            git_cli::GitCliTemporaryIndexManager::system(GitCliExecutor::new(
+                git_cli::TokioProcessRunner,
+            )),
+            git_cli::GitCliCandidateTreeBuilder::new(GitCliExecutor::new(
+                git_cli::TokioProcessRunner,
+            )),
+        );
+        let prepared = service
+            .prepare(
+                &location,
+                target,
+                operation,
+                DiffReadRequest {
+                    target,
+                    before: git_diff::ContentSource::Head,
+                    after: git_diff::ContentSource::Worktree,
+                    paths: vec![RepoPath::try_from("prepared.txt").expect("path")],
+                    context_lines: 3,
+                },
+                selection,
+                request,
+                state.head,
+                state.index,
+                Sha256::digest(&original_index).into(),
+                context,
+            )
+            .await
+            .expect("real Git preparation should succeed");
+
+        assert!(prepared.transaction.candidate_tree.is_some());
+        assert_eq!(fs::read(&real_index).expect("real Index"), original_index);
+        assert!(prepared.preview.temporary_index.path.exists());
     }
 
     #[test]

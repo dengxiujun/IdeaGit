@@ -438,6 +438,7 @@ pub struct TemporaryIndexContext {
 ### 9.3.4 原子性边界
 
 - Git 的提交、Index 替换、Hooks 及工作区文件修改之间**没有统一原子事务**。
+- Partial Commit 必须通过独立写端口接收当前 Preview 持有的 `TemporaryIndexLease`；写入适配器必须核对 Lease 与 Preview/事务 Operation ID，并拒绝真实 `.git/index`、已释放路径或跨 Operation Lease。确认命令的执行上下文 ID 仍独立用于取消、进度和错误归属，普通 Index Commit 端口不得隐式继承临时 Index 环境。
 - 应使用 Git 允许的 Ref 竞争检查机制（如带预期旧值的 Ref 更新）管理特定引用操作，但这并不能自动覆盖标准 `git commit` 的内部流程。
 - 即使提交操作成功，只要 Index 协调失败，应返回 `CommittedButNeedsRecovery`，绝不能显示“完全成功”后静默丢弃恢复信息。
 

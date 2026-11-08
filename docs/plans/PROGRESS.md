@@ -1,6 +1,208 @@
 # IdeaGit 开发进度
 
-更新日期：2026-11-07。
+更新日期：2026-11-08。
+
+## M4 CCD-007：真实 Index Reconciliation 发布协议阻塞（2026-11-08）
+
+- 当前分支：`feat/m4`；工作区原本干净，未修改用户文件。
+- 已验证事实：`RealIndexReconciler` 当前仅生成 Publish/RecoveryRequired 计划；没有真实 Index 发布端口，`PartialCommitCoordinator` 也尚未接入 `ReconcilingIndex` 阶段。
+- 阻塞原因：实现安全发布需要新增核心端口、适配器锁内比较/发布协议及 Journal 结果映射，属于核心写入边界变更，不能未经 ADR 批准实现。
+- ADR：新增 [ADR-M4-CCD-007-INDEX-PUBLISH-001](../architecture/adr/ADR-M4-CCD-007-INDEX-PUBLISH-001.md)，方案二已于 2026-11-08 获批准并标记 Accepted。
+- 影响范围：CCD-007、CCD-008、TEST-004 的提交后 Index 协调和 UI-013 生产入口保持关闭；当前不修改核心代码。
+- 完成：新增 `IndexReconciliationPublisher` 端口和 Git CLI 锁内发布适配器；先创建真实 `index.lock`，再核对 Index 摘要，写入并同步 lock 文件后原子 rename；摘要过期和已有锁均拒绝发布。`PartialCommitCoordinator` 已接入 `ReconcilingIndex`，仅发布成功才完成 Journal，冲突/未知/缺少候选进入 `RecoveryRequired`。
+- 测试：workspace 全量门禁通过；Git CLI 当前 69 个测试，其中新增真实发布、过期摘要和锁占用 3 个测试；git-commit 当前 12 个测试，新增协调器正常发布路径测试。
+- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 未创建（当前环境无 GitHub 连接器）。
+- 下一步：补真实 Partial Commit 提交后 Index 协调集成测试，以及发布失败/重启恢复测试。
+
+## M4 CCD-008：EditableIndexSession / Apply（2026-11-08）
+
+- 分支：`feat/m4`。
+- 完成：`EditableIndexSession` 新增 Apply 入口；先校验会话 dirty 状态及 HEAD/Index 身份，再校验候选内容与编辑内容一致，最后通过 `IndexReconciliationPublisher` 发布候选 Index；Conflict 映射为外部 Index 变化，未直接写真实 Index。
+- 测试：新增 Apply 正常发布和候选内容不匹配拒绝测试；git-commit 专项当前 14 个测试通过。
+- 完成：新增 `EditableIndexCandidateBuilder` 端口和 Git CLI 实现；使用 `hash-object --stdin --path` 创建 Blob，在临时 Index 上通过 `update-index --cacheinfo` 更新条目，读取候选 Index 字节；真实 Index 保持不变，RepoPath 使用原始路径字节传递。
+- 测试：新增真实 Git 候选 Index 构造测试；workspace 全量门禁通过；Git CLI 当前 70 个测试、git-commit 当前 14 个测试通过。
+- 完成：候选 Index 构造后重新读取临时 Index 条目，核对 mode 与 Blob OID；新增特殊路径和 executable mode 真实 Git 测试，真实 Index 保持不变；真实 Index 原子发布后增加逐字节回读校验，回读不一致进入未知恢复状态。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过；Git CLI 当前 70 个测试、git-commit 当前 14 个测试通过。
+- Commit/Runner：提交待生成；GitHub Runner 未创建（当前环境无 GitHub 连接器）。
+- 风险：Apply 后真实 Index 的最终 Blob 逐字节回读已覆盖候选构造路径；冲突 stage 完整矩阵仍需补充；UI-012/UI-013 继续关闭。
+- 下一步：补 Apply 发布后的真实 Index Blob 回读与 filter/冲突 stage 拒绝测试，再进入 CCD-009/UI-012 依赖检查。
+
+## M4 TEST-004：Index 协调失败恢复持久化（2026-11-08）
+
+- 分支：`feat/m4`。
+- 完成：修复 Partial Commit 协调器在 Index 发布器返回错误时的失败路径；提交已观察但 Index 发布失败时，原始错误继续返回，同时事务和 Journal 均持久化为 `RecoveryRequired`，不虚报提交成功。
+- 测试：新增协调器发布失败测试；验证错误分类、事务终态和 Journal 恢复记录；workspace 全量门禁通过，git-commit 当前 15 个测试通过。
+- 测试补充：新增真实仓库重启诊断测试；`ReconcilingIndex` Journal 在 HEAD 已提交但 Index 不匹配时被分类为 `CommittedNeedsReconcile` 并阻断写入。
+- Commit/Runner：提交待生成；GitHub Runner 未创建（当前环境无 GitHub 连接器）。
+- 风险：TEST-004 仍需补启动重启后的真实 Journal 恢复演练，以及 Apply 的 clean filter/冲突 stage 完整矩阵；UI-012/UI-013 继续关闭。
+- 下一步：补 TEST-004 崩溃恢复/重启诊断测试，再重新审查 M4 前置门禁。
+
+## M4 CCD-008：Apply clean filter 校验（2026-11-08）
+
+- 分支：`feat/m4`。
+- 完成：候选 Blob 构造使用 Git `hash-object --filters --path`，按目标路径应用 clean filter；新增 `.gitattributes` 与 CRLF 输入的真实仓库测试，确认候选 Index Blob 为过滤后的 LF 内容。
+- 测试：workspace 全量 fmt、check、clippy、test、diff check 全部通过；Git CLI 当前 71 个测试通过。
+- Commit/Runner：提交待生成；GitHub Runner 未创建（当前环境无 GitHub 连接器）。
+- 风险：sparse/split Index 和特殊 mode 的拒绝矩阵仍需补充；UI-012/UI-013 继续关闭。
+- 下一步：补 CCD-008 冲突 stage 拒绝测试。
+
+## M4 CCD-008：冲突 stage 拒绝（2026-11-08）
+
+- 分支：`feat/m4`。
+- 完成：候选 Index 构造前检查目标路径的未合并 stage；发现 stage 1/2/3 时返回 `MergeConflict`，不执行 `hash-object`、不写入候选 Index；新增真实 merge conflict 测试。
+- 测试：workspace 全量 fmt、check、clippy、test、diff check 全部通过；Git CLI 当前 72 个测试通过。
+- Commit/Runner：提交待生成；GitHub Runner 未创建（当前环境无 GitHub 连接器）。
+- 风险：sparse/split Index 和 Index 扩展拒绝矩阵仍需补充；UI-012/UI-013 继续关闭。
+- 下一步：完成 CCD-008 Index 扩展拒绝审查，再进入 UI-012 依赖检查。
+
+## M4 CCD-008：特殊文件模式拒绝（2026-11-08）
+
+- 分支：`feat/m4`。
+- 完成：候选 Index Apply 仅允许 regular、executable、symlink 三类 mode；gitlink、未知 mode 和不规范 regular mode 在任何 Git 写操作前返回 `UnsupportedFileKind`。
+- 测试：workspace 全量 fmt、check、clippy、test、diff check 全部通过；Git CLI 当前 73 个测试通过。
+- Commit/Runner：提交待生成；GitHub Runner 未创建（当前环境无 GitHub 连接器）。
+- 风险：未知 Index 扩展拒绝矩阵仍需补充；UI-012/UI-013 继续关闭。
+- 下一步：补未知 Index 扩展拒绝审查，再进入 UI-012 依赖检查。
+
+## M4 CCD-008：sparse/split Index 配置拒绝（2026-11-08）
+
+- 分支：`feat/m4`。
+- 完成：候选 Index Apply 逐项探测 `core.splitIndex`、`core.sparseCheckout` 和 `index.sparse`；任一配置为 true 时返回 `UnsupportedFeature`，普通 Index 保持可用。
+- 测试：新增真实仓库 `core.splitIndex=true` 拒绝测试；workspace 全量 fmt、check、clippy、test、diff check 全部通过；Git CLI 当前 74 个测试通过。
+- Commit/Runner：提交待生成；GitHub Runner 未创建（当前环境无 GitHub 连接器）。
+- 风险：CCD-008 Index 扩展拒绝矩阵已覆盖已知未支持扩展；UI-012/UI-013 继续关闭。
+- 下一步：进入 UI-012 依赖检查。
+
+## M4 CCD-008：Index 扩展安全审查（2026-11-08）
+
+- 分支：`feat/m4`。
+- 完成：解析 SHA-1/SHA-256 Index 的扩展尾部；仅允许已验证的 `TREE` 扩展，未知扩展及不支持的 Index 版本均拒绝 Apply；新增真实候选 Index 未知扩展测试。
+- 测试：workspace 全量 fmt、check、clippy、test、diff check 全部通过；Git CLI 当前 75 个测试通过。
+- Commit/Runner：提交待生成；GitHub Runner 未创建（当前环境无 GitHub 连接器）。
+- 风险：UI-012/UI-013 尚未开放；跨平台 Git Index 扩展组合仍需在发布矩阵中复核。
+- 下一步：读取 UI-012 完整任务描述与 LLD 依赖，开始 Three-version Stage Viewer。
+
+## M4 UI-012：Three-version Stage Viewer（已核验，2026-11-08）
+
+- 分支：`feat/m4`；实现提交：`3093766 feat(M4 UI-012): 实现 Three-version Stage Viewer 投影`。
+- 完成：提供 HEAD/Index/Worktree 三列只读投影、活动列选择和 `EditableIndexSessionId` 绑定；未绑定编辑会话时 Apply 能力关闭，UI 不直接写真实 Index。
+- 测试：现有 UI-012 单元测试通过；本次 workspace 全量 fmt、check、clippy、test、diff check 全部通过。
+- Runner/PR：GitHub Runner 未创建（当前环境无 GitHub 连接器）；未创建/合并 PR。
+- 风险：真实 GPUI 组件尚未接入；UI-013 生产入口继续关闭。
+- 下一步：实现 UI-013 Changelist Commit Mode 的安全投影。
+
+## M4 UI-013：Changelist Commit Mode 安全投影（2026-11-08）
+
+- 分支：`feat/m4`。
+- 完成：Commit Panel ViewModel 增加 Staging/Changelist 模式和 Changelist 身份；模式切换不修改 Git Index，Changelist 模式必须绑定身份，切回 Staging 清除 Changelist 绑定但保留用户选区。
+- 测试：新增模式身份与选区保持测试；workspace 全量 fmt、check、clippy、test、diff check 全部通过。
+- Runner/PR：GitHub Runner 未创建（当前环境无 GitHub 连接器）；未创建/合并 PR。
+- 风险：真实提交入口仍关闭，尚未将 UI 操作接入 Partial Commit OperationCoordinator。
+- 完成补充：`idea-shell` 的 Commit Action 在 Changelist 模式下显式不生成 `CommitIndex` 请求，避免把逻辑选区误提交为真实 Index；待 Partial Commit Coordinator 入口完整装配后再开放。
+- 测试：新增入口隔离测试；workspace 全量 fmt、check、clippy、test、diff check 全部通过。
+- 完成补充：`M2OperationExecutor` 对 `CommitSelection` 保持显式 `UnsupportedFeature`，新增回归测试，防止未来将 Changelist 选择提交降级为标准 Index Commit。
+- 测试补充：`git-operations` 专项通过；workspace 全量 fmt、check、clippy、test、diff check 全部通过。
+- 下一步：补齐 Selection Commit 的应用层协调器装配，或在未满足候选 Tree/Journal/Recovery 入口前维持能力关闭。
+
+## M4 TEST-004 / CCD-006：提交副作用观察与恢复边界（2026-11-08）
+
+- 分支：`feat/m4`；已统一承载全部已完成 M4 分支内容，保留用户未跟踪文件不动。
+- 完成：项目负责人已批准 ADR-M4-PARTIAL-COMMIT-RECOVERY-001 方案二；新增 `CommitSideEffectObserver` 端口、Git CLI 真实观察器和协调器提交前后 Worktree/非当前分支 refs 指纹核对；观察到副作用时将事务和 Journal 转入 `RecoveryRequired`，不虚报成功。
+- 修改：`git-ports` 端口、`git-commit` 协调器、`git-cli` 适配器及锁文件依赖边；ADR 状态更新为 Accepted。
+- 测试：新增真实 Git Hook 成功提交后修改 Worktree 的观察器测试，以及协调器将副作用结果持久化为 `RecoveryRequired` 的测试；专项通过。此前 `cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；workspace 测试全量通过，Git CLI 当前 66 个测试、git-commit 当前 11 个测试通过。
+- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 未创建（当前环境无 GitHub 连接器），因此无 Runner ID/PR。
+- 风险：当前观察器将当前 HEAD 分支的预期 ref 更新排除在 refs 指纹之外；Hook 修改已存在的未暂存内容可检测，Hook 修改当前分支以外 refs 可检测；崩溃恢复仍需真实协调器装配入口和启动恢复演练。
+- 下一任务：补齐 TEST-004 的崩溃恢复/提交成功但 Index 协调失败测试，再按 IP-001 依赖继续 UI-013 前的剩余门禁。
+
+## M4 TEST-004：Partial Commit Safety Tests（2026-11-08）
+
+- 分支：`feat/TEST-004`；从 `main` 创建，带入 DIFF-003..007 与 CCD-001..009 的前置实现。
+- 完成：新增安全测试，覆盖混合 Staged/Unstaged 的 Index 身份拒绝、外部 HEAD 变化、提交结果与实际 HEAD 不一致进入 RecoveryRequired，以及真实 Git 仓库外部提交导致 Index 变化时的保守恢复判定；新增真实临时 Index 部分提交测试，确认未选文件的 HEAD/Worktree 内容与真实 Index 均保持不变；新增隔离 `core.hooksPath` 的 Hook 拒绝、签名失败分类、重命名候选提交、CRLF 保真、二进制未选内容、Linux 非 UTF-8 路径和真实单行 Patch 候选树提交测试。
+- 测试：`git-commit` 专项 10 个测试、Git CLI 专项 64 个测试通过；workspace 全量测试通过。
+- 门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过。
+- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
+- 未覆盖风险：Hook 修改 Worktree、崩溃重启诊断仍缺少可执行的协调器/真实提交测试入口；非 UTF-8 路径测试仅在 Linux 编译/执行，当前 macOS 文件系统拒绝创建该类文件名；M4 生产开放门禁保持关闭。
+- 下一任务：补齐 TEST-004 所需的真实 Partial Commit 执行测试入口；UI-013 在 TEST-004 与 CCD-007 生产发布协议完成前不得开放。
+
+### TEST-004 阻断记录（2026-11-08）
+
+- 已验证事实：现有真实测试覆盖 Hook 拒绝、签名失败、部分文件/行、重命名、CRLF、二进制和 Linux 非 UTF-8 路径；尚无 Hook 修改 Worktree 后的协调器级观察。
+- 阻断原因：`CommitWriter` 不提供提交前后 Worktree/Refs 观察，直接在适配器补丁中实现会越过 OperationCoordinator/Journal 边界。
+- ADR：已创建 [ADR-M4-PARTIAL-COMMIT-RECOVERY-001](../architecture/adr/ADR-M4-PARTIAL-COMMIT-RECOVERY-001.md)，状态 Draft，待项目负责人批准。
+- 影响：暂不实施端口/模块边界变更；TEST-004 未完成，UI-013 保持关闭。
+
+## M4 CCD-008：EditableIndexSession / Apply（2026-11-08）
+
+- 分支：`feat/CCD-008`；从 `main` 创建并带入 CCD-001～007、CCD-009 前置实现。
+- 完成：新增可编辑 Index 会话模型，保存 SessionTarget、原始 HEAD/Index 身份和内容摘要；编辑只修改会话内候选内容，Apply 预检要求 dirty 且身份未变化，未确认或过期会话拒绝返回内容。
+- 测试：`git-commit` 专项 7/7 通过，覆盖未编辑拒绝、正常候选返回和身份变化拒绝；未写入真实 Index。
+- 风险：Apply 的真实 Blob/Mode/Filter 校验和协调器发布仍受 CCD-007 安全发布协议约束；当前只开放预检，不开放真实写入。
+- 下一任务：补齐 CCD-007 发布端口后继续 CCD-008 Apply 适配，再进入 UI-011。
+
+## M4 CCD-007：Real Index Reconciliation（2026-11-08）
+
+- 分支：`feat/CCD-007`；从 `main` 创建并带入 CCD-001～006、CCD-009。
+- 完成：新增保守 `RealIndexReconciler` 规划器；比较原始 Index SHA-256 摘要和当前 Index，要求 HEAD 已前进且存在已验证候选 Index，才生成 Publish 计划；外部 Index 竞争、HEAD 未前进或缺少候选均进入 RecoveryRequired。
+- 测试：专项覆盖安全发布与外部 Index 变化拒绝；workspace 依赖边已离线锁定，未升级版本。
+- 风险：平台无关的锁内原子发布尚未接入；当前规划器不直接写真实 Index，避免绕过 OperationCoordinator。
+- 下一任务：完成批准的 Index 发布端口后继续 CCD-008（EditableIndexSession / Apply）。
+
+## M4 CCD-006：Partial Commit Transaction（2026-11-08）
+
+- 分支：`feat/CCD-006`；从 `main` 创建并带入 CCD-001～005、CCD-009 前置实现。
+- 完成：Partial Commit 状态机支持临时 Index 准备、Candidate Tree、确认前 HEAD/Index 重验、CommitInProgress、CommitObserved 和 RecoveryRequired；新增 `PartialCommitJournal` 阶段持久化，以及仅绑定 `GIT_INDEX_FILE` 的 `GitCliTemporaryIndexCommitWriter`。
+- 测试：本次变更后 `cargo fmt --all -- --check`、`git-cli` Clippy、`git-cli` 测试、`git diff --check` 均通过；真实 Git 临时 Index Commit 测试通过，并确认真实 Index 字节不变。
+- Commit/Runner：`3ed190d`、`6b3f903`、`0998bb3`、`4b916ac`；GitHub Runner 尚未创建/执行 PR。
+- 风险：尚未完成提交后 HEAD/Hook 副作用核对和真实 Index reconciliation；未选择内容安全保持由 CCD-007/TEST-004 验证。
+- 下一任务：继续完成 CCD-006 的提交结果核对，再进入 CCD-007。
+
+## M4 CCD-009：Preview 生命周期与确认身份（2026-11-08）
+
+- 分支：`feat/CCD-009`；从 `main` 创建并带入 CCD-001～005，按依赖顺序先于 CCD-006 实现。
+- 完成：新增 `ChangelistPreview` 与 Ready/Confirmed/Expired/Cancelled 状态；预览绑定 OperationId、SessionTarget、HEAD/Index 身份、Candidate Tree 和 SelectionFingerprint；确认时身份变化或重复确认均失效，不复用过期预览。
+- 测试：`cargo fmt --all -- --check`、`cargo test -p git-changelist --locked` 已通过；预览过期与重复确认专项通过。
+- Commit/Runner：待本次提交生成；GitHub Runner 尚未创建/执行 PR。
+- 风险：预览尚未接入 UI 和 Partial Commit 执行器；真实 Commit 仍需 CCD-006，Index reconciliation 需 CCD-007。
+- 下一任务：CCD-006（Partial Commit Transaction）。
+
+## M4 CCD-004：Temporary Index Manager（2026-11-08）
+
+- 分支：`feat/CCD-004`；从 `main` 创建并带入 CCD-001/002/003。
+- 完成：新增临时 Index 端口与 Git CLI 实现；使用独立临时目录和 `GIT_INDEX_FILE` 初始化 HEAD/空树，RAII 租约释放临时文件，不触碰真实 Index；裸仓库安全拒绝。
+- 测试：专项 2/2 通过，覆盖真实 Git 仓库有 HEAD 创建、真实 Index 不变、租约释放，以及 unborn HEAD 判定。
+- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
+- 风险：Journal 清理失败记录、Index 原始摘要/备份和崩溃恢复上下文将在后续 Partial Commit 事务任务中接入；当前未修改真实 Index。
+- 下一任务：CCD-005（Candidate Tree Builder）。
+
+## M4 CCD-003：Changelist Persistence（2026-11-08）
+
+- 分支：`feat/CCD-003`；从 `main` 创建并带入 CCD-001/002。
+- 完成：新增版本化 `ChangelistBundle` 与 `ChangelistStore` 端口；`JsonChangelistStore` 实现目标/Schema 校验、乐观版本控制、原子临时文件替换和写前 `.json.bak` 备份。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；Persistence 测试 6 个通过，新增持久化专项 2 个通过。
+- 依赖：仅使用 workspace 已锁定的 `git-changelist` 与既有异步/序列化依赖，Cargo.lock 已更新依赖边，未升级版本。
+- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
+- 风险：当前为 JSON 文件存储，尚未接入 SQLite 迁移；Temporary Index 与 Partial Commit 不在本任务范围。
+- 下一任务：CCD-004（Temporary Index Manager）。
+
+## M4 CCD-002：Selection Fingerprints（2026-11-08）
+
+- 分支：`feat/CCD-002`；从 `main` 创建并带入 CCD-001。
+- 完成：新增确定性 SHA-256 选区指纹引擎，绑定 Repository/Worktree、HEAD/Index、Diff Generation、ChangeSelection 与原始内容字节；状态变化分类为 Valid、Stale 或 Ambiguous，跨目标选择拒绝。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；专项测试 4/4 通过。
+- 依赖：仅使用 workspace 已锁定的 `serde_json`/`sha2`，更新 Cargo.lock 依赖边，未升级版本或引入外部依赖。
+- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
+- 风险：指纹重定位仍是保守分类，不自动移动选区；持久化事务留给 CCD-003。
+- 下一任务：CCD-003（Changelist Persistence）。
+
+## M4 CCD-001：Changelist Domain（2026-11-08）
+
+- 分支：`feat/CCD-001`；从 `main` 创建，未提前引入后续 M4 实现。
+- 完成：新增 Changelist/Binding 强类型模型、稳定 UUID 身份、仓库/Worktree 目标隔离、默认列表/Schema 版本、绑定 Valid/Stale/Ambiguous 状态及跨 Session 拒绝。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；专项测试 2/2 通过。
+- 依赖：`git-changelist` 首次直接使用 workspace 已锁定的 `serde`/`thiserror`/`uuid`，先离线更新 Cargo.lock 依赖边，再完成 locked 门禁；未引入新版本或外部依赖。
+- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
+- 风险：指纹重定位、持久化事务和 Selection 语义校验留给 CCD-002/003；当前不修改 Git Index。
+- 下一任务：CCD-002（Selection Fingerprints）。
 
 ## 当前状态
 
@@ -629,3 +831,399 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `Rust CI #108` 的 Windows artifact 显示主链路已执行到 Pull 后内容断言，仅因系统默认 `core.autocrlf` 将 LF 转为 CRLF；E2E 现对 source/clone 仓库显式设置本地 `core.autocrlf=false`，固定跨平台字节语义。
 - `Rust CI #109`（Runner ID `42443666319`）在 Ubuntu、Windows、macOS 与 Format 全部成功；M3 §6.7 的主链路、认证失败、外部竞争、网络异常与崩溃恢复证据完成审计，门禁关闭。
 - `Rust CI #110`（Runner ID `42444369117`）验证最终门禁文档提交，Ubuntu、Windows、macOS 与 Format 全部成功；M3 交付审计完成。
+
+## M4 Selection Patch Boundary（2026-11-08）
+
+- 在 `git-diff` 增加 `build_selection_patch`，将 `ChangeSelection` 安全投影为 WholeFile、Hunks 或 Lines 补丁；文件身份按原始 Git 路径字节匹配，支持 rename/delete 两侧路径。
+- 拒绝未知文件、二进制文件、空选区、越界 Hunk，并复用现有行补丁校验，避免把不属于当前 Patch 的选择送入后续 Candidate Tree 流程。
+- 专项测试：`cargo test -p git-diff --locked`（12 passed）；`cargo fmt --all` 与 `git diff --check` 已通过。
+- 本切片尚未接通 Candidate Tree、Partial Commit 或真实 Index；下一项继续补齐 Selection Patch 到 Candidate Tree 的应用层边界，随后推进 TEST-004 安全回归。
+- GitHub Runner：未执行（当前环境未配置 GitHub connector）；PR：未创建。
+
+## M4 TEST-004：协调器级 Hook 副作用恢复（2026-11-08）
+
+- 完成：新增真实 Git 仓库测试，由 `PartialCommitCoordinator` 驱动临时 Index Commit；提交后 Hook 副作用被 `CommitSideEffectObserver` 识别，返回 `HooksMutatedRepository`，事务进入 `RecoveryRequired`，Journal 持久化恢复结果。
+- 修改：`git-cli` 测试开发依赖加入既有 workspace crate `git-commit`，仅用于真实协调器集成测试；未升级任何依赖版本。
+- 测试：专项测试通过；`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过；Git CLI 测试 76 个通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：TEST-004 仍需补齐外部 Index/HEAD 竞争、签名失败后状态确认、崩溃重启诊断与跨平台矩阵的最终审计；UI-013 生产入口继续关闭。
+- 下一步：补 TEST-004 剩余安全矩阵并重新审查 M4 高级能力开放条件。
+
+## M4 UI-013：Selection Commit 应用层装配阻断（2026-11-08）
+
+- 已验证事实：底层 `CandidateTreeBuilder`、`PartialCommitCoordinator`、Temporary Index、Index reconciliation 和 Preview/指纹模型已存在；`M2OperationExecutor` 仍明确拒绝 `CommitSelection`，避免降级为普通 Index Commit。
+- 阻断原因：当前缺少架构契约要求的 `diff`/`prepare_commit` 应用层 Facade、完整 Patch 读取端口、Selection Patch 编排和 OperationCoordinator 装配；直接从 UI 或 Git CLI 适配器连接会违反依赖方向和写入边界。
+- ADR：新增 [ADR-M4-SELECTION-COMMIT-APPLICATION-001](../architecture/adr/ADR-M4-SELECTION-COMMIT-APPLICATION-001.md)，状态 Draft，等待项目负责人批准。
+- 影响范围：UI-013 真实入口保持关闭；TEST-004 已继续补充底层真实协调器证据，但 M4 生产开放门禁尚未关闭。
+- 下一步：等待 ADR 批准；批准后先实现 Diff/Patch 读取与 Preview 准备边界，再接 OperationCoordinator 执行器。
+
+## M4 UI-013：Diff/Patch Preview 应用边界（2026-11-08）
+
+- ADR-M4-SELECTION-COMMIT-APPLICATION-001 已获批准，状态更新为 Accepted。
+- 完成：新增只读 `DiffReader` 端口和 `DiffDocument`/`DiffReadRequest` 契约；新增 `SelectionPatchPreviewService`，校验 SessionTarget，读取 Diff，调用安全 Selection Patch Builder 并生成 selection digest。
+- 安全边界：该切片不创建 Temporary Index、不写真实 Index、不执行 Commit；跨 Session、未知文件、空/越界/二进制选择均拒绝或映射为结构化错误。
+- 测试：`git-application` 14 个测试通过（新增 Preview 正常路径和跨 Session 拒绝）；workspace `fmt/check/clippy/test/diff check` 全部通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：尚未实现 Git CLI DiffReader 适配器、Candidate Tree/Temporary Index Preview 装配和 OperationCoordinator Selection Commit 执行器；UI-013 真实入口继续关闭。
+- 下一步：实现 Git CLI DiffReader 适配器及真实仓库 Preview/Candidate Tree 集成测试。
+
+## M4 UI-013：Git CLI DiffReader（2026-11-08）
+
+- 完成：新增 `GitCliDiffReader`，以无 shell 的参数数组读取 HEAD→Index、Index→Worktree、HEAD→Worktree 三种比较；路径使用平台原生参数传递，输出解析为现有 Patch AST，并基于输出摘要生成 generation。
+- 测试：真实 Git 仓库测试覆盖三种版本比较；Git CLI 专项 77 个测试通过；workspace `fmt/check/clippy/test/diff check` 全部通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：DiffReader 目前只支持三种工作树比较，Commit/Tree/ConflictStage 来源和完整 Diff Facade 仍待后续按 LLD 接入；UI-013 真实入口继续关闭。
+- 下一步：把 DiffReader、TemporaryIndexManager、CandidateTreeBuilder 和 Preview 服务接入真实 Candidate Tree 准备流程。
+
+## M4 UI-013：Candidate Tree Preview 装配（2026-11-08）
+
+- 完成：新增应用层 `CandidateTreePreviewService`，将已验证 Selection Patch Preview 绑定到 `TemporaryIndexManager` 和 `CandidateTreeBuilder`；Candidate Tree 预览持有 RAII Temporary Index Lease，失败或释放时不触碰真实 Index。
+- 测试：`git-application` 16 个测试通过，覆盖 Candidate Tree 成功准备、租约保持、跨 Session 拒绝；workspace `fmt/check/clippy/test/diff check` 全部通过；Git CLI 真实 Candidate Tree 测试继续通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：Candidate Tree Preview 尚未绑定 HEAD/Index 原始摘要和真实 `PartialCommitTransaction`；提交执行器和 OperationCoordinator 入口继续关闭。
+- 下一步：补齐 Candidate Tree Preview 的真实仓库组合测试，并接入 PartialCommitTransaction 的确认前置状态。
+
+## M4 UI-013：Preview 到 PartialCommitTransaction 前置状态（2026-11-08）
+
+- 完成：Candidate Tree Preview 新增 `prepare_transaction`，读取候选 Index 字节，绑定原始 Index 摘要、预期 HEAD/Index、Candidate Tree 和 SelectionCommitRequest，生成 `PartialCommitTransaction::PreviewReady`。
+- 安全边界：只接受与 Preview 完全一致的单一 Selection；目标不一致或选区变化返回 `StaleSelection`；本切片仍不执行 Commit 或真实 Index 发布。
+- 测试：`git-application` 17 个测试通过；workspace `fmt/check/clippy/test/diff check` 全部通过；Git CLI 77 个测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：尚未接入 Preview Confirm/身份二次校验和 OperationCoordinator 执行器；Candidate Tree/Transaction 真实仓库组合测试仍需补充。
+- 下一步：实现确认阶段的 HEAD/Index 重验，并将已确认事务交给 PartialCommitCoordinator 的应用层执行入口。
+
+## M4 UI-013：Preview 确认与 HEAD/Index 重验（2026-11-08）
+
+- 完成：新增应用层 `confirm_transaction`，在 Partial Commit 确认前重新校验预期 HEAD 与 Index 身份；一致时进入 `PreflightRevalidated`，不一致时进入 `RecoveryRequired`，拒绝继续提交。
+- 安全边界：确认只返回已验证的 Candidate Tree，不发布真实 Index、不执行 Commit；外部 HEAD 变化已由真实事务状态机映射为结构化错误。
+- 测试：`git-application` 17 个测试通过；workspace `fmt/check/clippy/test/diff check` 全部通过；Git CLI 77 个测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：尚未接入 OperationCoordinator 的确认事务执行器；Candidate Tree/Transaction 真实仓库组合测试、外部 Index 竞争、Hook/崩溃恢复矩阵仍需继续补齐。
+- 下一步：实现已确认 Partial Commit 的安全执行入口，并补充真实仓库失败恢复测试。
+
+## M4 TEST-004：真实外部 Index 竞争保护（2026-11-08）
+
+- 完成：将 Git CLI Index reconciliation 安全测试改为真实仓库竞争场景；事务捕获原始 Index 后，外部直接替换 Index 内容，候选发布必须返回 `Conflict`。
+- 安全证据：验证外部修改后的真实 Index 字节保持不变，候选 Index 不会覆盖外部内容；覆盖 Partial Commit 发布阻断条件中的外部 Index 修改路径。
+- 测试：专项测试通过；workspace `fmt/check/clippy/test/diff check` 全部通过；Git CLI 测试 77 项通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：TEST-004 仍需完成签名失败、崩溃重启诊断、提交成功但 Index 协调失败、Hook/跨平台组合矩阵的最终审计；UI-013 真实入口继续关闭。
+- 下一步：继续补 TEST-004 的真实恢复/重启诊断证据，再重新评估 UI-013 开放条件。
+
+## M4 TEST-004：Partial Commit 重启诊断（2026-11-08）
+
+- 完成：将重启恢复集成测试的持久化意图从普通 `StageFiles` 改为真实 `CommitSelection`，覆盖 Partial Commit 在提交后 Index 尚未协调时的启动诊断。
+- 安全证据：真实 Git 仓库中外部提交改变 HEAD 后，重启检查识别 `CommittedNeedsReconcile` 并阻断后续写操作，不自动重试或覆盖 Index。
+- 测试：专项 desktop 重启恢复测试通过；workspace `fmt/check/clippy/test/diff check` 全部通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：TEST-004 仍需最终审计签名失败、提交后 Index 协调失败、Hook/跨平台矩阵；UI-013 真实入口继续关闭。
+- 下一步：补充或核验提交成功后 Index 协调失败的真实 Partial Commit 测试，再评估 TEST-004 剩余门禁。
+
+## M4 TEST-004：有效外部 Index 竞争（2026-11-08）
+
+- 完成：真实仓库测试改为通过 Git 正常写入并暂存外部文件，生成有效的外部 Index；候选发布使用旧 Index 摘要时返回 `Conflict`。
+- 安全证据：外部 Index 内容保持不变，候选 Index 未覆盖外部修改；该测试不依赖损坏 Index 字节，覆盖真实并发写入路径。
+- 测试：专项 Git CLI 测试通过；workspace `fmt/check/clippy/test/diff check` 全部通过；Git CLI 77 项、git-commit 15 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：TEST-004 仍需最终审计签名失败、提交成功但协调失败的完整真实事务组合，以及跨平台矩阵；UI-013 真实入口继续关闭。
+- 下一步：继续补齐真实 Partial Commit 提交后 Index 协调失败组合测试。
+
+## M4 TEST-004：Partial Commit 提交后 Index 协调冲突（2026-11-08）
+
+- 完成：Git CLI Partial Commit 协调器集成测试在真实临时 Index Commit 成功后，于 Index 发布前执行有效外部 Index 写入；协调器返回 `IndexChangedExternally`，事务进入 `RecoveryRequired`，Journal 写入恢复结果。
+- 安全证据：已观察到提交后的 HEAD 变化，但外部 Index 内容未被候选 Index 覆盖；真实 Git 临时 Index、真实工作树和真实 Journal 协同验证通过。
+- 测试：专项协调器测试通过；workspace `fmt/check/clippy/test/diff check` 全部通过；Git CLI 77 项、git-commit 15 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：TEST-004 仍需签名失败和跨平台矩阵最终审计；UI-013 真实入口继续关闭。
+- 下一步：审查 TEST-004 全部矩阵覆盖，补足仍缺失的真实路径后再评估 UI-013 开放条件。
+
+## M4 TEST-004：共享文件的 Changelist 归属隔离（2026-11-08）
+
+- 完成：新增两个 Changelist 共享同一文件但持有不同 Line selection 的领域测试，验证 binding 不会因文件路径相同而合并或串属。
+- 安全证据：两个列表分别保留独立 binding ID、selection 和归属，覆盖发布阻断矩阵中的“Changelist A/B 共享文件”场景。
+- 测试：专项 `git-changelist` 测试通过；workspace `fmt/check/clippy/test/diff check` 全部通过；Git CLI 77 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：TEST-004 仍需跨平台矩阵最终审计；UI-013 真实入口继续关闭。
+- 下一步：完成 TEST-004 全矩阵逐项审计，并确认是否仍有未覆盖的真实路径。
+
+## M4 TEST-004：同文件 Staged/Unstaged 不混淆（2026-11-08）
+
+- 完成：新增真实 Git 仓库测试，构造同一文件先 Staged、后产生 Unstaged 修改的状态；临时 Index 提交后分别校验 HEAD、真实 Index 和 Worktree 内容。
+- 安全证据：HEAD 使用候选内容，真实 Index 保留 staged 内容，Worktree 保留 unstaged 内容，证明 Partial Commit 不混淆三种内容来源。
+- 测试：专项 Git CLI 测试通过；workspace `fmt/check/clippy/test/diff check` 全部通过；Git CLI 78 项、git-changelist 6 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：TEST-004 已覆盖主要安全矩阵；仍需跨平台 Runner 验证和最终逐项审计，UI-013 真实入口继续关闭。
+- 下一步：完成 TEST-004 矩阵审计记录，确认高级能力开放条件后再推进 UI-013。
+
+## M4 TEST-004：安全矩阵本地审计完成（2026-11-08）
+
+- 审计结论：IP-001 §7.6 的 14 项安全场景均已找到对应测试证据，涵盖正常路径、失败路径、身份过期、外部 HEAD/Index 竞争、Hook、副作用、提交后协调失败、重启诊断、Rename、CRLF、非 UTF-8 和 Binary。
+- 关键证据：真实 Git 仓库测试验证未选择内容保留；真实临时 Index 与真实 Index 分离；外部修改不会被候选内容覆盖；RecoveryRequired 状态和 Journal 诊断均可观察。
+- 未验证项：当前环境无 GitHub connector，无法提供 Windows/Linux Runner 或 CI ID；因此跨平台 CI 仍为发布前置验证项，未伪造通过结论。
+- 高级能力条件：本地 TEST-004 阻断矩阵满足；UI-013 仍必须通过应用层已确认事务和 OperationCoordinator 装配后才开放真实入口。
+- 测试基线：workspace `fmt/check/clippy/test/diff check` 已通过；Git CLI 78 项、git-changelist 6 项、git-commit 15 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 下一步：推进 UI-013 的应用层已确认 Selection Commit 执行边界，不降级为 `CommitIndex`。
+
+## M4 UI-013：已确认 Selection Commit 执行边界（2026-11-08）
+
+- 完成：新增应用层 `ConfirmedPartialCommitRunner` 与 `SelectionCommitExecutionService`；执行前只接受 `PreparedPartialCommit`，重新校验 HEAD/Index 身份后才向底层提交端口派发。
+- 安全边界：过期或未准备事务在应用层拒绝，Runner 不会被调用；服务不接收裸 `SelectionCommitRequest`，避免丢失 Candidate Tree、临时 Index 和身份绑定；未降级为 `CommitIndex`。
+- 测试：新增 stale/unprepared confirmation 测试，确认写端口调用次数为零；workspace `fmt/check/clippy/test/diff check` 全部通过；Git CLI 78 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：尚未将该应用服务装配进 `OperationCoordinator`，UI-013 真实入口仍关闭；需要继续实现 OperationExecutor 组合和真实成功路径集成测试。
+- 下一步：实现受 OperationCoordinator 调度的 Selection Commit executor 组合点。
+
+## M4 UI-013：OperationCoordinator Selection Commit 组合点（2026-11-08）
+
+- 完成：新增 `SelectionCommitHandler` 与 `SelectionCommitOperationExecutor`，将 `GitCommand::CommitSelection` 作为独立 OperationExecutor 路由到专用 handler。
+- 安全边界：跨 Session 在 handler 前拒绝；executor 只接受 `CommitSelection`，不会转换或降级为 `CommitIndex`；写操作仍需由 `OperationCoordinator` 调度。
+- 测试：新增专用路由和跨 Session 拒绝测试；保留并通过 M2 防降级测试；workspace `fmt/check/clippy/test/diff check` 全部通过；git-operations 24 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：尚未把该 executor 与已确认事务服务及 Git CLI `PartialCommitCoordinator` 在应用组合根装配，UI-013 真实入口仍关闭。
+- 下一步：实现 handler 到 `SelectionCommitExecutionService`/Git CLI PartialCommitCoordinator 的真实组合，并增加 OperationCoordinator 真实仓库成功路径测试。
+
+## M4 UI-013：Prepared Preview Handler 装配边界（2026-11-08）
+
+- 完成：新增 `SelectionCommitStateReader` 与 `PreparedSelectionCommitHandler`；handler 按 target/request 匹配已 arm 的 Preview，读取最新 HEAD/Index，再调用 `SelectionCommitExecutionService` 使用 Coordinator operation identity 执行。
+- 安全边界：未 arm、跨 Session、请求与 Preview 不一致时均返回 `StaleSelection`；执行前读取权威身份；Journal/底层 runner 使用 OperationCoordinator 传入的 operation ID。
+- 测试：workspace `fmt/check/clippy/test/diff check` 全部通过；Git CLI 78 项测试通过，git-operations Selection Commit 路由测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：尚未在 apps/desktop 组合根把 state reader、handler、Git CLI PartialCommitCoordinator 与 OperationCoordinator 实际连通；UI-013 真实入口仍关闭。
+- 下一步：完成真实 Git CLI handler/Coordinator 组合测试，验证成功提交与失败恢复路径。
+
+## M4 UI-013：Git Commit Coordinator 应用桥接（2026-11-08）
+
+- 完成：为 `git_commit::PartialCommitCoordinator` 实现 `ConfirmedPartialCommitRunner`，使 Git CLI 的真实 CommitWriter、Journal、Hook observer 和 Index reconciliation 可注入应用层 Prepared Selection Commit Handler。
+- 安全边界：桥接只转发已确认事务和 Coordinator operation identity，不创建裸 CommitIndex 请求，不绕过 PartialCommitTransaction 状态机。
+- 测试：git-application 18 项测试通过；workspace `fmt/check/clippy/test/diff check` 全部通过；Git CLI 78 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：apps/desktop 组合根尚未实际连通 state reader、handler、Git CLI coordinator 和 OperationCoordinator；真实成功路径仍需组合测试，UI-013 入口继续关闭。
+- 下一步：在真实 Git fixture 中装配 PreparedSelectionCommitHandler 与 PartialCommitCoordinator，验证 Coordinator 成功提交和恢复失败路径。
+
+## M4 UI-013：PartialCommitCoordinator 应用桥接（2026-11-08）
+
+- 完成：`PartialCommitCoordinator` 已实现 `ConfirmedPartialCommitRunner`，可作为 `PreparedSelectionCommitHandler` 的真实底层 runner；桥接保留事务、Journal、Hook observer 和 Index reconciliation 语义。
+- 测试：workspace `fmt/check/clippy/test/diff check` 全部通过；git-application 18 项测试、Git CLI 78 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：尚未在 `apps/desktop` 组合根实际连通 state reader、handler、Git CLI coordinator 和 OperationCoordinator；真实 Git fixture 成功/恢复组合测试仍待补齐，UI-013 入口继续关闭。
+- 下一步：新增真实 Git fixture 的应用 handler + OperationCoordinator 成功提交与失败恢复测试。
+
+## M4 UI-013：Prepared Handler 身份读取验证（2026-11-08）
+
+- 完成：新增应用层 handler 测试，验证 arm 后按 request/target 匹配 Preview，读取最新身份，再进入确认执行；底层 runner 的调用仅发生在身份确认成功后。
+- 测试：workspace `fmt/check/clippy/test/diff check` 全部通过；git-application 19 项测试通过，Git CLI 78 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：仍缺 `apps/desktop` + 真实 Git fixture + OperationCoordinator + Git CLI PartialCommitCoordinator 的成功/恢复端到端组合测试；UI-013 入口继续关闭。
+- 下一步：实现真实 Git fixture 的完整应用/Coordinator 组合测试。
+
+## M4 UI-013：真实 Git 应用/Coordinator 组合测试（2026-11-08）
+
+- 完成：在 `apps/desktop` 组合根增加 `SelectionCommitStateReader` 实现，并用真实 Git fixture 装配 Prepared Handler、PartialCommitCoordinator、OperationCoordinator 与 Git CLI writer/journal/hook/index reconciliation；验证已确认选择通过 `CommitSelection` 完成真实提交。
+- 安全边界：测试保留真实 Index 快照，使用临时 Index 构建 candidate tree；提交仅经 OperationCoordinator 调度，未引入裸 `CommitIndex` 降级路径。
+- 修改文件：`apps/desktop/Cargo.toml`、`Cargo.lock`、`apps/desktop/src/main.rs`、`docs/plans/PROGRESS.md`。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过；desktop 真实组合测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：当前覆盖真实成功组合路径；Hook 失败、外部并发、崩溃恢复等 UI-013 组合失败路径仍待补齐，UI-013 生产 UI 入口继续关闭。
+- 下一步：补充真实 Git fixture 的失败/恢复组合测试，并继续按 IP-001 依赖顺序推进。
+
+## M4 UI-011：Side-by-side Viewer 只读投影（2026-11-08）
+
+- 完成：`git-diff-ui` 新增 `SideBySideDiffViewer`，从不可变 `Patch` 生成跨文件 Hunk 的逻辑行对齐投影，暴露 `AlignedDiffRow` 映射和受校验的 Hunk 选择状态。
+- 安全边界：Viewer 只保存 Patch 和 UI 投影，不直接访问 Git CLI、不写 Index/Refs/Worktree；选择无效 Hunk 会被清除，原始 Patch 保持不变。
+- 修改文件：`crates/ui/git-diff-ui/src/lib.rs`。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过；git-diff-ui 3 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：当前是纯 Rust 只读投影，尚未接入真实 GPUI 绘制、滚动/导航和 Diff Gutter；这些不应绕过 Core 对齐模型。
+- 下一步：按 IP-001 继续审查尚未完成的 M4 任务，并补 UI-013 的真实失败/恢复组合门禁。
+
+## M4 UI-013：RecoveryRequired 错误透传（2026-11-08）
+
+- 完成：新增应用层 Prepared Selection Commit Handler 失败路径测试，模拟底层提交副作用导致 `RecoveryRequired`，验证错误原样向上返回且不会被报告为成功。
+- 安全边界：Handler 仍只接受已确认 Preview；失败事务不被转换为普通 Commit，也不清除恢复诊断语义。
+- 修改文件：`crates/core/git-application/src/selection_commit.rs`、`docs/plans/PROGRESS.md`。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过；git-application 20 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：应用边界失败透传已覆盖；真实桌面组合的 Hook/外部并发/恢复失败路径及 UI 真实入口仍需继续完成。
+- 下一步：继续按 IP-001 审查 UI-013 生产装配和剩余 M4 开放门禁。
+
+## M4 UI-013：Selection Preview 到 Prepared Transaction 装配（2026-11-08）
+
+- 完成：新增 `SelectionCommitPreparationService`，串联只读 Diff Selection Preview、Temporary Index、Candidate Tree 和 `PartialCommitTransaction`，生成可交给既有 Handler 确认执行的 `PreparedPartialCommit`。
+- 安全边界：准备阶段不提交、不发布真实 Index；要求 target/selection 一致，保留 Diff generation、HEAD/Index 身份和原始 Index digest，候选 Index 仅由临时 Index 读取。
+- 修改文件：`crates/core/git-application/src/selection_preparation.rs`、`crates/core/git-application/src/lib.rs`、`docs/plans/PROGRESS.md`。
+- 测试：新增准备链路测试，确认 Candidate Tree 请求来自 Selection Patch 且真实 Index 不在准备阶段写入；workspace fmt/check/clippy/test/diff check 全部通过；git-application 21 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：该服务尚未接入桌面 GPUI 选区状态和生产组合根；真实提交仍必须经过 Preview 确认、Handler 和 OperationCoordinator。
+- 下一步：将准备服务接入应用组合根的真实 Git 适配器，继续保持未准备/过期选区 fail-closed。
+
+## M4 UI-013：真实 Git Selection Preparation 组合测试（2026-11-08）
+
+- 完成：在 `apps/desktop` 使用真实 `GitCliDiffReader`、`GitCliTemporaryIndexManager` 和 `GitCliCandidateTreeBuilder` 装配 `SelectionCommitPreparationService`，验证真实 Worktree diff 可生成 Candidate Tree 与 Prepared Transaction。
+- 安全证据：准备完成后真实 `.git/index` 字节与准备前完全一致；测试未执行 Commit 或真实 Index 发布。
+- 修改文件：`apps/desktop/src/main.rs`、`apps/desktop/Cargo.toml`、`Cargo.lock`、`docs/plans/PROGRESS.md`。新增 `git-diff` 为已存在 workspace 依赖的直接声明，未升级依赖版本。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过；真实准备专项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：真实准备链路已验证，但桌面 UI 仍未把用户选区触发到该服务并 arm Handler；生产入口继续关闭。
+- 下一步：继续接入 Changelist UI 选区到 Preview/Prepared Handler 的应用边界，不绕过身份确认。
+
+## M4 UI-013：Selection Commit Preview 请求协议（2026-11-08）
+
+- 完成：新增 `SelectionCommitPreviewRequest` 与 `prepare_preview` 应用接口；UI 只需提供 target、Diff 请求、选区、提交选项和已捕获的只读 Index 身份，应用层负责读取 Diff、计算 Selection Fingerprint、构造 Candidate Tree 和 Prepared Transaction。
+- 安全边界：Preview 请求拒绝跨 Session target；Fingerprint 不再由 UI 直接填写；该接口只准备事务，不执行 Commit 或真实 Index 发布。
+- 修改文件：`crates/core/git-application/src/selection_preparation.rs`、`crates/core/git-application/src/lib.rs`、`docs/plans/PROGRESS.md`。
+- 测试：应用层准备测试改为覆盖新的 Preview 协议；workspace 门禁待本次提交前执行；GitHub Runner 未执行（当前环境无 GitHub connector）。
+- 风险：Preview 协议尚未接入 GPUI ActionDispatcher 和桌面长期持有的 Handler；仍需实现确认态保存与 OperationCoordinator 生产装配。
+- 下一步：审查并实现 Preview 会话在桌面应用层的持有/确认入口，禁止 UI 直接提交裸选区。
+
+## M4 UI-013：Prepared Preview 一次性确认（2026-11-08）
+
+- 完成：`PreparedSelectionCommitHandler` 在确认执行前消费已 arm 的 Preview；成功、底层失败或状态读取失败后均不可复用同一 Prepared Transaction，恢复信息由 Journal/Recovery 负责。
+- 安全边界：重复确认返回 `StaleSelection`，不会再次调用 Commit Runner；避免同一 Candidate Tree/Temporary Index 身份被隐式重试。
+- 修改文件：`crates/core/git-application/src/selection_commit.rs`、`docs/plans/PROGRESS.md`。
+- 测试：新增重复确认断言；git-application 21 项测试通过。workspace 全量门禁待本次提交前执行；GitHub Runner 未执行（当前环境无 GitHub connector）。
+- 风险：桌面 UI 尚未持有 Preview 会话并触发确认；底层真实协调器已有 Journal 恢复路径，仍需最终生产装配。
+- 下一步：继续实现桌面应用层 Preview 会话的持有与确认装配。
+
+## M4 UI-013：Preview Session 应用层持有与确认边界（2026-11-08）
+
+- 完成：新增 `SelectionCommitPreviewSession`，统一持有 Selection Preview 准备服务和一次性 Handler；`prepare_preview` 只 arm Prepared Transaction 并返回应用生成的完整提交请求，`confirm` 才进入 Handler/Coordinator 边界。
+- 安全边界：UI 不直接构造 Fingerprint 或调用 Commit Runner；Preview 与 Confirm 分离，重复确认继续由一次性 Handler 返回 `StaleSelection`。
+- 修改文件：`crates/core/git-application/src/selection_commit.rs`、`crates/core/git-application/src/lib.rs`、`docs/plans/PROGRESS.md`。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：Preview Session 尚未在桌面组合根实例化并连接 GPUI ActionDispatcher；生产 UI 入口仍关闭。
+- 下一步：在桌面应用组合根接入 Preview Session 的生命周期，先提供 Preview 再允许 Confirm。
+
+## M4 UI-013：动态 Temporary Index Writer 阻塞记录（2026-11-08）
+
+- 已验证事实：`GitCliTemporaryIndexCommitWriter` 在构造时固定 `GIT_INDEX_FILE`；Preview 的 Temporary Index 路径按 Operation 动态生成；当前 `CommitWriter::commit` 没有传递 Temporary Index 身份的参数。
+- 阻塞原因：直接装配现有 writer 可能误读固定路径或真实 `.git/index`，无法满足 Partial Commit 的 Index 隔离安全约束；修复涉及 `git-ports`、`git-commit` 和 `git-cli` 写边界。
+- ADR：新增 [ADR-M4-DYNAMIC-TEMP-INDEX-WRITER-001](../architecture/adr/ADR-M4-DYNAMIC-TEMP-INDEX-WRITER-001.md)，状态 Draft，推荐方案一（新增显式 Partial Commit 写端口/请求并携带 TemporaryIndexLease），待批准。
+- 影响范围：UI-013 桌面生产组合根暂不开放；不修改现有核心接口、不以 UI 环境变量绕过阻塞。
+- 测试：本次为边界审查和 ADR 草案，未执行代码门禁；此前 `31c2a0e` 的 workspace 门禁已通过。
+- 下一步：等待 ADR 批准；批准后实现动态 Temporary Index 写端口并增加真实 Git 并发/隔离测试。
+
+## M4 UI-013：Preview 跨 Session 失败门禁（2026-11-08）
+
+- 完成：新增 `SelectionCommitPreparationService` 的跨 Session target 失败测试，验证 Diff 请求 target 不一致时在创建 Temporary Index 前即返回 `StaleSelection`。
+- 安全证据：错误 Preview 不会进入 Diff/Temporary Index/Candidate Tree 写准备链路。
+- 修改文件：`crates/core/git-application/src/selection_preparation.rs`、`docs/plans/PROGRESS.md`。
+- 测试：git-application 22 项专项测试通过；workspace 门禁待本次提交前执行。
+- 风险：动态 Temporary Index writer ADR 仍待批准，UI-013 生产入口继续关闭。
+- 下一步：等待 ADR-M4-DYNAMIC-TEMP-INDEX-WRITER-001 批准后继续实现；在此之前保持核心写端口不变。
+
+## M4 UI-013：动态 Temporary Index Writer（2026-11-08）
+
+- 完成：落实已批准的 ADR-M4-DYNAMIC-TEMP-INDEX-WRITER-001 方案一，新增 `PartialCommitWriter` 专用端口；每次提交显式传递 Preview 的 `TemporaryIndexLease` 与 Preview Operation ID，普通 M2 `CommitWriter` 保持不变。
+- 安全证据：Git CLI 写适配器拒绝跨 Preview Operation Lease、真实 `.git/index` 和已释放路径；真实 Git 测试验证动态临时 Index 提交不改变真实 Index，桌面 `OperationCoordinator` 组合测试验证 Preview ID 与确认执行 ID 分离时仍使用正确 Candidate Index。
+- 修改文件：`crates/core/git-ports/src/commit.rs`、`crates/core/git-ports/src/lib.rs`、`crates/core/git-commit/src/lib.rs`、`crates/core/git-application/src/selection_commit.rs`、`crates/adapters/git-cli/src/commit.rs`、`apps/desktop/src/main.rs`、`docs/architecture/adr/ADR-M4-DYNAMIC-TEMP-INDEX-WRITER-001.md`、`docs/architecture/LLD-CCD-001.md`、`docs/plans/IP-001-development-plan.md`、`docs/plans/PROGRESS.md`。
+- Commit：`af78f6e feat(M4 UI-013): 支持动态 Temporary Index 提交`；GitHub Runner 未执行，PR 未创建。
+- 测试：专项 `git-cli` 动态 Lease/真实 Index/Hook/未选择内容、`git-commit`、`git-application` 和桌面真实 Coordinator 组合测试均通过；workspace 全量门禁待本次提交前执行。
+- 风险：生产 GPUI ActionDispatcher 尚未开放 Selection Commit 入口；并发双 Preview 的真实仓库组合仍需在 UI-013/TEST-004 最终审计中核验，当前写端口已具备逐调用 Lease 隔离。
+- 下一步：继续 UI-013 生产 Preview Session 生命周期与 ActionDispatcher 装配，不提前开放未满足门禁的真实入口。
+
+## M4 TEST-004：Partial Commit 安全矩阵最终本地审计（2026-11-08）
+
+| IP-001 §7.6 验收项 | 当前证据 |
+|---|---|
+| 同文件 Staged + Unstaged | `temporary_partial_commit_does_not_mix_staged_and_unstaged_edits` |
+| 单 Hunk / 部分行 | Diff 选区单元测试与 `candidate_tree_partial_line_patch_commits_only_selected_line` |
+| Changelist A/B 共享文件 | `keeps_shared_file_selections_owned_by_their_changelist` |
+| Hook 拒绝 / 修改 Worktree | `temporary_partial_commit_hook_rejection_keeps_head_and_real_index`、`side_effect_observer_detects_hook_worktree_mutation_after_real_commit` 与 Coordinator Recovery 测试 |
+| 签名失败 | `required_signing_failure_is_classified_without_changing_head_or_index` |
+| 外部修改 Index / HEAD | `coordinator_persists_recovery_for_external_index_mutation`、`real_repository_external_commit_with_index_change_requires_recovery` 与 HEAD 身份状态机测试 |
+| 提交成功但 Index 协调失败 | Git CLI 外部 Index 写入测试及 `coordinator_persists_recovery_when_index_reconciliation_fails` |
+| 应用异常退出 | `startup_recovery_diagnoses_commit_with_unreconciled_index_after_restart` |
+| Rename / CRLF / 非 UTF-8 | 对应真实仓库 Partial Commit 测试 |
+| Binary | 未选择二进制内容保持测试与行级 Patch 拒绝测试 |
+| 多 Preview Operation 隔离 | 新增同一动态 writer 持有两个有效 Lease 的真实仓库测试，验证第二次提交不复用第一次路径且真实 Index 字节不变 |
+
+- 完成：按 IP-001 §7.6 逐项复核 TEST-004，本地实现和测试证据齐备；新增动态 writer 多 Preview 路径隔离测试，两个 Candidate Index 同时存在并由同一 writer 依次执行，HEAD 精确对应各自候选 Tree。
+- 修改文件：`crates/adapters/git-cli/src/commit.rs`、`docs/plans/PROGRESS.md`。
+- Commit：待本次门禁通过后生成；GitHub Runner 待 PR 创建后按固定 3 分钟间隔检查。
+- 风险：本地仅验证 macOS；Windows/Linux/macOS 的最终跨平台结论必须以 GitHub `Rust CI` 三平台 Runner 为准。在 Runner 全绿前，TEST-004 不标记为发布验收完成，UI-013 生产入口继续关闭。
+- 下一步：执行 workspace 全量门禁并提交，推送 `feat/m4`、创建 PR，等待三平台 Rust CI；通过后再继续 UI-013。
+
+## M4 TEST-004：跨平台 CI 修复（2026-11-08）
+
+- 完成：修复 Rust CI 暴露的跨平台测试编译问题：Unix 专用恢复测试辅助类型与导入增加 `cfg(unix)`，非 UTF-8 路径 Temporary Index 提交测试补齐 Preview Operation ID。
+- 修改文件：`crates/adapters/git-cli/src/commit.rs`。
+- Commit：`aaff9f4 fix(M4 TEST-004): 修复跨平台 Partial Commit 测试`。
+- 本地门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
+- GitHub Runner：Rust CI #114（Run ID `42463768350`）已确认 Format 通过；Ubuntu 因非 UTF-8 路径测试缺少 Operation ID、Windows 因 Unix 专用测试辅助项未加条件编译而失败；macOS 状态待本次修复推送后的新 Run 重新确认。
+- 风险：TEST-004 仍未达到跨平台发布验收，必须等待新 CI 三平台全绿；UI-013 生产入口继续关闭。
+- 下一步：推送 `feat/m4`，等待新 Rust CI；CI 全绿后再继续 UI-013 生产 Preview Session/ActionDispatcher 装配。
+
+## M4 TEST-004：Windows CI 条件编译修复（2026-11-08）
+
+- 完成：根据 Rust CI #115 的 Windows 日志，将 Unix 专用测试依赖 `async_trait`、`Arc/Mutex` 和 `GitCliIndexReconciliationPublisher` 全部限制在 `cfg(unix)` 下，避免 Windows `-D warnings` 失败。
+- 修改文件：`crates/adapters/git-cli/src/commit.rs`。
+- Commit：`995e3c7 fix(M4 TEST-004): 修复 Windows 测试导入条件`。
+- 本地门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
+- GitHub Runner：Rust CI #115（Run ID `42465713873`）：macOS `128684625983` 通过、Format `128684626128` 通过、Ubuntu `128684626193` 通过、Windows `128684626224` 失败，失败原因已修复并推送。
+- 风险：新提交尚未产生最终 CI 结论；TEST-004 仍未完成跨平台发布验收。
+- 下一步：等待新 Rust CI 三平台结果；通过后继续 UI-013 生产 Preview Session/ActionDispatcher 装配。
+
+## M4 UI-013：Changelist Action 路由（2026-11-08）
+
+- 完成：扩展 `git-ui-model` 的 typed action payload，Changelist 提交请求保留 `SelectionCommitRequest`、选择和 Fingerprint，并严格映射为 `GitCommand::CommitSelection`；普通提交仍映射为 `CommitIndex`，不存在静默降级。
+- 修改文件：`crates/ui/git-ui-model/src/lib.rs`、`docs/plans/PROGRESS.md`。
+- 本地验证：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo test -p git-ui-model --locked`、`git diff --check` 全部通过。
+- GitHub Runner：Rust CI #117（Run ID `42466409971`）已通过：Format `128686847869`、macOS `128686848123`、Ubuntu `128686848151`、Windows `128686848180`。
+- 风险：桌面组合根尚未把 Selection Preview Session 和确认入口接入实际 GPUI 生命周期；当前仍只开放 typed 命令路由，不允许 UI 绕过 Preview/Confirm。
+- 下一步：补齐桌面 Preview Session 的持有与确认装配，并用真实 Git Coordinator 测试验证生产入口。
+
+## M4 UI-013：确认必须经过 OperationCoordinator（2026-11-08）
+
+- 完成：`SelectionCommitPreviewSession` 不再提供绕过协调器的直接 `confirm`；Session 仅负责 Preview 和 arm，并暴露共享 Handler 供组合根构造 `SelectionCommitOperationExecutor`。`git-operations` 增加对共享 Handler 的安全委托实现，确保确认命令可统一进入 `OperationCoordinator`。
+- 修改文件：`crates/core/git-application/src/selection_commit.rs`、`crates/core/git-operations/src/selection_commit.rs`、`docs/plans/PROGRESS.md`。
+- 本地专项测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo test -p git-application -p git-operations --locked`、`git diff --check` 全部通过。
+- GitHub Runner：路由提交对应 Rust CI #118（Run ID `42467537507`）当时仍在运行；本次确认边界修复尚未推送 CI。
+- 风险：桌面组合根仍需持有 Preview Session，并以其 Handler 构造 Selection Commit Coordinator；在该装配完成前不开放生产 Changelist 提交。
+- 下一步：实现桌面 Selection Commit Session/Coordinator 的真实 Git 组合与生命周期持有。
+
+## M4 UI-013：桌面 Preview/Coordinator 组合根（2026-11-08）
+
+- 完成：桌面组合根新增 `DesktopSelectionCommitSession` 与 `DesktopSelectionCommitCoordinator` 类型，并提供真实 Git CLI 的 Preview Session 构造函数及仅接受 `CommitSelection` 的 Coordinator 构造函数。Temporary Index、Candidate Tree、Partial Commit Journal、Side-effect Observer 和 Real Index Publisher 均使用生产适配器。
+- 安全边界：Session 只负责准备/arm；确认必须通过共享 Handler 构造 `SelectionCommitOperationExecutor`，再进入 `OperationCoordinator`。
+- 修改文件：`apps/desktop/src/main.rs`、`crates/core/git-application/src/selection_commit.rs`、`crates/core/git-operations/src/selection_commit.rs`、`docs/plans/PROGRESS.md`。
+- 本地验证：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo test -p git-application -p git-operations --locked`、`git diff --check` 全部通过。
+- GitHub Runner：Rust CI #118（Run ID `42467537507`）尚未完成；本次组合根修复已推送，后续 CI 为新 Run。
+- 风险：GPUI Controller 尚未接收 Preview Session/Selection Coordinator 句柄，UI 仍不能在没有应用层 Preview 的情况下触发确认；需要继续完成生命周期持有与安全入口。
+- 下一步：将 Preview Session/Selection Coordinator 句柄纳入桌面写就绪状态，补真实 Git Preview→Coordinator Confirm 集成测试。
+
+## M4 UI-013：桌面 ActionDispatcher 生命周期接入（2026-11-08）
+
+- 完成：`DesktopActionDispatcher` 持有 M4 Preview/Coordinator Runtime；普通 `CommitIndex` 继续使用 M2 Coordinator，`CommitSelection` 只能提交到 M4 Coordinator，并复用操作快照反馈通道。Recovery 阻断或未装配 M4 Runtime 时，Changelist 提交明确失败，不会回退到 Index 提交。
+- 修改文件：`apps/desktop/src/main.rs`、`docs/plans/PROGRESS.md`。
+- 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
+- GitHub Runner：Rust CI #120（Run ID `42468104829`，提交 `37bfa70`）当时运行中；本次修改尚未推送 CI。
+- 风险：仍需真实 Git Preview→Coordinator Confirm 的桌面组合测试，并验证 Selection Commit 操作快照在失败/恢复路径中完整反馈。
+- 下一步：补桌面真实 Git M4 Runtime 集成测试，随后等待本次提交的跨平台 CI。
+
+## M4 UI-013：真实 Git Preview→Coordinator Confirm 验证（2026-11-08）
+
+- 完成：新增桌面真实仓库集成测试，覆盖 Preview 生成 Candidate Tree、arm Handler、通过 Selection Commit Coordinator 提交、Real Index Reconciliation 以及最终 HEAD/工作区状态；测试确认成功协调后 Index 发布 Candidate 内容且仓库状态干净。
+- 修改文件：`apps/desktop/src/main.rs`、`docs/plans/PROGRESS.md`。
+- 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过；桌面测试 18 项通过。
+- GitHub Runner：本次测试提交尚未推送 CI；前置 Rust CI #117（Run ID `42466409971`）已全绿。Rust CI #118/#119/#120 的旧提交状态仍需分别记录最终结果。
+- 风险：UI-013 代码路径已接入，但完整 M4 仍需本次提交跨平台 CI、PR 合并及最终全量审查。
+- 下一步：推送本次测试提交，按 3 分钟间隔确认四平台 Runner；随后更新 UI-013/M4 验收状态。
+
+## M4 UI-013：跨平台真实 Git Fixture 修复（2026-11-08）
+
+- 完成：Rust CI #122 的 Ubuntu Runner 暴露新增 Preview→Confirm 测试依赖用户级 Git identity，导致无全局配置的 Linux Runner 提交失败。测试现在显式写入仓库本地 identity，不依赖 Runner 用户环境；没有放宽提交结果断言。
+- 修改文件：`apps/desktop/src/main.rs`、`docs/plans/PROGRESS.md`。
+- 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过；新增桌面测试通过。
+- GitHub Runner：Rust CI #122（Run ID `42468412330`）：Format `128693210292` 通过、macOS `128693210179` 通过、Ubuntu `128693210355` 失败（无本地 Git identity，已修复）、Windows `128693210354` 当时仍运行。
+- 风险：修复提交尚未完成跨平台 CI；需要确认 Windows 及新提交的四平台 Runner 全绿。
+- 下一步：提交并推送修复，等待新 Rust CI；通过后进入 M4 最终审查和 PR 合并门禁。
+
+## M4 UI-013：跨平台 CI 通过（2026-11-08）
+
+- 完成：Rust CI #123（Run ID `42468997488`，提交 `a9482d6`）完成并成功；Ubuntu/Linux、Windows、macOS 和 Format 均通过。
+- Runner：Format `128695094562` 成功；Windows `128695094688` 成功；Ubuntu `128695094717` 成功；macOS `128695094726` 成功。
+- 结论：新增真实 Git Preview→Coordinator Confirm 测试已获得三平台证据，Linux identity 修复有效；TEST-004 的跨平台门禁不再阻塞 UI-013。
+- 风险：PR 尚未合并；仍需 M4 最终逐项审查、全量门禁、PR 合并后 CI 确认及分支清理。
+- 下一步：执行 M4 最终任务/安全矩阵审查，确认没有未完成任务或未批准例外，再进入 PR 合并流程。
