@@ -2,6 +2,15 @@
 
 更新日期：2026-11-08。
 
+## M4 CCD-009：Preview 生命周期与确认身份（2026-11-08）
+
+- 分支：`feat/CCD-009`；从 `main` 创建并带入 CCD-001～005，按依赖顺序先于 CCD-006 实现。
+- 完成：新增 `ChangelistPreview` 与 Ready/Confirmed/Expired/Cancelled 状态；预览绑定 OperationId、SessionTarget、HEAD/Index 身份、Candidate Tree 和 SelectionFingerprint；确认时身份变化或重复确认均失效，不复用过期预览。
+- 测试：`cargo fmt --all -- --check`、`cargo test -p git-changelist --locked` 已通过；预览过期与重复确认专项通过。
+- Commit/Runner：待本次提交生成；GitHub Runner 尚未创建/执行 PR。
+- 风险：预览尚未接入 UI 和 Partial Commit 执行器；真实 Commit 仍需 CCD-006，Index reconciliation 需 CCD-007。
+- 下一任务：CCD-006（Partial Commit Transaction）。
+
 ## M4 CCD-004：Temporary Index Manager（2026-11-08）
 
 - 分支：`feat/CCD-004`；从 `main` 创建并带入 CCD-001/002/003。
