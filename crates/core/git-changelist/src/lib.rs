@@ -1,5 +1,6 @@
 //! Application-owned changelists.  These values never masquerade as Git Index state.
 
+use async_trait::async_trait;
 use git_domain::{ChangeSelection, FileIdentity, SelectionFingerprint, SessionTarget};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -153,6 +154,53 @@ pub struct Changelist {
     pub updated_at: i64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangelistBundle {
+    pub target: SessionTarget,
+    pub schema_version: u32,
+    pub revision: u64,
+    pub lists: Vec<Changelist>,
+}
+
+impl ChangelistBundle {
+    #[must_use]
+    pub fn empty(target: SessionTarget) -> Self {
+        Self {
+            target,
+            schema_version: CURRENT_SCHEMA_VERSION,
+            revision: 0,
+            lists: Vec::new(),
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), ChangelistError> {
+        if self.schema_version != CURRENT_SCHEMA_VERSION {
+            return Err(ChangelistError::UnsupportedSchema);
+        }
+        if self
+            .lists
+            .iter()
+            .any(|list| list.target != self.target || list.schema_version != self.schema_version)
+        {
+            return Err(ChangelistError::TargetMismatch);
+        }
+        Ok(())
+    }
+}
+
+#[async_trait]
+pub trait ChangelistStore: Send + Sync {
+    async fn load(
+        &self,
+        target: SessionTarget,
+    ) -> Result<ChangelistBundle, ChangelistPersistenceError>;
+    async fn save(
+        &self,
+        expected_revision: u64,
+        bundle: ChangelistBundle,
+    ) -> Result<(), ChangelistPersistenceError>;
+}
+
 impl Changelist {
     pub fn new(
         target: SessionTarget,
@@ -209,6 +257,20 @@ pub enum ChangelistError {
     BindingNotFound,
     #[error("selection fingerprint could not be encoded")]
     FingerprintEncoding,
+    #[error("unsupported changelist schema")]
+    UnsupportedSchema,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Error)]
+pub enum ChangelistPersistenceError {
+    #[error("changelist persistence I/O failed: {0}")]
+    Io(String),
+    #[error("changelist persistence encoding failed: {0}")]
+    Encoding(String),
+    #[error("changelist revision changed externally")]
+    RevisionConflict,
+    #[error("changelist bundle is invalid: {0}")]
+    InvalidBundle(String),
 }
 
 #[cfg(test)]
