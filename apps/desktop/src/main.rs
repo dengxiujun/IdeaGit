@@ -1871,6 +1871,106 @@ mod tests {
             .expect("coordinator join");
     }
 
+    #[tokio::test]
+    async fn selection_commit_preparation_uses_real_git_without_touching_real_index() {
+        use git_application::SelectionCommitPreparationService;
+        use git_cli::GitCliExecutor;
+        use git_operations::CommitStateReader as _;
+        use git_ports::DiffReadRequest;
+        use sha2::{Digest, Sha256};
+
+        let repository = git_fixture::TestRepository::init().expect("fixture should initialize");
+        repository
+            .commit_file("prepared.txt", b"base\n")
+            .expect("initial commit");
+        repository
+            .write_file("prepared.txt", b"prepared\n")
+            .expect("worktree edit");
+        let location = git_ports::RepositoryLocation::worktree(
+            &repository.worktree,
+            repository.worktree.join(".git"),
+            repository.worktree.join(".git"),
+        );
+        let target = SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1);
+        let file = git_domain::FileIdentity {
+            target,
+            path: RepoPath::try_from("prepared.txt").expect("path"),
+            previous_path: None,
+            kind: git_domain::FileKind::Regular,
+        };
+        let selection = git_domain::ChangeSelection::WholeFile { file };
+        let operation = git_domain::OperationId::new();
+        let (progress, _receiver) = tokio::sync::mpsc::channel(2);
+        let context = ExecutionContext::new(
+            operation,
+            tokio_util::sync::CancellationToken::new(),
+            progress,
+        );
+        let real_index = repository.worktree.join(".git/index");
+        let original_index = fs::read(&real_index).expect("real Index");
+        let state_reader = DesktopCommitStateReader::new(
+            target,
+            git_cli::GitCliCommitStateProbe::new(git_cli::TokioProcessRunner, location.clone()),
+        );
+        let state = state_reader
+            .read(target, context.clone())
+            .await
+            .expect("state should be readable");
+        let request = git_domain::SelectionCommitRequest {
+            options: git_domain::CommitOptions {
+                message: b"prepared commit\n".to_vec(),
+                amend: false,
+                allow_empty: false,
+                signoff: false,
+                author: None,
+                committer: None,
+                signing: git_domain::SigningMode::Disable,
+            },
+            selections: vec![selection.clone()],
+            fingerprints: vec![git_domain::SelectionFingerprint {
+                expected_head: state.head,
+                expected_index: state.index,
+                diff_generation: git_domain::SnapshotRevision::new(1),
+                content_digest: vec![1; 32],
+            }],
+            expected_revision: git_domain::SnapshotRevision::new(1),
+        };
+        let service = SelectionCommitPreparationService::new(
+            git_cli::GitCliDiffReader::new(git_cli::TokioProcessRunner),
+            git_cli::GitCliTemporaryIndexManager::system(GitCliExecutor::new(
+                git_cli::TokioProcessRunner,
+            )),
+            git_cli::GitCliCandidateTreeBuilder::new(GitCliExecutor::new(
+                git_cli::TokioProcessRunner,
+            )),
+        );
+        let prepared = service
+            .prepare(
+                &location,
+                target,
+                operation,
+                DiffReadRequest {
+                    target,
+                    before: git_diff::ContentSource::Head,
+                    after: git_diff::ContentSource::Worktree,
+                    paths: vec![RepoPath::try_from("prepared.txt").expect("path")],
+                    context_lines: 3,
+                },
+                selection,
+                request,
+                state.head,
+                state.index,
+                Sha256::digest(&original_index).into(),
+                context,
+            )
+            .await
+            .expect("real Git preparation should succeed");
+
+        assert!(prepared.transaction.candidate_tree.is_some());
+        assert_eq!(fs::read(&real_index).expect("real Index"), original_index);
+        assert!(prepared.preview.temporary_index.path.exists());
+    }
+
     #[test]
     fn layout_storage_round_trips_and_replaces_previous_state() {
         let temporary = TempDir::new().expect("temporary directory should be created");

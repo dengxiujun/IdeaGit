@@ -15,6 +15,7 @@ git-application.workspace = true
 git-commit.workspace = true
 git-cli.workspace = true
 git-domain.workspace = true
+git-diff.workspace = true
 git-operations.workspace = true
 git-ports.workspace = true
 git-ui-model.workspace = true

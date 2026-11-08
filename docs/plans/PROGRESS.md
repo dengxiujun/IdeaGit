@@ -1056,3 +1056,13 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：该服务尚未接入桌面 GPUI 选区状态和生产组合根；真实提交仍必须经过 Preview 确认、Handler 和 OperationCoordinator。
 - 下一步：将准备服务接入应用组合根的真实 Git 适配器，继续保持未准备/过期选区 fail-closed。
+
+## M4 UI-013：真实 Git Selection Preparation 组合测试（2026-11-08）
+
+- 完成：在 `apps/desktop` 使用真实 `GitCliDiffReader`、`GitCliTemporaryIndexManager` 和 `GitCliCandidateTreeBuilder` 装配 `SelectionCommitPreparationService`，验证真实 Worktree diff 可生成 Candidate Tree 与 Prepared Transaction。
+- 安全证据：准备完成后真实 `.git/index` 字节与准备前完全一致；测试未执行 Commit 或真实 Index 发布。
+- 修改文件：`apps/desktop/src/main.rs`、`apps/desktop/Cargo.toml`、`Cargo.lock`、`docs/plans/PROGRESS.md`。新增 `git-diff` 为已存在 workspace 依赖的直接声明，未升级依赖版本。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过；真实准备专项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：真实准备链路已验证，但桌面 UI 仍未把用户选区触发到该服务并 arm Handler；生产入口继续关闭。
+- 下一步：继续接入 Changelist UI 选区到 Preview/Prepared Handler 的应用边界，不绕过身份确认。

@@ -1256,6 +1256,7 @@ dependencies = [
  "git-cli",
  "git-commit",
  "git-commit-ui",
+ "git-diff",
  "git-diff-ui",
  "git-domain",
  "git-fixture",
