@@ -2,6 +2,15 @@
 
 更新日期：2026-11-08。
 
+## M4 DIFF-007：Line Patch Builder（2026-11-08）
+
+- 分支：`feat/DIFF-007`；从 `main` 创建并按依赖带入 DIFF-003～006。
+- 完成：新增字节保持的 `build_line_patch`，按零起点半开 `LineSpan` 选择变更行，生成完整 unified Patch 头；拒绝空/越界/上下文-only/二进制选区，并保留 no-newline 标记。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；专项 10 个 Diff 测试通过。
+- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
+- 风险：当前构建器按选中变更行生成最小 Patch，复杂上下文重定位、Rename 与 Partial Commit 事务由后续任务验证。
+- 下一任务：CCD-001（Changelist Domain）。
+
 ## M4 DIFF-006：Safe Hunk Stage（2026-11-08）
 
 - 分支：`feat/DIFF-006`；从 `main` 创建并按依赖带入 DIFF-003/004/005。
