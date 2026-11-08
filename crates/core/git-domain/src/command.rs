@@ -247,7 +247,7 @@ impl InteractiveRebasePlan {
             entries,
         };
         plan.validate()
-            .map_err(|error| RebaseTodoValidationError::InvalidPlan(error))?;
+            .map_err(RebaseTodoValidationError::InvalidPlan)?;
         Ok(plan)
     }
 
