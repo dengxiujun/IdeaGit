@@ -874,3 +874,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：DiffReader 目前只支持三种工作树比较，Commit/Tree/ConflictStage 来源和完整 Diff Facade 仍待后续按 LLD 接入；UI-013 真实入口继续关闭。
 - 下一步：把 DiffReader、TemporaryIndexManager、CandidateTreeBuilder 和 Preview 服务接入真实 Candidate Tree 准备流程。
+
+## M4 UI-013：Candidate Tree Preview 装配（2026-11-08）
+
+- 完成：新增应用层 `CandidateTreePreviewService`，将已验证 Selection Patch Preview 绑定到 `TemporaryIndexManager` 和 `CandidateTreeBuilder`；Candidate Tree 预览持有 RAII Temporary Index Lease，失败或释放时不触碰真实 Index。
+- 测试：`git-application` 16 个测试通过，覆盖 Candidate Tree 成功准备、租约保持、跨 Session 拒绝；workspace `fmt/check/clippy/test/diff check` 全部通过；Git CLI 真实 Candidate Tree 测试继续通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：Candidate Tree Preview 尚未绑定 HEAD/Index 原始摘要和真实 `PartialCommitTransaction`；提交执行器和 OperationCoordinator 入口继续关闭。
+- 下一步：补齐 Candidate Tree Preview 的真实仓库组合测试，并接入 PartialCommitTransaction 的确认前置状态。
