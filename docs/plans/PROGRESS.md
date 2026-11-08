@@ -1360,3 +1360,10 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - CI：Rust CI #136（Run ID `42493272193`，提交 `cb6f8edc928e2327258bfbafb00265de3efb7ad2`）已成功；Format、Ubuntu 24.04、macOS 15、Windows 2022 全部通过。
 - 分支：已确认合并提交进入 `main`；本地 `feat/UI-015` 已删除，远程删除操作已完成。
 - 结论：UI-015 完成；下一任务为 `TEST-005`，必须从已验证的 `main` 按串行规则创建新分支。
+
+## M5 TEST-005：Recovery E2E（2026-11-08）
+
+- 完成：新增真实 Git 仓库恢复 E2E，启动冲突 Rebase 后重建 Sequencer Reader，验证 Rebase 类型和进度在“重启”后保持一致，再通过 Abort 安全清理并恢复工作区。
+- 安全边界：测试只在隔离 fixture 中执行，不在用户真实仓库使用 `reset --hard`；Abort 后验证 Sequencer 已 inactive 且原分支内容恢复。
+- 修改文件：`crates/adapters/git-cli/tests/m3_e2e.rs`、`docs/plans/PROGRESS.md`。
+- 验证：专项恢复 E2E 已通过；完整工作区门禁、PR、GitHub CI 和合并门禁尚未完成。

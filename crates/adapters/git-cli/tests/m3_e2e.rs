@@ -363,6 +363,70 @@ async fn rebase_abort_clears_conflict_without_claiming_success() {
 }
 
 #[tokio::test]
+async fn m5_test_005_recovery_survives_sequencer_reader_restart() {
+    let fixture = TestRepository::init().expect("fixture");
+    fixture
+        .configure_local_identity()
+        .expect("fixture identity");
+    git(&fixture.worktree, &["config", "core.autocrlf", "false"]);
+    fixture
+        .commit_file("recovery.txt", b"base\n")
+        .expect("base");
+
+    git(&fixture.worktree, &["checkout", "-b", "topic"]);
+    fs::write(fixture.worktree.join("recovery.txt"), b"topic\n").expect("topic edit");
+    git(&fixture.worktree, &["add", "--", "recovery.txt"]);
+    git(&fixture.worktree, &["commit", "-m", "topic"]);
+
+    git(&fixture.worktree, &["checkout", "main"]);
+    fs::write(fixture.worktree.join("recovery.txt"), b"main\n").expect("main edit");
+    git(&fixture.worktree, &["add", "--", "recovery.txt"]);
+    git(&fixture.worktree, &["commit", "-m", "main"]);
+    git(&fixture.worktree, &["checkout", "topic"]);
+
+    let rebase = Command::new("git")
+        .args([
+            "-C",
+            fixture.worktree.to_str().expect("utf8 path"),
+            "rebase",
+            "main",
+        ])
+        .output()
+        .expect("rebase should start");
+    assert!(!rebase.status.success(), "rebase should stop at conflict");
+
+    let repository_location = location(&fixture.worktree);
+    let before_restart = GitCliSequencerReader
+        .read(&repository_location, context())
+        .await
+        .expect("active rebase should be readable");
+    assert!(before_restart.active);
+    assert_eq!(before_restart.kind, git_domain::SequencerKind::Rebase);
+    assert!(before_restart.current.is_some());
+    assert!(before_restart.total.is_some());
+    // Reconstruct the reader as a new process/session would after restart.
+    let after_restart = GitCliSequencerReader
+        .read(&repository_location, context())
+        .await
+        .expect("restarted reader should recover rebase state");
+    assert_eq!(after_restart, before_restart);
+
+    GitCliSequencerWriter::new(TokioProcessRunner, repository_location)
+        .apply(target(), SequencerCommand::AbortRebase, context())
+        .await
+        .expect("abort after restart");
+    let final_state = GitCliSequencerReader
+        .read(&location(&fixture.worktree), context())
+        .await
+        .expect("final sequencer state");
+    assert!(!final_state.active);
+    assert_eq!(
+        fs::read(fixture.worktree.join("recovery.txt")).expect("restored topic file"),
+        b"topic\n"
+    );
+}
+
+#[tokio::test]
 async fn shelf_unshelve_applies_a_real_patch_after_preflight() {
     let fixture = TestRepository::init().expect("fixture");
     fixture.configure_local_identity().expect("identity");
