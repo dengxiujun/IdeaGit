@@ -1133,6 +1133,92 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn startup_recovery_diagnoses_commit_with_unreconciled_index_after_restart() {
+        use git_operations::CommitStateReader as _;
+
+        let repository =
+            git_fixture::TestRepository::init().expect("real Git fixture should initialize");
+        repository
+            .commit_file("tracked.txt", b"content\n")
+            .expect("fixture commit should succeed");
+        let location = git_ports::RepositoryLocation::worktree(
+            &repository.worktree,
+            repository.worktree.join(".git"),
+            repository.worktree.join(".git"),
+        );
+        let registry = git_application::RepositoryRegistry::new();
+        let handle = registry
+            .open(location.clone())
+            .expect("repository session should open");
+        let target = handle.target();
+        let reader = DesktopCommitStateReader::new(
+            target,
+            git_cli::GitCliCommitStateProbe::new(git_cli::TokioProcessRunner, location.clone()),
+        );
+        let (progress, _receiver) = tokio::sync::mpsc::channel(4);
+        let before = reader
+            .read(
+                target,
+                ExecutionContext::new(
+                    git_domain::OperationId::new(),
+                    tokio_util::sync::CancellationToken::new(),
+                    progress,
+                ),
+            )
+            .await
+            .expect("pre-commit state should be readable");
+        let old_head = before.head.expect("initial HEAD");
+        let old_index = before.index.expect("initial Index");
+
+        repository
+            .commit_file("external.txt", b"external\n")
+            .expect("external commit should succeed");
+        let committed_head: git_domain::ObjectId = repository
+            .head_oid()
+            .expect("HEAD should be readable")
+            .expect("external HEAD")
+            .parse()
+            .expect("valid external commit OID");
+        assert_ne!(old_head, committed_head);
+
+        let scope = location.recovery_scope().expect("recovery scope");
+        let mut record = git_domain::JournalRecord::intent(
+            git_domain::OperationId::new(),
+            git_domain::GitCommand::StageFiles {
+                target,
+                paths: vec![RepoPath::try_from("tracked.txt").expect("fixture path")],
+            },
+            scope,
+        );
+        record.expected_head = Some(old_head);
+        record.expected_index = Some(old_index);
+        record.observed_commit = Some(committed_head);
+        record.phase = git_domain::JournalPhase::ReconcilingIndex;
+        let temporary = TempDir::new().expect("journal directory");
+        let journal_path = temporary.path().join("journal.json");
+        persistence::JsonJournalStore::new(&journal_path)
+            .append(record)
+            .await
+            .expect("reconciliation Journal should persist");
+
+        let report = inspect_startup_recovery(
+            target,
+            &location,
+            Some(&journal_path),
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .expect("restart inspection should succeed");
+
+        assert_eq!(report.inspections.len(), 1);
+        assert_eq!(
+            report.inspections[0].disposition,
+            git_operations::RecoveryDisposition::CommittedNeedsReconcile
+        );
+        assert!(report.blocks_writes());
+    }
+
+    #[tokio::test]
     async fn startup_recovery_blocks_when_journal_is_missing_or_damaged() {
         let repository =
             git_fixture::TestRepository::init().expect("real Git fixture should initialize");
