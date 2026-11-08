@@ -1820,7 +1820,6 @@ mod tests {
         let writer = git_cli::GitCliTemporaryIndexCommitWriter::new(
             git_cli::TokioProcessRunner,
             location.clone(),
-            repository.temp_dir.path().join("selection-handler-index"),
         )
         .with_environment(repository.isolated_environment());
         let observer = git_cli::GitCliCommitSideEffectObserver::new(

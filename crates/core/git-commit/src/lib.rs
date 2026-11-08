@@ -13,9 +13,9 @@ use git_domain::{
     ObjectId, OperationId, RecoveryScope, SelectionCommitRequest,
 };
 use git_ports::{
-    CommitOutcome, CommitSideEffectObserver, CommitWriter, ExecutionContext,
-    IndexReconciliationOutcome, IndexReconciliationPublisher, IndexReconciliationRequest,
-    JournalStore,
+    CommitOutcome, CommitSideEffectObserver, ExecutionContext, IndexReconciliationOutcome,
+    IndexReconciliationPublisher, IndexReconciliationRequest, JournalStore, PartialCommitWriter,
+    TemporaryIndexLease,
 };
 
 /// Durable state of a partial-commit transaction. The states deliberately mirror the CCD
@@ -73,8 +73,12 @@ impl<W, J, O, P> PartialCommitCoordinator<W, J, O, P> {
     }
 }
 
-impl<W: CommitWriter, J: JournalStore, O: CommitSideEffectObserver, P: IndexReconciliationPublisher>
-    PartialCommitCoordinator<W, J, O, P>
+impl<
+    W: PartialCommitWriter,
+    J: JournalStore,
+    O: CommitSideEffectObserver,
+    P: IndexReconciliationPublisher,
+> PartialCommitCoordinator<W, J, O, P>
 {
     #[allow(clippy::result_large_err)]
     pub async fn commit(
@@ -82,6 +86,7 @@ impl<W: CommitWriter, J: JournalStore, O: CommitSideEffectObserver, P: IndexReco
         target: git_domain::SessionTarget,
         operation: OperationId,
         transaction: &mut PartialCommitTransaction,
+        temporary_index: &TemporaryIndexLease,
         context: ExecutionContext,
     ) -> GitResult<CommitOutcome> {
         let mut record = self.journal.record_intent(operation, transaction).await?;
@@ -91,7 +96,13 @@ impl<W: CommitWriter, J: JournalStore, O: CommitSideEffectObserver, P: IndexReco
         self.journal.store.replace(record.clone()).await?;
         match self
             .writer
-            .commit(target, transaction.standard_request()?, context.clone())
+            .commit(
+                target,
+                operation,
+                transaction.standard_request()?,
+                temporary_index,
+                context.clone(),
+            )
             .await
         {
             Ok(outcome) => {
@@ -513,11 +524,13 @@ mod tests {
     struct TestWriter;
 
     #[async_trait]
-    impl CommitWriter for TestWriter {
+    impl PartialCommitWriter for TestWriter {
         async fn commit(
             &self,
             _target: SessionTarget,
+            _operation: OperationId,
             _request: git_domain::StandardCommitRequest,
+            _temporary_index: &TemporaryIndexLease,
             _context: ExecutionContext,
         ) -> GitResult<CommitOutcome> {
             Ok(CommitOutcome {
@@ -616,9 +629,16 @@ mod tests {
         }
     }
 
-    fn test_context() -> ExecutionContext {
+    fn test_context(operation: OperationId) -> ExecutionContext {
         let (progress, _receiver) = tokio::sync::mpsc::channel::<ProcessProgress>(4);
-        ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress)
+        ExecutionContext::new(operation, CancellationToken::new(), progress)
+    }
+
+    fn test_temporary_index(operation: OperationId) -> TemporaryIndexLease {
+        TemporaryIndexLease {
+            path: std::path::PathBuf::from("/tmp/ideagit-partial-commit-test-index"),
+            transaction_id: operation,
+        }
     }
 
     #[tokio::test]
@@ -647,8 +667,16 @@ mod tests {
             .expect("revalidation");
         let target = transaction.request.selections[0].target();
 
+        let operation = OperationId::new();
+        let temporary_index = test_temporary_index(operation);
         let error = coordinator
-            .commit(target, OperationId::new(), &mut transaction, test_context())
+            .commit(
+                target,
+                operation,
+                &mut transaction,
+                &temporary_index,
+                test_context(operation),
+            )
             .await
             .expect_err("side effects must not report success");
 
@@ -695,8 +723,16 @@ mod tests {
             .revalidate_before_commit(None, None)
             .expect("revalidation");
         let target = transaction.request.selections[0].target();
+        let operation = OperationId::new();
+        let temporary_index = test_temporary_index(operation);
         let outcome = coordinator
-            .commit(target, OperationId::new(), &mut transaction, test_context())
+            .commit(
+                target,
+                operation,
+                &mut transaction,
+                &temporary_index,
+                test_context(operation),
+            )
             .await
             .expect("reconciled commit");
 
@@ -744,8 +780,16 @@ mod tests {
             .expect("revalidation");
         let target = transaction.request.selections[0].target();
 
+        let operation = OperationId::new();
+        let temporary_index = test_temporary_index(operation);
         let error = coordinator
-            .commit(target, OperationId::new(), &mut transaction, test_context())
+            .commit(
+                target,
+                operation,
+                &mut transaction,
+                &temporary_index,
+                test_context(operation),
+            )
             .await
             .expect_err("publication failure must require recovery");
 

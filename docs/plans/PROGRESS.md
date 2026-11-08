@@ -1112,3 +1112,13 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 测试：git-application 22 项专项测试通过；workspace 门禁待本次提交前执行。
 - 风险：动态 Temporary Index writer ADR 仍待批准，UI-013 生产入口继续关闭。
 - 下一步：等待 ADR-M4-DYNAMIC-TEMP-INDEX-WRITER-001 批准后继续实现；在此之前保持核心写端口不变。
+
+## M4 UI-013：动态 Temporary Index Writer（2026-11-08）
+
+- 完成：落实已批准的 ADR-M4-DYNAMIC-TEMP-INDEX-WRITER-001 方案一，新增 `PartialCommitWriter` 专用端口；每次提交显式传递 Preview 的 `TemporaryIndexLease` 与 Preview Operation ID，普通 M2 `CommitWriter` 保持不变。
+- 安全证据：Git CLI 写适配器拒绝跨 Preview Operation Lease、真实 `.git/index` 和已释放路径；真实 Git 测试验证动态临时 Index 提交不改变真实 Index，桌面 `OperationCoordinator` 组合测试验证 Preview ID 与确认执行 ID 分离时仍使用正确 Candidate Index。
+- 修改文件：`crates/core/git-ports/src/commit.rs`、`crates/core/git-ports/src/lib.rs`、`crates/core/git-commit/src/lib.rs`、`crates/core/git-application/src/selection_commit.rs`、`crates/adapters/git-cli/src/commit.rs`、`apps/desktop/src/main.rs`、`docs/architecture/adr/ADR-M4-DYNAMIC-TEMP-INDEX-WRITER-001.md`、`docs/architecture/LLD-CCD-001.md`、`docs/plans/IP-001-development-plan.md`、`docs/plans/PROGRESS.md`。
+- Commit：待本次门禁通过后生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 测试：专项 `git-cli` 动态 Lease/真实 Index/Hook/未选择内容、`git-commit`、`git-application` 和桌面真实 Coordinator 组合测试均通过；workspace 全量门禁待本次提交前执行。
+- 风险：生产 GPUI ActionDispatcher 尚未开放 Selection Commit 入口；并发双 Preview 的真实仓库组合仍需在 UI-013/TEST-004 最终审计中核验，当前写端口已具备逐调用 Lease 隔离。
+- 下一步：继续 UI-013 生产 Preview Session 生命周期与 ActionDispatcher 装配，不提前开放未满足门禁的真实入口。

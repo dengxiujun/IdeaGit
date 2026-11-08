@@ -26,7 +26,7 @@ mod version;
 pub use branch::BranchWriter;
 pub use candidate_tree::{CandidateTreeBuilder, CandidateTreeRequest};
 pub use clone::{CloneRequest, CloneWriter};
-pub use commit::{CommitOutcome, CommitWriter};
+pub use commit::{CommitOutcome, CommitWriter, PartialCommitWriter};
 pub use conflict::ConflictStageReader;
 pub use credential::{
     CredentialBroker, CredentialError, CredentialKind, CredentialRequest, CredentialResponse,

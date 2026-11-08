@@ -7,9 +7,9 @@ use git_domain::{
 };
 use git_operations::SelectionCommitHandler;
 use git_ports::{
-    CandidateTreeBuilder, CommitOutcome, CommitSideEffectObserver, CommitWriter, DiffReader,
-    ExecutionContext, IndexReconciliationPublisher, JournalStore, RepositoryLocation,
-    TemporaryIndexManager,
+    CandidateTreeBuilder, CommitOutcome, CommitSideEffectObserver, DiffReader, ExecutionContext,
+    IndexReconciliationPublisher, JournalStore, PartialCommitWriter, RepositoryLocation,
+    TemporaryIndexLease, TemporaryIndexManager,
 };
 use tokio::sync::Mutex;
 
@@ -27,6 +27,7 @@ pub trait ConfirmedPartialCommitRunner: Send + Sync {
         target: SessionTarget,
         operation: OperationId,
         transaction: &mut PartialCommitTransaction,
+        temporary_index: &TemporaryIndexLease,
         context: ExecutionContext,
     ) -> GitResult<CommitOutcome>;
 }
@@ -34,7 +35,7 @@ pub trait ConfirmedPartialCommitRunner: Send + Sync {
 #[async_trait]
 impl<W, J, O, P> ConfirmedPartialCommitRunner for PartialCommitCoordinator<W, J, O, P>
 where
-    W: CommitWriter + Send + Sync,
+    W: PartialCommitWriter + Send + Sync,
     J: JournalStore + Send + Sync,
     O: CommitSideEffectObserver + Send + Sync,
     P: IndexReconciliationPublisher + Send + Sync,
@@ -44,9 +45,18 @@ where
         target: SessionTarget,
         operation: OperationId,
         transaction: &mut PartialCommitTransaction,
+        temporary_index: &TemporaryIndexLease,
         context: ExecutionContext,
     ) -> GitResult<CommitOutcome> {
-        PartialCommitCoordinator::commit(self, target, operation, transaction, context).await
+        PartialCommitCoordinator::commit(
+            self,
+            target,
+            operation,
+            transaction,
+            temporary_index,
+            context,
+        )
+        .await
     }
 }
 
@@ -77,7 +87,6 @@ impl<R: ConfirmedPartialCommitRunner> SelectionCommitExecutionService<R> {
     #[allow(clippy::result_large_err)]
     pub async fn execute(
         &self,
-        operation: OperationId,
         prepared: &mut PreparedPartialCommit,
         head: Option<ObjectId>,
         index: Option<ObjectId>,
@@ -87,8 +96,9 @@ impl<R: ConfirmedPartialCommitRunner> SelectionCommitExecutionService<R> {
         self.runner
             .commit(
                 prepared.preview.target,
-                operation,
+                prepared.preview.operation_id,
                 &mut prepared.transaction,
+                &prepared.preview.temporary_index,
                 context,
             )
             .await
@@ -226,7 +236,7 @@ where
         };
         let (head, index) = self.state.read(target, context.clone()).await?;
         self.service
-            .execute(context.operation_id, &mut prepared, head, index, context)
+            .execute(&mut prepared, head, index, context)
             .await
             .map(|_| ())
     }
@@ -268,6 +278,7 @@ mod tests {
             _target: SessionTarget,
             _operation: OperationId,
             _transaction: &mut PartialCommitTransaction,
+            _temporary_index: &TemporaryIndexLease,
             _context: ExecutionContext,
         ) -> GitResult<CommitOutcome> {
             *self.calls.lock().expect("calls lock") += 1;
@@ -343,7 +354,6 @@ mod tests {
         let (progress, _receiver) = mpsc::channel(1);
         let error = service
             .execute(
-                OperationId::new(),
                 &mut prepared,
                 Some(
                     "2222222222222222222222222222222222222222"
@@ -417,6 +427,7 @@ mod tests {
             _target: SessionTarget,
             _operation: OperationId,
             transaction: &mut PartialCommitTransaction,
+            _temporary_index: &TemporaryIndexLease,
             _context: ExecutionContext,
         ) -> GitResult<CommitOutcome> {
             transaction.phase = git_commit::PartialCommitPhase::RecoveryRequired;

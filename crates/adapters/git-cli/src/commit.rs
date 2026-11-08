@@ -4,11 +4,13 @@ use std::{ffi::OsString, path::PathBuf, str::FromStr};
 
 use async_trait::async_trait;
 use git_domain::{
-    GitError, GitErrorKind, GitResult, ObjectId, SessionTarget, SigningMode, StandardCommitRequest,
+    GitError, GitErrorKind, GitResult, ObjectId, OperationId, SessionTarget, SigningMode,
+    StandardCommitRequest,
 };
 use git_ports::{
     CommitOutcome, CommitSideEffectObserver, CommitSideEffectSnapshot, CommitWriter,
-    EnvironmentVariable, ExecutionContext, ProcessRunner, ProcessStdin, RepositoryLocation,
+    EnvironmentVariable, ExecutionContext, PartialCommitWriter, ProcessRunner, ProcessStdin,
+    RepositoryLocation, TemporaryIndexLease,
 };
 use sha2::{Digest, Sha256};
 
@@ -98,9 +100,9 @@ pub struct GitCliCommitWriter<R> {
     environment: Vec<EnvironmentVariable>,
 }
 
-/// Commit writer explicitly bound to a temporary Index. It never changes the repository's
-/// real `.git/index`; Git hooks still run under Git's normal semantics and are therefore observed
-/// by the caller as possible external side effects.
+/// Commit writer bound to the Preview's temporary Index for each invocation. It never selects the
+/// repository's real `.git/index`; Git hooks still run under Git's normal semantics and are
+/// therefore observed by the caller as possible external side effects.
 #[derive(Debug)]
 pub struct GitCliTemporaryIndexCommitWriter<R> {
     inner: GitCliCommitWriter<R>,
@@ -220,10 +222,9 @@ impl<R: ProcessRunner> GitCliCommitSideEffectObserver<R> {
 
 impl<R> GitCliTemporaryIndexCommitWriter<R> {
     #[must_use]
-    pub fn new(runner: R, location: RepositoryLocation, index: impl Into<OsString>) -> Self {
+    pub fn new(runner: R, location: RepositoryLocation) -> Self {
         Self {
-            inner: GitCliCommitWriter::new(runner, location)
-                .with_environment([(OsString::from("GIT_INDEX_FILE"), index.into())]),
+            inner: GitCliCommitWriter::new(runner, location),
         }
     }
 
@@ -242,14 +243,50 @@ impl<R> GitCliTemporaryIndexCommitWriter<R> {
 }
 
 #[async_trait]
-impl<R: ProcessRunner> CommitWriter for GitCliTemporaryIndexCommitWriter<R> {
+impl<R: ProcessRunner> PartialCommitWriter for GitCliTemporaryIndexCommitWriter<R> {
     async fn commit(
         &self,
         target: SessionTarget,
+        operation: OperationId,
         request: StandardCommitRequest,
+        temporary_index: &TemporaryIndexLease,
         context: ExecutionContext,
     ) -> GitResult<CommitOutcome> {
-        self.inner.commit(target, request, context).await
+        if temporary_index.transaction_id != operation {
+            return Err(GitError::new(
+                GitErrorKind::StaleSelection,
+                "temporary Index belongs to another operation",
+            )
+            .with_target(target)
+            .with_operation(context.operation_id));
+        }
+        if temporary_index.path == self.inner.location.git_dir().join("index") {
+            return Err(GitError::new(
+                GitErrorKind::InvalidRepository,
+                "partial commit cannot use the real repository Index",
+            )
+            .with_target(target)
+            .with_operation(context.operation_id));
+        }
+        if !temporary_index.path.is_file() {
+            return Err(GitError::new(
+                GitErrorKind::StaleSelection,
+                "temporary Index is no longer available",
+            )
+            .with_target(target)
+            .with_operation(context.operation_id));
+        }
+        self.inner
+            .commit_with_environment(
+                target,
+                request,
+                [EnvironmentVariable::public(
+                    "GIT_INDEX_FILE",
+                    temporary_index.path.clone().into_os_string(),
+                )],
+                context,
+            )
+            .await
     }
 }
 
@@ -285,6 +322,20 @@ impl<R: ProcessRunner> CommitWriter for GitCliCommitWriter<R> {
         request: StandardCommitRequest,
         context: ExecutionContext,
     ) -> GitResult<CommitOutcome> {
+        self.commit_with_environment(_target, request, [], context)
+            .await
+    }
+}
+
+impl<R: ProcessRunner> GitCliCommitWriter<R> {
+    #[allow(clippy::result_large_err)]
+    async fn commit_with_environment(
+        &self,
+        _target: SessionTarget,
+        request: StandardCommitRequest,
+        environment: impl IntoIterator<Item = EnvironmentVariable>,
+        context: ExecutionContext,
+    ) -> GitResult<CommitOutcome> {
         let signing = request.options.signing;
         let cwd = self
             .location
@@ -296,13 +347,15 @@ impl<R: ProcessRunner> CommitWriter for GitCliCommitWriter<R> {
                 )
             })?
             .to_path_buf();
+        let mut command_environment = self.environment.clone();
+        command_environment.extend(environment);
         let output = self
             .executor
             .execute(
                 CommitCommand {
                     cwd: cwd.clone(),
                     request,
-                    environment: self.environment.clone(),
+                    environment: command_environment,
                 },
                 context.clone(),
             )
@@ -515,7 +568,7 @@ mod tests {
     use git_ports::{
         CandidateTreeBuilder, CandidateTreeRequest, ExecutionContext, IndexReconciliationOutcome,
         IndexReconciliationPublisher, IndexReconciliationRequest, JournalStore,
-        PendingJournalRecords,
+        PendingJournalRecords, TemporaryIndexLease,
     };
     #[cfg(unix)]
     use std::os::unix::ffi::OsStrExt;
@@ -576,6 +629,18 @@ mod tests {
     fn test_context() -> ExecutionContext {
         let (progress, _receiver) = mpsc::channel(4);
         ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress)
+    }
+
+    fn partial_context(operation: OperationId) -> ExecutionContext {
+        let (progress, _receiver) = mpsc::channel(4);
+        ExecutionContext::new(operation, CancellationToken::new(), progress)
+    }
+
+    fn temporary_lease(path: &std::path::Path, operation: OperationId) -> TemporaryIndexLease {
+        TemporaryIndexLease {
+            path: path.to_path_buf(),
+            transaction_id: operation,
+        }
     }
 
     #[tokio::test]
@@ -710,13 +775,14 @@ mod tests {
             fixture.worktree.join(".git"),
             fixture.worktree.join(".git"),
         );
-        let writer =
-            GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location, &temporary_index)
-                .with_environment(fixture.isolated_environment());
-        let (progress, _receiver) = mpsc::channel(4);
+        let writer = GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location)
+            .with_environment(fixture.isolated_environment());
+        let operation = OperationId::new();
+        let lease = temporary_lease(&temporary_index, operation);
         let outcome = writer
             .commit(
                 SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                operation,
                 StandardCommitRequest {
                     options: CommitOptions {
                         message: b"temporary commit\n".to_vec(),
@@ -731,12 +797,65 @@ mod tests {
                     expected_head: None,
                     expected_index: None,
                 },
-                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+                &lease,
+                partial_context(operation),
             )
             .await
             .expect("temporary commit should succeed");
         assert!(!outcome.commit.to_string().is_empty());
         assert_eq!(fs::read(&real_index).expect("real index"), before);
+    }
+
+    #[tokio::test]
+    async fn temporary_index_commit_rejects_a_lease_from_another_operation() {
+        let fixture = TestRepository::init().expect("fixture");
+        fixture
+            .commit_file("file.txt", b"one\n")
+            .expect("initial commit");
+        let real_index = fixture.worktree.join(".git/index");
+        let before = fs::read(&real_index).expect("real index");
+        let head_before = fixture.head_oid().expect("HEAD");
+        let temporary_index = fixture.temp_dir.path().join("candidate-index");
+        fs::copy(&real_index, &temporary_index).expect("temporary Index");
+        let location = RepositoryLocation::worktree(
+            &fixture.worktree,
+            fixture.worktree.join(".git"),
+            fixture.worktree.join(".git"),
+        );
+        let writer = GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location)
+            .with_environment(fixture.isolated_environment());
+        let lease_operation = OperationId::new();
+        let context_operation = OperationId::new();
+        let lease = temporary_lease(&temporary_index, lease_operation);
+
+        let error = writer
+            .commit(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                context_operation,
+                StandardCommitRequest {
+                    options: CommitOptions {
+                        message: b"must not commit\n".to_vec(),
+                        amend: false,
+                        allow_empty: false,
+                        signoff: false,
+                        author: None,
+                        committer: None,
+                        signing: SigningMode::Disable,
+                    },
+                    expected_revision: SnapshotRevision::new(1),
+                    expected_head: None,
+                    expected_index: None,
+                },
+                &lease,
+                partial_context(context_operation),
+            )
+            .await
+            .expect_err("another operation's temporary Index must be rejected");
+
+        assert_eq!(error.kind, GitErrorKind::StaleSelection);
+        assert_eq!(error.operation_id, Some(context_operation));
+        assert_eq!(fs::read(&real_index).expect("real index"), before);
+        assert_eq!(fixture.head_oid().expect("HEAD"), head_before);
     }
 
     #[tokio::test]
@@ -823,13 +942,14 @@ mod tests {
             fixture.worktree.join(".git"),
             fixture.worktree.join(".git"),
         );
-        let writer =
-            GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location, &temporary_index)
-                .with_environment(fixture.isolated_environment());
-        let (progress, _receiver) = mpsc::channel(4);
+        let writer = GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location)
+            .with_environment(fixture.isolated_environment());
+        let operation = OperationId::new();
+        let lease = temporary_lease(&temporary_index, operation);
         writer
             .commit(
                 SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                operation,
                 StandardCommitRequest {
                     options: CommitOptions {
                         message: b"partial selected commit\n".to_vec(),
@@ -844,7 +964,8 @@ mod tests {
                     expected_head: None,
                     expected_index: None,
                 },
-                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+                &lease,
+                partial_context(operation),
             )
             .await
             .expect("partial commit");
@@ -918,12 +1039,14 @@ mod tests {
             fixture.worktree.join(".git"),
             fixture.worktree.join(".git"),
         );
-        let writer =
-            GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location, &temporary_index)
-                .with_environment(fixture.isolated_environment());
+        let writer = GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location)
+            .with_environment(fixture.isolated_environment());
+        let operation = OperationId::new();
+        let lease = temporary_lease(&temporary_index, operation);
         writer
             .commit(
                 SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                operation,
                 StandardCommitRequest {
                     options: CommitOptions {
                         message: b"mixed staged and unstaged\n".to_vec(),
@@ -938,7 +1061,8 @@ mod tests {
                     expected_head: None,
                     expected_index: None,
                 },
-                test_context(),
+                &lease,
+                partial_context(operation),
             )
             .await
             .expect("temporary partial commit");
@@ -1032,13 +1156,14 @@ mod tests {
             add_rename.env(name, value);
         }
         assert!(add_rename.status().expect("git starts").success());
-        let writer =
-            GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location, &temporary_index)
-                .with_environment(fixture.isolated_environment());
-        let (progress, _receiver) = mpsc::channel(4);
+        let writer = GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location)
+            .with_environment(fixture.isolated_environment());
+        let operation = OperationId::new();
+        let lease = temporary_lease(&temporary_index, operation);
         writer
             .commit(
                 SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                operation,
                 StandardCommitRequest {
                     options: CommitOptions {
                         message: b"partial rename\n".to_vec(),
@@ -1053,7 +1178,8 @@ mod tests {
                     expected_head: None,
                     expected_index: None,
                 },
-                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+                &lease,
+                partial_context(operation),
             )
             .await
             .expect("partial rename commit");
@@ -1138,10 +1264,10 @@ mod tests {
             fixture.worktree.join(".git"),
             fixture.worktree.join(".git"),
         );
-        let writer =
-            GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location, &temporary_index)
-                .with_environment(fixture.isolated_environment());
-        let (progress, _receiver) = mpsc::channel(4);
+        let writer = GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location)
+            .with_environment(fixture.isolated_environment());
+        let operation = OperationId::new();
+        let lease = temporary_lease(&temporary_index, operation);
         writer
             .commit(
                 SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
@@ -1159,7 +1285,8 @@ mod tests {
                     expected_head: None,
                     expected_index: None,
                 },
-                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+                &lease,
+                partial_context(operation),
             )
             .await
             .expect("non-UTF-8 path commit");
@@ -1216,13 +1343,14 @@ mod tests {
             fixture.worktree.join(".git"),
             fixture.worktree.join(".git"),
         );
-        let writer =
-            GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location, &temporary_index)
-                .with_environment(fixture.isolated_environment());
-        let (progress, _receiver) = mpsc::channel(4);
+        let writer = GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location)
+            .with_environment(fixture.isolated_environment());
+        let operation = OperationId::new();
+        let lease = temporary_lease(&temporary_index, operation);
         writer
             .commit(
                 SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                operation,
                 StandardCommitRequest {
                     options: CommitOptions {
                         message: b"partial line\n".to_vec(),
@@ -1237,7 +1365,8 @@ mod tests {
                     expected_head: None,
                     expected_index: None,
                 },
-                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+                &lease,
+                partial_context(operation),
             )
             .await
             .expect("partial line commit");
@@ -1290,13 +1419,14 @@ mod tests {
             fixture.worktree.join(".git"),
             fixture.worktree.join(".git"),
         );
-        let writer =
-            GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location, &temporary_index)
-                .with_environment(fixture.isolated_environment());
-        let (progress, _receiver) = mpsc::channel(4);
+        let writer = GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location)
+            .with_environment(fixture.isolated_environment());
+        let operation = OperationId::new();
+        let lease = temporary_lease(&temporary_index, operation);
         let result = writer
             .commit(
                 SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                operation,
                 StandardCommitRequest {
                     options: CommitOptions {
                         message: b"rejected partial commit\n".to_vec(),
@@ -1311,7 +1441,8 @@ mod tests {
                     expected_head: None,
                     expected_index: None,
                 },
-                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+                &lease,
+                partial_context(operation),
             )
             .await;
 
@@ -1376,12 +1507,14 @@ mod tests {
             )
             .await
             .expect("capture before commit");
-        let writer =
-            GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location, &temporary_index)
-                .with_environment(fixture.isolated_environment());
+        let writer = GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location)
+            .with_environment(fixture.isolated_environment());
+        let operation = OperationId::new();
+        let lease = temporary_lease(&temporary_index, operation);
         writer
             .commit(
                 SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                operation,
                 StandardCommitRequest {
                     options: CommitOptions {
                         message: b"hook mutation\n".to_vec(),
@@ -1396,7 +1529,8 @@ mod tests {
                     expected_head: None,
                     expected_index: None,
                 },
-                test_context(),
+                &lease,
+                partial_context(operation),
             )
             .await
             .expect("commit succeeds before side-effect reconciliation");
@@ -1522,12 +1656,8 @@ mod tests {
             )
             .expect("scope"),
         );
-        let writer = GitCliTemporaryIndexCommitWriter::new(
-            TokioProcessRunner,
-            location.clone(),
-            &temporary_index,
-        )
-        .with_environment(fixture.isolated_environment());
+        let writer = GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location.clone())
+            .with_environment(fixture.isolated_environment());
         let observer = GitCliCommitSideEffectObserver::new(TokioProcessRunner, location.clone());
         let publisher = ExternalIndexMutationPublisher {
             fixture: fixture.worktree.join(".git"),
@@ -1540,8 +1670,16 @@ mod tests {
             publisher,
         );
         let index_before_external_write = fs::read(&real_index).expect("real index");
+        let operation = OperationId::new();
+        let lease = temporary_lease(&temporary_index, operation);
         let error = coordinator
-            .commit(target, OperationId::new(), &mut transaction, test_context())
+            .commit(
+                target,
+                operation,
+                &mut transaction,
+                &lease,
+                partial_context(operation),
+            )
             .await
             .expect_err("external Index mutation must require recovery");
         assert_eq!(error.kind, GitErrorKind::IndexChangedExternally);

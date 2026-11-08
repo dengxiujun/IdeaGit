@@ -1,6 +1,6 @@
 # ADR-M4-DYNAMIC-TEMP-INDEX-WRITER-001：Partial Commit 动态 Temporary Index 传递
 
-- 状态：Draft
+- 状态：Accepted
 - 日期：2026-11-08
 - 范围：M4 UI-013 / CCD-006 / CCD-007
 
@@ -46,6 +46,8 @@ M4 的 Partial Commit Preview 会为每个 `OperationId` 创建独立的 Tempora
 
 推荐方案一：新增 Partial Commit 专用写端口或显式请求，携带已验证的 `TemporaryIndexLease`，并要求 `transaction_id == operation_id`。普通 M2 CommitWriter 不改变。这样可以在类型边界上证明 Partial Commit 使用的是 Preview 的动态 Temporary Index，且不会静默回退到真实 Index。
 
+其中 `operation_id` 指 Preview/Prepared Transaction 的身份；确认命令由 `OperationCoordinator` 分配的执行 ID 是独立身份，继续用于取消、进度和错误归属，不得拿它替代 Preview 身份进行 Lease 校验。
+
 ## 影响范围
 
 - `crates/core/git-ports`：新增或调整 Partial Commit 写端口/请求。
@@ -66,4 +68,4 @@ M4 的 Partial Commit Preview 会为每个 `OperationId` 创建独立的 Tempora
 
 ## 批准记录
 
-待项目负责人批准后实施推荐方案。
+项目负责人于 2026-11-08 批准推荐方案一。
