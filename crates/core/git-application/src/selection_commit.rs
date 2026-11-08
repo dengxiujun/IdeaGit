@@ -1,0 +1,171 @@
+//! Application boundary for executing a confirmed Partial Commit transaction.
+
+use async_trait::async_trait;
+use git_commit::PartialCommitTransaction;
+use git_domain::{GitResult, ObjectId, OperationId, SessionTarget};
+use git_ports::{CommitOutcome, ExecutionContext};
+
+use crate::PreparedPartialCommit;
+
+/// Port used by the application layer to hand an already confirmed transaction to Git writers.
+///
+/// Implementations are expected to be composed behind `OperationCoordinator`; this boundary
+/// deliberately does not accept a plain `SelectionCommitRequest`, which would lose the prepared
+/// Candidate Tree and Index identity.
+#[async_trait]
+pub trait ConfirmedPartialCommitRunner: Send + Sync {
+    async fn commit(
+        &self,
+        target: SessionTarget,
+        operation: OperationId,
+        transaction: &mut PartialCommitTransaction,
+        context: ExecutionContext,
+    ) -> GitResult<CommitOutcome>;
+}
+
+/// Confirms a prepared Partial Commit immediately before dispatching it to the write boundary.
+#[derive(Debug)]
+pub struct SelectionCommitExecutionService<R> {
+    runner: R,
+}
+
+impl<R> SelectionCommitExecutionService<R> {
+    #[must_use]
+    pub fn new(runner: R) -> Self {
+        Self { runner }
+    }
+}
+
+impl<R: ConfirmedPartialCommitRunner> SelectionCommitExecutionService<R> {
+    #[allow(clippy::result_large_err)]
+    pub async fn execute(
+        &self,
+        prepared: &mut PreparedPartialCommit,
+        head: Option<ObjectId>,
+        index: Option<ObjectId>,
+        context: ExecutionContext,
+    ) -> GitResult<CommitOutcome> {
+        prepared.transaction.revalidate_before_commit(head, index)?;
+        self.runner
+            .commit(
+                prepared.preview.target,
+                prepared.preview.operation_id,
+                &mut prepared.transaction,
+                context,
+            )
+            .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use git_domain::{ChangeSelection, FileIdentity, FileKind, RepoPath, SnapshotRevision};
+    use git_ports::TemporaryIndexLease;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+    use tokio::sync::mpsc;
+    use tokio_util::sync::CancellationToken;
+
+    #[derive(Debug, Clone)]
+    struct Runner {
+        calls: Arc<Mutex<u32>>,
+    }
+
+    #[async_trait]
+    impl ConfirmedPartialCommitRunner for Runner {
+        async fn commit(
+            &self,
+            _target: SessionTarget,
+            _operation: OperationId,
+            _transaction: &mut PartialCommitTransaction,
+            _context: ExecutionContext,
+        ) -> GitResult<CommitOutcome> {
+            *self.calls.lock().expect("calls lock") += 1;
+            Err(git_domain::GitError::new(
+                git_domain::GitErrorKind::Internal,
+                "test runner should not be called",
+            ))
+        }
+    }
+
+    fn prepared() -> PreparedPartialCommit {
+        let target = SessionTarget::worktree(
+            git_domain::RepositoryId::new(),
+            git_domain::WorktreeId::new(),
+            1,
+        );
+        let file = FileIdentity {
+            target,
+            path: RepoPath::try_from("file.txt").expect("path"),
+            previous_path: None,
+            kind: FileKind::Regular,
+        };
+        let selection = ChangeSelection::WholeFile { file };
+        let request = git_domain::SelectionCommitRequest {
+            options: git_domain::CommitOptions {
+                message: b"test\n".to_vec(),
+                amend: false,
+                allow_empty: false,
+                signoff: false,
+                author: None,
+                committer: None,
+                signing: git_domain::SigningMode::Disable,
+            },
+            selections: vec![selection.clone()],
+            fingerprints: vec![git_domain::SelectionFingerprint {
+                expected_head: None,
+                expected_index: None,
+                diff_generation: SnapshotRevision::new(1),
+                content_digest: vec![1; 32],
+            }],
+            expected_revision: SnapshotRevision::new(1),
+        };
+        PreparedPartialCommit {
+            preview: crate::CandidateTreePreview {
+                target,
+                operation_id: OperationId::new(),
+                candidate_tree: "1111111111111111111111111111111111111111"
+                    .parse()
+                    .expect("tree"),
+                patch: crate::SelectionPatchPreview {
+                    target,
+                    generation: SnapshotRevision::new(1),
+                    selection,
+                    patch: Vec::new(),
+                    selection_digest: [1; 32],
+                },
+                temporary_index: TemporaryIndexLease {
+                    path: PathBuf::from("/tmp/ideagit-test-index"),
+                    transaction_id: OperationId::new(),
+                },
+            },
+            transaction: PartialCommitTransaction::begin(request).expect("transaction"),
+        }
+    }
+
+    #[tokio::test]
+    async fn stale_confirmation_never_reaches_the_commit_runner() {
+        let calls = Arc::new(Mutex::new(0));
+        let service = SelectionCommitExecutionService::new(Runner {
+            calls: Arc::clone(&calls),
+        });
+        let mut prepared = prepared();
+        let (progress, _receiver) = mpsc::channel(1);
+        let error = service
+            .execute(
+                &mut prepared,
+                Some(
+                    "2222222222222222222222222222222222222222"
+                        .parse()
+                        .expect("head"),
+                ),
+                None,
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect_err("unprepared transaction must be rejected");
+        assert_eq!(error.kind, git_domain::GitErrorKind::Internal);
+        assert_eq!(*calls.lock().expect("calls lock"), 0);
+    }
+}

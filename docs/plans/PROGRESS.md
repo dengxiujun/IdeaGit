@@ -964,3 +964,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 测试基线：workspace `fmt/check/clippy/test/diff check` 已通过；Git CLI 78 项、git-changelist 6 项、git-commit 15 项测试通过。
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 下一步：推进 UI-013 的应用层已确认 Selection Commit 执行边界，不降级为 `CommitIndex`。
+
+## M4 UI-013：已确认 Selection Commit 执行边界（2026-11-08）
+
+- 完成：新增应用层 `ConfirmedPartialCommitRunner` 与 `SelectionCommitExecutionService`；执行前只接受 `PreparedPartialCommit`，重新校验 HEAD/Index 身份后才向底层提交端口派发。
+- 安全边界：过期或未准备事务在应用层拒绝，Runner 不会被调用；服务不接收裸 `SelectionCommitRequest`，避免丢失 Candidate Tree、临时 Index 和身份绑定；未降级为 `CommitIndex`。
+- 测试：新增 stale/unprepared confirmation 测试，确认写端口调用次数为零；workspace `fmt/check/clippy/test/diff check` 全部通过；Git CLI 78 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：尚未将该应用服务装配进 `OperationCoordinator`，UI-013 真实入口仍关闭；需要继续实现 OperationExecutor 组合和真实成功路径集成测试。
+- 下一步：实现受 OperationCoordinator 调度的 Selection Commit executor 组合点。
