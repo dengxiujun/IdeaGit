@@ -620,3 +620,7 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 已验证解决后的内容落盘且 Merge Continue 成功；认证失败、外部竞争、崩溃恢复与网络异常专项证据仍需补齐，M3 §6.7 尚未关闭。
 - 追加 Clone 网络失败与冲突期间工作区外部修改拒绝测试，确认失败时不覆盖外部内容；认证失败、崩溃恢复的端到端证据仍需补齐。
 - `credential-broker` 新增 AskPass 进程退出与 provider 不可用失败测试：认证拒绝映射为 `Rejected`，provider 启动失败映射为 `ProviderFailed`，且不泄露 stderr；认证失败分类专项已通过。
+
+## TEST-003 Verification（2026-11-08）
+
+- 新增 [TEST-003-VERIFICATION-001](../reviews/TEST-003-VERIFICATION-001.md)，逐项记录 M3 §6.7 主链路、认证失败、外部竞争、网络异常与崩溃恢复证据；等待 `Rust CI #104` 三平台结果后关闭门禁。
