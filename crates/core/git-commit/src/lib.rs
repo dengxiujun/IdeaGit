@@ -77,6 +77,33 @@ impl PartialCommitTransaction {
     }
 
     #[allow(clippy::result_large_err)]
+    pub fn temp_index_prepared(
+        &mut self,
+        expected_head: Option<ObjectId>,
+        expected_index: Option<ObjectId>,
+    ) -> GitResult<()> {
+        if self.phase != PartialCommitPhase::IntentRecorded {
+            return Err(GitError::new(
+                GitErrorKind::Internal,
+                "temporary Index can only be prepared once",
+            ));
+        }
+        if self.request.fingerprints.iter().any(|fingerprint| {
+            fingerprint.expected_head != expected_head
+                || fingerprint.expected_index != expected_index
+        }) {
+            return Err(GitError::new(
+                GitErrorKind::StaleSelection,
+                "selection identity changed before temporary Index preparation",
+            ));
+        }
+        self.expected_head = expected_head;
+        self.expected_index = expected_index;
+        self.phase = PartialCommitPhase::TempIndexPrepared;
+        Ok(())
+    }
+
+    #[allow(clippy::result_large_err)]
     pub fn candidate_ready(&mut self, tree: ObjectId) -> GitResult<()> {
         if !matches!(
             self.phase,
@@ -89,6 +116,64 @@ impl PartialCommitTransaction {
         }
         self.candidate_tree = Some(tree);
         self.phase = PartialCommitPhase::PreviewReady;
+        Ok(())
+    }
+
+    #[allow(clippy::result_large_err)]
+    pub fn revalidate_before_commit(
+        &mut self,
+        head: Option<ObjectId>,
+        index: Option<ObjectId>,
+    ) -> GitResult<()> {
+        if self.phase != PartialCommitPhase::PreviewReady {
+            return Err(GitError::new(
+                GitErrorKind::Internal,
+                "commit confirmation requires a ready preview",
+            ));
+        }
+        if self.expected_head != head {
+            self.phase = PartialCommitPhase::RecoveryRequired;
+            return Err(GitError::new(
+                GitErrorKind::HeadChangedExternally,
+                "HEAD changed after partial commit preview",
+            ));
+        }
+        if self.expected_index != index {
+            self.phase = PartialCommitPhase::RecoveryRequired;
+            return Err(GitError::new(
+                GitErrorKind::IndexChangedExternally,
+                "Index changed after partial commit preview",
+            ));
+        }
+        self.phase = PartialCommitPhase::PreflightRevalidated;
+        Ok(())
+    }
+
+    #[allow(clippy::result_large_err)]
+    pub fn begin_commit(&mut self) -> GitResult<ObjectId> {
+        if self.phase != PartialCommitPhase::PreflightRevalidated {
+            return Err(GitError::new(
+                GitErrorKind::Internal,
+                "commit cannot start before preflight revalidation",
+            ));
+        }
+        let tree = self
+            .candidate_tree
+            .ok_or_else(|| GitError::new(GitErrorKind::Internal, "commit has no candidate tree"))?;
+        self.phase = PartialCommitPhase::CommitInProgress;
+        Ok(tree)
+    }
+
+    #[allow(clippy::result_large_err)]
+    pub fn commit_observed(&mut self, commit: ObjectId) -> GitResult<()> {
+        if self.phase != PartialCommitPhase::CommitInProgress {
+            return Err(GitError::new(
+                GitErrorKind::Internal,
+                "observed commit is not expected in the current phase",
+            ));
+        }
+        self.observed_commit = Some(commit);
+        self.phase = PartialCommitPhase::CommitObserved;
         Ok(())
     }
 }
@@ -150,5 +235,28 @@ mod tests {
             transaction.candidate_ready(tree).unwrap_err().kind,
             GitErrorKind::Internal
         );
+    }
+
+    #[test]
+    fn stale_head_moves_transaction_to_recovery_required() {
+        let mut transaction = PartialCommitTransaction::begin(request()).expect("valid request");
+        transaction
+            .temp_index_prepared(None, None)
+            .expect("prepare");
+        let tree: ObjectId = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+            .parse()
+            .expect("tree");
+        transaction.candidate_ready(tree).expect("candidate");
+        let changed: ObjectId = "1111111111111111111111111111111111111111"
+            .parse()
+            .expect("head");
+        assert_eq!(
+            transaction
+                .revalidate_before_commit(Some(changed), None)
+                .unwrap_err()
+                .kind,
+            GitErrorKind::HeadChangedExternally
+        );
+        assert_eq!(transaction.phase, PartialCommitPhase::RecoveryRequired);
     }
 }
