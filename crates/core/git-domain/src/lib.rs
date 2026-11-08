@@ -5,6 +5,7 @@
 
 mod command;
 mod error;
+mod file_history;
 mod head;
 mod id;
 mod journal;
@@ -24,6 +25,7 @@ pub use command::{
     StandardCommitRequest,
 };
 pub use error::{GitError, GitErrorKind, GitResult, RecoveryAction};
+pub use file_history::{BlameLine, FileHistoryEntry, FileHistoryQuery};
 pub use head::{BranchTracking, HeadState};
 pub use id::{OperationId, RepositoryId, SessionTarget, SnapshotRevision, WorktreeId};
 pub use journal::{
