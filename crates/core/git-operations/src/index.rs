@@ -240,6 +240,7 @@ mod tests {
                 state: crate::RecoveryObservation {
                     head: Some(expected_head),
                     index: Some(expected_index),
+                    sequencer: None,
                 },
             },
         );

@@ -122,6 +122,7 @@ impl<R: git_ports::ProcessRunner> git_operations::RecoveryStateReader
             .map(|state| git_operations::RecoveryObservation {
                 head: state.head,
                 index: state.index,
+                sequencer: None,
             })
     }
 }

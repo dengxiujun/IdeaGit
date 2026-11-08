@@ -2,7 +2,8 @@
 
 use async_trait::async_trait;
 use git_domain::{
-    GitError, GitErrorKind, GitResult, JournalRecord, ObjectId, RecoveryScope, SessionTarget,
+    GitError, GitErrorKind, GitResult, JournalRecord, ObjectId, RecoveryScope, SequencerSnapshot,
+    SessionTarget,
 };
 use git_ports::{ExecutionContext, JournalStore};
 
@@ -11,6 +12,7 @@ use git_ports::{ExecutionContext, JournalStore};
 pub struct RecoveryObservation {
     pub head: Option<ObjectId>,
     pub index: Option<ObjectId>,
+    pub sequencer: Option<SequencerSnapshot>,
 }
 
 /// Safe classification of a pending operation. Classification never mutates Git state.
@@ -49,12 +51,14 @@ pub struct RecoveryInspection {
 pub struct StartupRecoveryReport {
     pub inspections: Vec<RecoveryInspection>,
     pub orphaned: Vec<JournalRecord>,
+    pub sequencer: Option<SequencerSnapshot>,
 }
 
 impl StartupRecoveryReport {
     #[must_use]
     pub fn blocks_writes(&self) -> bool {
-        !self.orphaned.is_empty()
+        self.sequencer.as_ref().is_some_and(|state| state.active)
+            || !self.orphaned.is_empty()
             || self.inspections.iter().any(|inspection| {
                 matches!(
                     inspection.disposition,
@@ -92,6 +96,7 @@ impl<J: JournalStore, R: RecoveryStateReader> StartupRecoveryInspector<J, R> {
             return Ok(StartupRecoveryReport {
                 inspections: Vec::new(),
                 orphaned: pending.orphaned,
+                sequencer: None,
             });
         }
         if pending
@@ -122,6 +127,7 @@ impl<J: JournalStore, R: RecoveryStateReader> StartupRecoveryInspector<J, R> {
         Ok(StartupRecoveryReport {
             inspections,
             orphaned: pending.orphaned,
+            sequencer: observed.sequencer,
         })
     }
 }
@@ -154,7 +160,7 @@ mod tests {
     use super::*;
     use git_domain::{
         GitCommand, JournalRecord, ObjectFormat, OperationId, RecoveryPath, RepositoryId,
-        SessionTarget, WorktreeId,
+        SequencerKind, SequencerSnapshot, SessionTarget, WorktreeId,
     };
     use git_ports::PendingJournalRecords;
     use tokio::sync::mpsc;
@@ -280,6 +286,7 @@ mod tests {
                 observed: RecoveryObservation {
                     head: Some(head),
                     index: None,
+                    sequencer: None,
                 },
             },
         );
@@ -314,6 +321,7 @@ mod tests {
                 observed: RecoveryObservation {
                     head: None,
                     index: None,
+                    sequencer: None,
                 },
             },
         );
@@ -329,6 +337,22 @@ mod tests {
     }
 
     #[test]
+    fn active_sequencer_blocks_startup_writes() {
+        let report = StartupRecoveryReport {
+            inspections: Vec::new(),
+            orphaned: Vec::new(),
+            sequencer: Some(SequencerSnapshot {
+                kind: SequencerKind::CherryPick,
+                active: true,
+                current: None,
+                total: None,
+                conflicts: Vec::new(),
+            }),
+        };
+        assert!(report.blocks_writes());
+    }
+
+    #[test]
     fn unchanged_state_is_not_executed() {
         let mut record = record();
         let head =
@@ -340,7 +364,8 @@ mod tests {
                 &record,
                 &RecoveryObservation {
                     head: Some(head),
-                    index: None
+                    index: None,
+                    sequencer: None,
                 }
             ),
             RecoveryDisposition::NotExecuted
@@ -361,7 +386,8 @@ mod tests {
                 &record,
                 &RecoveryObservation {
                     head: Some(commit),
-                    index: Some(index)
+                    index: Some(index),
+                    sequencer: None,
                 }
             ),
             RecoveryDisposition::Committed
@@ -371,7 +397,8 @@ mod tests {
                 &record,
                 &RecoveryObservation {
                     head: Some(commit),
-                    index: None
+                    index: None,
+                    sequencer: None,
                 }
             ),
             RecoveryDisposition::CommittedNeedsReconcile
@@ -391,7 +418,8 @@ mod tests {
                 &record,
                 &RecoveryObservation {
                     head: Some(other),
-                    index: None
+                    index: None,
+                    sequencer: None,
                 }
             ),
             RecoveryDisposition::Unknown

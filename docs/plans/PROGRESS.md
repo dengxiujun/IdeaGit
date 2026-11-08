@@ -523,6 +523,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `git-cli` 新增 `GitCliSequencerReader`：只读检查 `MERGE_HEAD`、`CHERRY_PICK_HEAD`、`REVERT_HEAD` 与 rebase marker 目录，不启动 Git 进程、不修改仓库；异常 IO 映射为结构化 InvalidRepository。
 - 专项测试覆盖 Merge marker 识别、无 Shell Sequencer 参数与失败恢复映射；Rust CI #82（Runner `42428772755`）三平台通过。当前进度/冲突列表仍为空，完整 sequencer todo 与 Conflict Stage Reader 留给后续恢复/冲突节点。
 
+## M3 RECOVERY-001 Startup Recovery Sequencer Gate（2026-11-08）
+
+- `RecoveryObservation` 与 `StartupRecoveryReport` 现在携带可选 `SequencerSnapshot`；活动 Cherry-pick/Merge/Rebase/Revert 会阻断启动写入口。
+- 该节点只做只读分类与安全门禁，不自动 Continue/Skip/Abort，也不重试未知结果；桌面恢复组合根仍需后续接入 `SequencerReader`。
+- 本机 Workspace `fmt/check/clippy/test` 通过；专项测试覆盖活动 sequencer 阻断与空状态兼容。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。
