@@ -6,8 +6,8 @@
 
 - 分支：`feat/CCD-006`；从 `main` 创建并带入 CCD-001～005、CCD-009 前置实现。
 - 完成：Partial Commit 状态机支持临时 Index 准备、Candidate Tree、确认前 HEAD/Index 重验、CommitInProgress、CommitObserved 和 RecoveryRequired；新增 `PartialCommitJournal` 阶段持久化，以及仅绑定 `GIT_INDEX_FILE` 的 `GitCliTemporaryIndexCommitWriter`。
-- 测试：本次变更后 `cargo fmt --all -- --check`、workspace check、workspace Clippy、workspace tests、`git diff --check` 均通过；事务专项 3/3 通过。
-- Commit/Runner：`3ed190d`、`6b3f903`、`0998bb3`；GitHub Runner 尚未创建/执行 PR。
+- 测试：本次变更后 `cargo fmt --all -- --check`、`git-cli` Clippy、`git-cli` 测试、`git diff --check` 均通过；真实 Git 临时 Index Commit 测试通过，并确认真实 Index 字节不变。
+- Commit/Runner：`3ed190d`、`6b3f903`、`0998bb3`、`4b916ac`；GitHub Runner 尚未创建/执行 PR。
 - 风险：尚未完成提交后 HEAD/Hook 副作用核对和真实 Index reconciliation；未选择内容安全保持由 CCD-007/TEST-004 验证。
 - 下一任务：继续完成 CCD-006 的提交结果核对，再进入 CCD-007。
 
