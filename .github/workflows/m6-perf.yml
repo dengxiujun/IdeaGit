@@ -82,3 +82,17 @@ jobs:
           path: m6-perf-*.log
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Publish benchmark summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## M6 PERF-001 / ${{ runner.os }}"
+            echo '```text'
+            cat m6-perf-environment-${{ runner.os }}.log 2>/dev/null || true
+            cat m6-perf-git-cli-${{ runner.os }}.log 2>/dev/null || true
+            cat m6-perf-ui-${{ runner.os }}.log 2>/dev/null || true
+            cat m6-perf-diff-${{ runner.os }}.log 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
