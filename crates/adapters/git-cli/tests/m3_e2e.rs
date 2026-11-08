@@ -249,3 +249,62 @@ async fn m3_gate_rejects_external_conflict_edit_without_overwrite() {
         b"external edit\n"
     );
 }
+
+#[tokio::test]
+async fn rebase_abort_clears_conflict_without_claiming_success() {
+    let fixture = TestRepository::init().expect("fixture");
+    fixture
+        .configure_local_identity()
+        .expect("fixture identity");
+    git(&fixture.worktree, &["config", "core.autocrlf", "false"]);
+    fixture
+        .commit_file("conflict.txt", b"base\n")
+        .expect("base");
+
+    git(&fixture.worktree, &["checkout", "-b", "topic"]);
+    fs::write(fixture.worktree.join("conflict.txt"), b"topic\n").expect("topic edit");
+    git(&fixture.worktree, &["add", "--", "conflict.txt"]);
+    git(&fixture.worktree, &["commit", "-m", "topic"]);
+
+    git(&fixture.worktree, &["checkout", "main"]);
+    fs::write(fixture.worktree.join("conflict.txt"), b"main\n").expect("main edit");
+    git(&fixture.worktree, &["add", "--", "conflict.txt"]);
+    git(&fixture.worktree, &["commit", "-m", "main"]);
+    git(&fixture.worktree, &["checkout", "topic"]);
+
+    let rebase = Command::new("git")
+        .args([
+            "-C",
+            fixture.worktree.to_str().expect("utf8 path"),
+            "rebase",
+            "main",
+        ])
+        .output()
+        .expect("rebase should start");
+    assert!(!rebase.status.success(), "rebase should stop at conflict");
+
+    let location = location(&fixture.worktree);
+    GitCliSequencerWriter::new(TokioProcessRunner, location)
+        .apply(target(), SequencerCommand::AbortRebase, context())
+        .await
+        .expect("abort rebase");
+
+    let status = Command::new("git")
+        .args([
+            "-C",
+            fixture.worktree.to_str().expect("utf8 path"),
+            "status",
+            "--porcelain",
+        ])
+        .output()
+        .expect("status should run");
+    assert!(status.status.success());
+    assert!(
+        status.stdout.is_empty(),
+        "abort must restore a clean worktree"
+    );
+    assert_eq!(
+        fs::read(fixture.worktree.join("conflict.txt")).expect("topic file"),
+        b"topic\n"
+    );
+}
