@@ -1046,3 +1046,13 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：应用边界失败透传已覆盖；真实桌面组合的 Hook/外部并发/恢复失败路径及 UI 真实入口仍需继续完成。
 - 下一步：继续按 IP-001 审查 UI-013 生产装配和剩余 M4 开放门禁。
+
+## M4 UI-013：Selection Preview 到 Prepared Transaction 装配（2026-11-08）
+
+- 完成：新增 `SelectionCommitPreparationService`，串联只读 Diff Selection Preview、Temporary Index、Candidate Tree 和 `PartialCommitTransaction`，生成可交给既有 Handler 确认执行的 `PreparedPartialCommit`。
+- 安全边界：准备阶段不提交、不发布真实 Index；要求 target/selection 一致，保留 Diff generation、HEAD/Index 身份和原始 Index digest，候选 Index 仅由临时 Index 读取。
+- 修改文件：`crates/core/git-application/src/selection_preparation.rs`、`crates/core/git-application/src/lib.rs`、`docs/plans/PROGRESS.md`。
+- 测试：新增准备链路测试，确认 Candidate Tree 请求来自 Selection Patch 且真实 Index 不在准备阶段写入；workspace fmt/check/clippy/test/diff check 全部通过；git-application 21 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：该服务尚未接入桌面 GPUI 选区状态和生产组合根；真实提交仍必须经过 Preview 确认、Handler 和 OperationCoordinator。
+- 下一步：将准备服务接入应用组合根的真实 Git 适配器，继续保持未准备/过期选区 fail-closed。
