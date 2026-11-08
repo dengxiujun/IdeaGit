@@ -1219,3 +1219,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - GitHub Runner：Rust CI #122（Run ID `42468412330`）：Format `128693210292` 通过、macOS `128693210179` 通过、Ubuntu `128693210355` 失败（无本地 Git identity，已修复）、Windows `128693210354` 当时仍运行。
 - 风险：修复提交尚未完成跨平台 CI；需要确认 Windows 及新提交的四平台 Runner 全绿。
 - 下一步：提交并推送修复，等待新 Rust CI；通过后进入 M4 最终审查和 PR 合并门禁。
+
+## M4 UI-013：跨平台 CI 通过（2026-11-08）
+
+- 完成：Rust CI #123（Run ID `42468997488`，提交 `a9482d6`）完成并成功；Ubuntu/Linux、Windows、macOS 和 Format 均通过。
+- Runner：Format `128695094562` 成功；Windows `128695094688` 成功；Ubuntu `128695094717` 成功；macOS `128695094726` 成功。
+- 结论：新增真实 Git Preview→Coordinator Confirm 测试已获得三平台证据，Linux identity 修复有效；TEST-004 的跨平台门禁不再阻塞 UI-013。
+- 风险：PR 尚未合并；仍需 M4 最终逐项审查、全量门禁、PR 合并后 CI 确认及分支清理。
+- 下一步：执行 M4 最终任务/安全矩阵审查，确认没有未完成任务或未批准例外，再进入 PR 合并流程。
