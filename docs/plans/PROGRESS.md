@@ -927,3 +927,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：TEST-004 仍需最终审计签名失败、提交成功但协调失败的完整真实事务组合，以及跨平台矩阵；UI-013 真实入口继续关闭。
 - 下一步：继续补齐真实 Partial Commit 提交后 Index 协调失败组合测试。
+
+## M4 TEST-004：Partial Commit 提交后 Index 协调冲突（2026-11-08）
+
+- 完成：Git CLI Partial Commit 协调器集成测试在真实临时 Index Commit 成功后，于 Index 发布前执行有效外部 Index 写入；协调器返回 `IndexChangedExternally`，事务进入 `RecoveryRequired`，Journal 写入恢复结果。
+- 安全证据：已观察到提交后的 HEAD 变化，但外部 Index 内容未被候选 Index 覆盖；真实 Git 临时 Index、真实工作树和真实 Journal 协同验证通过。
+- 测试：专项协调器测试通过；workspace `fmt/check/clippy/test/diff check` 全部通过；Git CLI 77 项、git-commit 15 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：TEST-004 仍需签名失败和跨平台矩阵最终审计；UI-013 真实入口继续关闭。
+- 下一步：审查 TEST-004 全部矩阵覆盖，补足仍缺失的真实路径后再评估 UI-013 开放条件。

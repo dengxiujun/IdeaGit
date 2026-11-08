@@ -513,7 +513,9 @@ mod tests {
     };
     use git_fixture::TestRepository;
     use git_ports::{
-        CandidateTreeBuilder, CandidateTreeRequest, JournalStore, PendingJournalRecords,
+        CandidateTreeBuilder, CandidateTreeRequest, ExecutionContext, IndexReconciliationOutcome,
+        IndexReconciliationPublisher, IndexReconciliationRequest, JournalStore,
+        PendingJournalRecords,
     };
     #[cfg(unix)]
     use std::os::unix::ffi::OsStrExt;
@@ -531,6 +533,26 @@ mod tests {
     #[derive(Clone, Default)]
     struct MemoryJournal {
         record: Arc<Mutex<Option<JournalRecord>>>,
+    }
+
+    struct ExternalIndexMutationPublisher {
+        fixture: std::path::PathBuf,
+        inner: GitCliIndexReconciliationPublisher,
+    }
+
+    #[async_trait]
+    impl IndexReconciliationPublisher for ExternalIndexMutationPublisher {
+        async fn publish(
+            &self,
+            request: IndexReconciliationRequest,
+            context: ExecutionContext,
+        ) -> GitResult<IndexReconciliationOutcome> {
+            let index = self.fixture.join("index");
+            let mut external = fs::read(&index).expect("real Index should exist");
+            external.extend_from_slice(b"external-index-write");
+            fs::write(&index, external).expect("external Index mutation should succeed");
+            self.inner.publish(request, context).await
+        }
     }
 
     #[async_trait]
@@ -1308,7 +1330,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn coordinator_persists_recovery_for_hook_worktree_mutation() {
+    async fn coordinator_persists_recovery_for_external_index_mutation() {
         let fixture = TestRepository::init().expect("fixture");
         fixture
             .commit_file("selected.txt", b"base\n")
@@ -1317,13 +1339,6 @@ mod tests {
             .write_file("selected.txt", b"changed\n")
             .expect("edit");
         fixture.stage_file("selected.txt").expect("stage");
-        fixture
-            .install_hook(
-                "pre-commit",
-                b"#!/bin/sh\nprintf 'hook side effect\n' > hook-side-effect.txt\nexit 0\n",
-            )
-            .expect("hook");
-
         let location = RepositoryLocation::worktree(
             &fixture.worktree,
             fixture.worktree.join(".git"),
@@ -1430,18 +1445,22 @@ mod tests {
         )
         .with_environment(fixture.isolated_environment());
         let observer = GitCliCommitSideEffectObserver::new(TokioProcessRunner, location.clone());
-        let publisher = GitCliIndexReconciliationPublisher::new(location);
+        let publisher = ExternalIndexMutationPublisher {
+            fixture: fixture.worktree.join(".git"),
+            inner: GitCliIndexReconciliationPublisher::new(location),
+        };
         let coordinator = PartialCommitCoordinator::new(
             writer,
             PartialCommitJournal::new(journal_store, scope),
             observer,
             publisher,
         );
+        let index_before_external_write = fs::read(&real_index).expect("real index");
         let error = coordinator
             .commit(target, OperationId::new(), &mut transaction, test_context())
             .await
-            .expect_err("hook side effects must require recovery");
-        assert_eq!(error.kind, GitErrorKind::HooksMutatedRepository);
+            .expect_err("external Index mutation must require recovery");
+        assert_eq!(error.kind, GitErrorKind::IndexChangedExternally);
         assert_eq!(transaction.phase, PartialCommitPhase::RecoveryRequired);
         assert!(matches!(
             journal_snapshot
@@ -1451,7 +1470,9 @@ mod tests {
                 .and_then(|record| record.result.as_ref()),
             Some(JournalResult::RecoveryRequired { .. })
         ));
-        assert!(fixture.worktree.join("hook-side-effect.txt").exists());
+        let index_after_external_write = fs::read(&real_index).expect("real index");
+        assert_ne!(index_after_external_write, index_before_external_write);
+        assert!(index_after_external_write.ends_with(b"external-index-write"));
     }
 
     #[cfg(unix)]
