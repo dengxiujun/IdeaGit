@@ -49,6 +49,7 @@ fn git(root: &std::path::Path, args: &[&str]) {
 async fn m3_gate_clone_edit_commit_push_fetch_pull_merge_conflict_resolve_continue() {
     let source = TestRepository::init().expect("source fixture");
     source.configure_local_identity().expect("source identity");
+    git(&source.worktree, &["config", "core.autocrlf", "false"]);
     source.commit_file("README.md", b"base\n").expect("base");
     let remote = source.create_local_remote().expect("remote");
 
@@ -68,6 +69,7 @@ async fn m3_gate_clone_edit_commit_push_fetch_pull_merge_conflict_resolve_contin
         &clone_root,
         &["config", "user.email", "gate@ideagit.invalid"],
     );
+    git(&clone_root, &["config", "core.autocrlf", "false"]);
 
     let clone_location = location(&clone_root);
     let clone_target = target();
