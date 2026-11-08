@@ -813,7 +813,10 @@ fn parse_smoke_duration(value: Option<&str>) -> Result<Option<Duration>, String>
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
-    use git_domain::{GitResult, RepoPath, RepositoryId, SessionTarget, WorktreeId};
+    use git_domain::{
+        CommitOptions, GitResult, RepoPath, RepositoryId, SelectionCommitRequest, SessionTarget,
+        SigningMode, SnapshotRevision, WorktreeId,
+    };
     use git_ports::ExecutionContext;
     use git_ports::JournalStore as _;
     use git_ui_model::{ActionContext, ActionId, ActionPanel, ActionPayload};
@@ -1184,9 +1187,22 @@ mod tests {
         let scope = location.recovery_scope().expect("recovery scope");
         let mut record = git_domain::JournalRecord::intent(
             git_domain::OperationId::new(),
-            git_domain::GitCommand::StageFiles {
+            git_domain::GitCommand::CommitSelection {
                 target,
-                paths: vec![RepoPath::try_from("tracked.txt").expect("fixture path")],
+                request: SelectionCommitRequest {
+                    options: CommitOptions {
+                        message: b"partial commit recovery\n".to_vec(),
+                        amend: false,
+                        allow_empty: false,
+                        signoff: false,
+                        author: None,
+                        committer: None,
+                        signing: SigningMode::Disable,
+                    },
+                    selections: Vec::new(),
+                    fingerprints: Vec::new(),
+                    expected_revision: SnapshotRevision::new(1),
+                },
             },
             scope,
         );

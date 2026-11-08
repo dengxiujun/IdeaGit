@@ -909,3 +909,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：TEST-004 仍需完成签名失败、崩溃重启诊断、提交成功但 Index 协调失败、Hook/跨平台组合矩阵的最终审计；UI-013 真实入口继续关闭。
 - 下一步：继续补 TEST-004 的真实恢复/重启诊断证据，再重新评估 UI-013 开放条件。
+
+## M4 TEST-004：Partial Commit 重启诊断（2026-11-08）
+
+- 完成：将重启恢复集成测试的持久化意图从普通 `StageFiles` 改为真实 `CommitSelection`，覆盖 Partial Commit 在提交后 Index 尚未协调时的启动诊断。
+- 安全证据：真实 Git 仓库中外部提交改变 HEAD 后，重启检查识别 `CommittedNeedsReconcile` 并阻断后续写操作，不自动重试或覆盖 Index。
+- 测试：专项 desktop 重启恢复测试通过；workspace `fmt/check/clippy/test/diff check` 全部通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：TEST-004 仍需最终审计签名失败、提交后 Index 协调失败、Hook/跨平台矩阵；UI-013 真实入口继续关闭。
+- 下一步：补充或核验提交成功后 Index 协调失败的真实 Partial Commit 测试，再评估 TEST-004 剩余门禁。
