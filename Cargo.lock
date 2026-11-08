@@ -2068,6 +2068,8 @@ dependencies = [
 name = "git-diff-ui"
 version = "0.1.0"
 dependencies = [
+ "git-diff",
+ "git-domain",
  "git-ui-model",
  "idea-ui-primitives",
 ]

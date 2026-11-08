@@ -2,6 +2,16 @@
 
 更新日期：2026-11-08。
 
+## M4 UI-012：Three-version Stage Viewer（2026-11-08）
+
+- 分支：`feat/UI-012`；从 `main` 创建并按依赖带入 DIFF-003/004/005/006。
+- 完成：在 `git-diff-ui` 新增 HEAD/Index/Worktree 三栏只读投影，支持当前栏选择，并以 `EditedIndexSessionId` 门控 Apply 会话；UI 不直接写 Git Index。
+- 测试：新增 2 个测试，覆盖未绑定编辑会话时 Apply 关闭、绑定/清理会话及栏位选择不改变三版本文档。
+- 门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；工作区测试全部通过。
+- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
+- 风险：当前是无 GPUI 绘制和无写操作的纯投影，CCD-008 的 Apply 仍需后续应用层/协调器接线；不提前开放实际 Index 修改。
+- 下一任务：TEST-004（Partial Commit Safety Tests，按依赖 DAG 复核后执行）。
+
 ## M4 DIFF-006：Safe Hunk Stage（2026-11-08）
 
 - 分支：`feat/DIFF-006`；从 `main` 创建并按依赖带入 DIFF-003/004/005。
