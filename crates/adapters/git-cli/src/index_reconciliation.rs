@@ -149,12 +149,18 @@ mod tests {
         let location = location(&fixture);
         let index = fixture.worktree.join(".git/index");
         let original = fs::read(&index).expect("index");
+        let external = original
+            .iter()
+            .copied()
+            .chain([9, 8, 7])
+            .collect::<Vec<_>>();
+        fs::write(&index, &external).expect("external index mutation");
         let publisher = GitCliIndexReconciliationPublisher::new(location);
         let result = publisher
             .publish(
                 IndexReconciliationRequest {
                     target: target(),
-                    expected_index_digest: [0; 32],
+                    expected_index_digest: Sha256::digest(&original).into(),
                     candidate_index: b"must-not-publish".to_vec(),
                 },
                 context(),
@@ -162,7 +168,7 @@ mod tests {
             .await
             .expect("stale index result");
         assert_eq!(result, IndexReconciliationOutcome::Conflict);
-        assert_eq!(fs::read(index).expect("index"), original);
+        assert_eq!(fs::read(index).expect("index"), external);
     }
 
     #[tokio::test]

@@ -900,3 +900,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：尚未接入 OperationCoordinator 的确认事务执行器；Candidate Tree/Transaction 真实仓库组合测试、外部 Index 竞争、Hook/崩溃恢复矩阵仍需继续补齐。
 - 下一步：实现已确认 Partial Commit 的安全执行入口，并补充真实仓库失败恢复测试。
+
+## M4 TEST-004：真实外部 Index 竞争保护（2026-11-08）
+
+- 完成：将 Git CLI Index reconciliation 安全测试改为真实仓库竞争场景；事务捕获原始 Index 后，外部直接替换 Index 内容，候选发布必须返回 `Conflict`。
+- 安全证据：验证外部修改后的真实 Index 字节保持不变，候选 Index 不会覆盖外部内容；覆盖 Partial Commit 发布阻断条件中的外部 Index 修改路径。
+- 测试：专项测试通过；workspace `fmt/check/clippy/test/diff check` 全部通过；Git CLI 测试 77 项通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：TEST-004 仍需完成签名失败、崩溃重启诊断、提交成功但 Index 协调失败、Hook/跨平台组合矩阵的最终审计；UI-013 真实入口继续关闭。
+- 下一步：继续补 TEST-004 的真实恢复/重启诊断证据，再重新评估 UI-013 开放条件。
