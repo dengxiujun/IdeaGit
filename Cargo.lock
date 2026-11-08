@@ -2024,6 +2024,7 @@ dependencies = [
 name = "git-changelist"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "git-domain",
  "serde",
  "serde_json",
@@ -4864,6 +4865,7 @@ name = "persistence"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "git-changelist",
  "git-domain",
  "git-ports",
  "serde",
