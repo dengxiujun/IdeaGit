@@ -2,9 +2,9 @@ use std::{fs, process::Command, str::FromStr};
 
 use git_cli::{
     GitCliCloneWriter, GitCliCommitWriter, GitCliConflictResolutionWriter,
-    GitCliConflictStageReader, GitCliInteractiveRebasePlanReader, GitCliInteractiveRebaseWriter,
-    GitCliMergeWriter, GitCliRemoteAdapter, GitCliSequencerReader, GitCliSequencerWriter,
-    GitCliShelfWriter, TokioProcessRunner,
+    GitCliConflictStageReader, GitCliFileHistoryReader, GitCliInteractiveRebasePlanReader,
+    GitCliInteractiveRebaseWriter, GitCliMergeWriter, GitCliRemoteAdapter, GitCliSequencerReader,
+    GitCliSequencerWriter, GitCliShelfWriter, TokioProcessRunner,
 };
 use git_domain::{
     CommitOptions, MergeCommand, OperationId, RefName, RemoteCommand, RepoPath, RepositoryId,
@@ -13,10 +13,10 @@ use git_domain::{
 };
 use git_fixture::TestRepository;
 use git_ports::{
-    ApplyResolutionRequest, CloneRequest, CloneWriter, CommitWriter, ConflictResolutionWriter,
-    ConflictStageReader, ExecutionContext, IndexWriter, InteractiveRebasePlanReader,
-    InteractiveRebaseWriter, MergeWriter, RemoteWriter, SequencerReader, SequencerWriter,
-    ShelfWriter, UnshelveRequest,
+    ApplyResolutionRequest, BlameReader, CloneRequest, CloneWriter, CommitWriter,
+    ConflictResolutionWriter, ConflictStageReader, ExecutionContext, FileHistoryReader,
+    IndexWriter, InteractiveRebasePlanReader, InteractiveRebaseWriter, MergeWriter, RemoteWriter,
+    SequencerReader, SequencerWriter, ShelfWriter, UnshelveRequest,
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -46,6 +46,47 @@ fn git(root: &std::path::Path, args: &[&str]) {
         args,
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[tokio::test]
+async fn m5_gate_file_history_and_blame_use_real_repository() {
+    let fixture = TestRepository::init().expect("fixture");
+    fixture.configure_local_identity().expect("identity");
+    git(&fixture.worktree, &["config", "core.autocrlf", "false"]);
+    fixture
+        .commit_file("tracked.txt", b"first\n")
+        .expect("first commit");
+    fixture
+        .commit_file("tracked.txt", b"first\nsecond\n")
+        .expect("second commit");
+
+    let reader = GitCliFileHistoryReader::new(TokioProcessRunner, location(&fixture.worktree));
+    let path = RepoPath::try_from("tracked.txt").expect("path");
+    let history = reader
+        .history(
+            git_domain::FileHistoryQuery {
+                target: target(),
+                path: path.clone(),
+                limit: 10,
+                skip: 0,
+            },
+            context(),
+        )
+        .await
+        .expect("history");
+    assert_eq!(history.len(), 2);
+    assert_eq!(history[0].path, path);
+    assert!(history[0].parent.is_some());
+    assert!(!history[0].subject.is_empty());
+
+    let blame = reader
+        .blame(target(), path, context())
+        .await
+        .expect("blame");
+    assert_eq!(blame.len(), 2);
+    assert_eq!(blame[0].content, b"first".to_vec());
+    assert_eq!(blame[1].content, b"second".to_vec());
+    assert_ne!(blame[0].commit, blame[1].commit);
 }
 
 #[tokio::test]
