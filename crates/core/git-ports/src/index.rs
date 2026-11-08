@@ -1,7 +1,7 @@
 //! Safe Index mutation port for Stage and Unstage.
 
 use async_trait::async_trait;
-use git_domain::{GitResult, RepoPath, SessionTarget};
+use git_domain::{GitResult, HunkSelection, ObjectId, RepoPath, SessionTarget};
 
 use crate::ExecutionContext;
 
@@ -50,6 +50,41 @@ pub enum IndexMutationError {
 #[async_trait]
 pub trait IndexWriter: Send + Sync {
     async fn apply(&self, mutation: IndexMutation, context: ExecutionContext) -> GitResult<()>;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StageHunksRequest {
+    pub target: SessionTarget,
+    pub path: RepoPath,
+    pub expected_index_oid: Option<ObjectId>,
+    pub expected_worktree_fingerprint: [u8; 32],
+    pub hunks: Vec<HunkSelection>,
+    pub patch: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StageHunksState {
+    pub index_oid: Option<ObjectId>,
+    pub worktree_fingerprint: [u8; 32],
+}
+
+#[async_trait]
+pub trait HunkStageStateReader: Send + Sync {
+    async fn read(
+        &self,
+        target: SessionTarget,
+        path: &RepoPath,
+        context: ExecutionContext,
+    ) -> GitResult<StageHunksState>;
+}
+
+#[async_trait]
+pub trait HunkStageWriter: Send + Sync {
+    async fn stage_hunks(
+        &self,
+        request: StageHunksRequest,
+        context: ExecutionContext,
+    ) -> GitResult<()>;
 }
 
 #[cfg(test)]
