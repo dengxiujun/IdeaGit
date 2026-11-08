@@ -1286,6 +1286,15 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - CI：Rust CI #131（Run ID `42487374190`，提交 `9886259948d42fddad3deb11f88340d841b1c4da`）已成功；Format、Ubuntu 24.04、macOS 15、Windows 2022 全部通过。
 - 分支：已确认合并提交进入 `main`；本地和远程 `feat/SHELF-001` 均已清理。
 - 结论：SHELF-001 完成；下一任务为 `SHELF-002`，必须从已验证的 `main` 按串行规则创建新分支。
+
+## M5 SHELF-002：Shelve/Unshelve（2026-11-08）
+
+- 完成：新增 `ShelfWriter` 与 `UnshelveRequest` 端口，Git CLI 适配器通过 `git apply --check` 预检后应用 Shelf Patch；不把 Patch 内容拼入命令参数。
+- 安全边界：工作区 dirty 或 `base_head` 过期时，Unshelve 在任何写操作前拒绝并要求显式冲突处理；bare repository 明确返回 UnsupportedFeature。
+- 测试：真实 Git 仓库 E2E 覆盖生成 Patch、恢复基线、预检并恢复工作区内容；同时覆盖领域层 stale/dirty 决策。
+- 修改文件：`crates/core/git-shelf/src/lib.rs`、`crates/core/git-ports/Cargo.toml`、`crates/core/git-ports/src/lib.rs`、`crates/core/git-ports/src/shelf.rs`、`crates/adapters/git-cli/Cargo.toml`、`crates/adapters/git-cli/src/lib.rs`、`crates/adapters/git-cli/src/shelf.rs`、`crates/adapters/git-cli/tests/m3_e2e.rs`、`docs/plans/PROGRESS.md`。
+- 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
+- 风险：PR、GitHub CI、代码审查和合并门禁尚未完成。
 - PR：[#7](https://github.com/dengxiujun/IdeaGit/pull/7) 已合并，合并提交为 `64f40d8c9d8bf49a8f89f02e6de19427a83c1085`。
 - CI：Rust CI #130（Run ID `42486183329`，提交 `6b989da9df0d14cde96d3dae46916c5a1d6ee687`）已成功；Format、Ubuntu 24.04、macOS 15、Windows 2022 全部通过。
 - 分支：已确认合并提交进入 `main`；本地和远程 `feat/REBASE-004` 均已清理。

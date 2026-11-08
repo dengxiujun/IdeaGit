@@ -4,7 +4,7 @@ use git_cli::{
     GitCliCloneWriter, GitCliCommitWriter, GitCliConflictResolutionWriter,
     GitCliConflictStageReader, GitCliInteractiveRebasePlanReader, GitCliInteractiveRebaseWriter,
     GitCliMergeWriter, GitCliRemoteAdapter, GitCliSequencerReader, GitCliSequencerWriter,
-    TokioProcessRunner,
+    GitCliShelfWriter, TokioProcessRunner,
 };
 use git_domain::{
     CommitOptions, MergeCommand, OperationId, RefName, RemoteCommand, RepoPath, RepositoryId,
@@ -16,6 +16,7 @@ use git_ports::{
     ApplyResolutionRequest, CloneRequest, CloneWriter, CommitWriter, ConflictResolutionWriter,
     ConflictStageReader, ExecutionContext, IndexWriter, InteractiveRebasePlanReader,
     InteractiveRebaseWriter, MergeWriter, RemoteWriter, SequencerReader, SequencerWriter,
+    ShelfWriter, UnshelveRequest,
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -317,6 +318,48 @@ async fn rebase_abort_clears_conflict_without_claiming_success() {
     assert_eq!(
         fs::read(fixture.worktree.join("conflict.txt")).expect("topic file"),
         b"topic\n"
+    );
+}
+
+#[tokio::test]
+async fn shelf_unshelve_applies_a_real_patch_after_preflight() {
+    let fixture = TestRepository::init().expect("fixture");
+    fixture.configure_local_identity().expect("identity");
+    git(&fixture.worktree, &["config", "core.autocrlf", "false"]);
+    fixture
+        .commit_file("shelf.txt", b"base\n")
+        .expect("base commit");
+    fs::write(fixture.worktree.join("shelf.txt"), b"base\nfrom shelf\n").expect("edit");
+    let patch = Command::new("git")
+        .args([
+            "-C",
+            fixture.worktree.to_str().expect("utf8"),
+            "diff",
+            "--",
+            "shelf.txt",
+        ])
+        .output()
+        .expect("git diff should start");
+    assert!(patch.status.success());
+    fs::write(fixture.worktree.join("shelf.txt"), b"base\n").expect("restore base");
+
+    GitCliShelfWriter::new(TokioProcessRunner)
+        .unshelve(
+            &location(&fixture.worktree),
+            UnshelveRequest {
+                target: target(),
+                base_head: None,
+                current_head: None,
+                worktree_dirty: false,
+                patches: vec![patch.stdout],
+            },
+            context(),
+        )
+        .await
+        .expect("unshelve should apply");
+    assert_eq!(
+        fs::read(fixture.worktree.join("shelf.txt")).expect("read file"),
+        b"base\nfrom shelf\n"
     );
 }
 
