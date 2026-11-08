@@ -97,6 +97,36 @@ pub struct GitCliCommitWriter<R> {
     environment: Vec<EnvironmentVariable>,
 }
 
+/// Commit writer explicitly bound to a temporary Index. It never changes the repository's
+/// real `.git/index`; Git hooks still run under Git's normal semantics and are therefore observed
+/// by the caller as possible external side effects.
+#[derive(Debug)]
+pub struct GitCliTemporaryIndexCommitWriter<R> {
+    inner: GitCliCommitWriter<R>,
+}
+
+impl<R> GitCliTemporaryIndexCommitWriter<R> {
+    #[must_use]
+    pub fn new(runner: R, location: RepositoryLocation, index: impl Into<OsString>) -> Self {
+        Self {
+            inner: GitCliCommitWriter::new(runner, location)
+                .with_environment([(OsString::from("GIT_INDEX_FILE"), index.into())]),
+        }
+    }
+}
+
+#[async_trait]
+impl<R: ProcessRunner> CommitWriter for GitCliTemporaryIndexCommitWriter<R> {
+    async fn commit(
+        &self,
+        target: SessionTarget,
+        request: StandardCommitRequest,
+        context: ExecutionContext,
+    ) -> GitResult<CommitOutcome> {
+        self.inner.commit(target, request, context).await
+    }
+}
+
 impl<R> GitCliCommitWriter<R> {
     #[must_use]
     pub fn new(runner: R, location: RepositoryLocation) -> Self {
