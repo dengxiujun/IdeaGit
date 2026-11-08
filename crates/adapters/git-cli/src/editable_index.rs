@@ -41,10 +41,10 @@ impl<R: ProcessRunner> EditableIndexCandidateBuilder for GitCliEditableIndexCand
                 "editable Index candidates require a worktree",
             )
         })?;
-        if request.mode == 0 {
+        if !is_editable_mode(request.mode) {
             return Err(GitError::new(
                 GitErrorKind::UnsupportedFileKind,
-                "editable Index candidate mode must be non-zero",
+                "editable Index candidate mode is not a supported file mode",
             ));
         }
         let path = repo_path_arg(&request.path)?;
@@ -135,6 +135,10 @@ impl<R: ProcessRunner> EditableIndexCandidateBuilder for GitCliEditableIndexCand
             content: request.content,
         })
     }
+}
+
+fn is_editable_mode(mode: u32) -> bool {
+    matches!(mode, 0o100644 | 0o100755 | 0o120000)
 }
 
 struct HashObjectCommand {
@@ -430,5 +434,47 @@ mod tests {
             .await
             .expect_err("unresolved stages must be rejected");
         assert_eq!(error.kind, GitErrorKind::MergeConflict);
+    }
+
+    #[tokio::test]
+    async fn rejects_gitlink_and_unknown_editable_modes() {
+        let fixture = TestRepository::init().expect("fixture");
+        fixture
+            .commit_file("file.txt", b"base\n")
+            .expect("fixture commit");
+        let temporary_index = fixture.temp_dir.path().join("editable-mode-index");
+        let mut read_tree = Command::new("git");
+        read_tree
+            .args(["read-tree", "HEAD"])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (name, value) in fixture.isolated_environment() {
+            read_tree.env(name, value);
+        }
+        assert!(read_tree.status().expect("git starts").success());
+        let builder = GitCliEditableIndexCandidateBuilder::new(
+            crate::TokioProcessRunner,
+            RepositoryLocation::worktree(
+                &fixture.worktree,
+                fixture.worktree.join(".git"),
+                fixture.worktree.join(".git"),
+            ),
+        );
+        for mode in [0o160000, 0o100666, 0o777] {
+            let error = builder
+                .build(
+                    EditableIndexCandidateRequest {
+                        target: SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                        path: RepoPath::try_from("file.txt").expect("path"),
+                        mode,
+                        content: b"edited\n".to_vec(),
+                        temporary_index: temporary_index.clone(),
+                    },
+                    context(),
+                )
+                .await
+                .expect_err("unsupported mode must be rejected");
+            assert_eq!(error.kind, GitErrorKind::UnsupportedFileKind);
+        }
     }
 }
