@@ -172,6 +172,7 @@ impl<R: ProcessRunner> CommitWriter for GitCliCommitWriter<R> {
         request: StandardCommitRequest,
         context: ExecutionContext,
     ) -> GitResult<CommitOutcome> {
+        let signing = request.options.signing;
         let cwd = self
             .location
             .worktree_root()
@@ -194,14 +195,18 @@ impl<R: ProcessRunner> CommitWriter for GitCliCommitWriter<R> {
             )
             .await?;
         if !output.success {
+            let kind = if signing == SigningMode::Require {
+                GitErrorKind::SigningFailed
+            } else {
+                GitErrorKind::HookRejected
+            };
             return Err(
-                GitError::new(GitErrorKind::HookRejected, "Git commit was rejected")
-                    .with_diagnostic(format!(
-                        "exit_code={:?}; stderr={}; stdout={}",
-                        output.exit_code,
-                        String::from_utf8_lossy(&output.stderr),
-                        String::from_utf8_lossy(&output.stdout)
-                    )),
+                GitError::new(kind, "Git commit was rejected").with_diagnostic(format!(
+                    "exit_code={:?}; stderr={}; stdout={}",
+                    output.exit_code,
+                    String::from_utf8_lossy(&output.stderr),
+                    String::from_utf8_lossy(&output.stdout)
+                )),
             );
         }
         let head = self
@@ -692,5 +697,70 @@ mod tests {
             head_before
         );
         assert_eq!(fs::read(&real_index).expect("real Index"), index_before);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn required_signing_failure_is_classified_without_changing_head_or_index() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let fixture = TestRepository::init().expect("fixture");
+        fixture
+            .commit_file("signed.txt", b"base\n")
+            .expect("initial commit");
+        fixture
+            .write_file("signed.txt", b"changed\n")
+            .expect("edit");
+        fixture.stage_file("signed.txt").expect("stage");
+        let head_before = fixture.head_oid().expect("head").expect("committed HEAD");
+        let fake_gpg = fixture.temp_dir.path().join("failing-gpg");
+        fs::write(&fake_gpg, b"#!/bin/sh\nexit 1\n").expect("fake gpg");
+        fs::set_permissions(&fake_gpg, fs::Permissions::from_mode(0o755)).expect("executable gpg");
+        let mut configure = Command::new("git");
+        configure
+            .args(["config", "--global", "gpg.program"])
+            .arg(&fake_gpg)
+            .current_dir(&fixture.worktree);
+        for (name, value) in fixture.isolated_environment() {
+            configure.env(name, value);
+        }
+        assert!(configure.status().expect("git starts").success());
+
+        let writer = GitCliCommitWriter::new(
+            TokioProcessRunner,
+            RepositoryLocation::worktree(
+                &fixture.worktree,
+                fixture.worktree.join(".git"),
+                fixture.worktree.join(".git"),
+            ),
+        )
+        .with_environment(fixture.isolated_environment());
+        let (progress, _receiver) = mpsc::channel(4);
+        let error = writer
+            .commit(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                StandardCommitRequest {
+                    options: CommitOptions {
+                        message: b"signed commit\n".to_vec(),
+                        amend: false,
+                        allow_empty: false,
+                        signoff: false,
+                        author: None,
+                        committer: None,
+                        signing: SigningMode::Require,
+                    },
+                    expected_revision: SnapshotRevision::new(1),
+                    expected_head: None,
+                    expected_index: None,
+                },
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect_err("required signing must fail");
+        assert_eq!(error.kind, GitErrorKind::SigningFailed);
+        assert_eq!(
+            fixture.head_oid().expect("head").expect("HEAD"),
+            head_before
+        );
     }
 }
