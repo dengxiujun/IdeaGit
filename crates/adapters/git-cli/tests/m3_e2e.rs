@@ -256,6 +256,7 @@ async fn rebase_abort_clears_conflict_without_claiming_success() {
     fixture
         .configure_local_identity()
         .expect("fixture identity");
+    git(&fixture.worktree, &["config", "core.autocrlf", "false"]);
     fixture
         .commit_file("conflict.txt", b"base\n")
         .expect("base");
