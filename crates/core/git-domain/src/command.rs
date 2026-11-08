@@ -192,6 +192,94 @@ pub struct PushPreview {
     pub mode: PushMode,
 }
 
+/// A user-editable first-version interactive rebase plan.
+///
+/// Only linear todo instructions are represented. Merge-preserving rebase is intentionally not
+/// modeled, so it cannot be silently downgraded to a linear rebase.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InteractiveRebasePlan {
+    pub target: SessionTarget,
+    pub upstream: ObjectId,
+    pub entries: Vec<RebaseTodoEntry>,
+}
+
+impl InteractiveRebasePlan {
+    /// Validates plan-local invariants before the plan reaches an adapter.
+    pub fn validate(&self) -> Result<(), RebasePlanValidationError> {
+        if self.entries.is_empty() {
+            return Err(RebasePlanValidationError::EmptyEntries);
+        }
+        if self
+            .entries
+            .iter()
+            .any(|entry| entry.commit == self.upstream)
+        {
+            return Err(RebasePlanValidationError::UpstreamIncluded);
+        }
+        Ok(())
+    }
+}
+
+/// One supported line in an interactive rebase todo list.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RebaseTodoEntry {
+    pub commit: ObjectId,
+    pub action: RebaseAction,
+    pub message_override: Option<String>,
+}
+
+/// Linear interactive rebase actions supported by the first implementation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum RebaseAction {
+    Pick,
+    Reword,
+    Edit,
+    Squash,
+    Fixup,
+    Drop,
+}
+
+impl RebaseAction {
+    #[must_use]
+    pub const fn git_keyword(self) -> &'static str {
+        match self {
+            Self::Pick => "pick",
+            Self::Reword => "reword",
+            Self::Edit => "edit",
+            Self::Squash => "squash",
+            Self::Fixup => "fixup",
+            Self::Drop => "drop",
+        }
+    }
+
+    pub fn parse_git_keyword(value: &str) -> Result<Self, RebaseTodoValidationError> {
+        match value {
+            "pick" => Ok(Self::Pick),
+            "reword" => Ok(Self::Reword),
+            "edit" => Ok(Self::Edit),
+            "squash" => Ok(Self::Squash),
+            "fixup" => Ok(Self::Fixup),
+            "drop" => Ok(Self::Drop),
+            _ => Err(RebaseTodoValidationError::UnsupportedAction),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum RebaseTodoValidationError {
+    #[error("interactive rebase todo action is not supported")]
+    UnsupportedAction,
+}
+
+/// Local validation failures for an interactive rebase plan.
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum RebasePlanValidationError {
+    #[error("interactive rebase plan must contain at least one entry")]
+    EmptyEntries,
+    #[error("interactive rebase plan must not include its upstream commit")]
+    UpstreamIncluded,
+}
+
 /// Sequencer operation kept separate from ordinary command state.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SequencerCommand {
@@ -355,6 +443,7 @@ pub enum CommandValidationError {
 mod tests {
     use super::*;
     use crate::{RepositoryId, WorktreeId};
+    use std::str::FromStr;
 
     fn target() -> SessionTarget {
         SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1)
@@ -446,6 +535,55 @@ mod tests {
         assert_eq!(
             selection.validate(),
             Err(CommandValidationError::EmptySelection)
+        );
+    }
+
+    #[test]
+    fn interactive_rebase_plan_rejects_empty_entries_and_upstream() {
+        let target = target();
+        let upstream =
+            ObjectId::from_str("0000000000000000000000000000000000000001").expect("test object id");
+        let empty = InteractiveRebasePlan {
+            target,
+            upstream,
+            entries: Vec::new(),
+        };
+        assert_eq!(
+            empty.validate(),
+            Err(RebasePlanValidationError::EmptyEntries)
+        );
+
+        let includes_upstream = InteractiveRebasePlan {
+            target,
+            upstream,
+            entries: vec![RebaseTodoEntry {
+                commit: upstream,
+                action: RebaseAction::Pick,
+                message_override: None,
+            }],
+        };
+        assert_eq!(
+            includes_upstream.validate(),
+            Err(RebasePlanValidationError::UpstreamIncluded)
+        );
+    }
+
+    #[test]
+    fn rebase_actions_round_trip_to_git_todo_keywords() {
+        for (action, keyword) in [
+            (RebaseAction::Pick, "pick"),
+            (RebaseAction::Reword, "reword"),
+            (RebaseAction::Edit, "edit"),
+            (RebaseAction::Squash, "squash"),
+            (RebaseAction::Fixup, "fixup"),
+            (RebaseAction::Drop, "drop"),
+        ] {
+            assert_eq!(action.git_keyword(), keyword);
+            assert_eq!(RebaseAction::parse_git_keyword(keyword), Ok(action));
+        }
+        assert_eq!(
+            RebaseAction::parse_git_keyword("merge"),
+            Err(RebaseTodoValidationError::UnsupportedAction)
         );
     }
 }
