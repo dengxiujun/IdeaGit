@@ -171,6 +171,77 @@ fn invalid_output(message: &'static str) -> GitError {
     GitError::new(GitErrorKind::Internal, message)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{GitCliRepositoryReader, TokioProcessRunner};
+    use git_domain::OperationId;
+    use git_fixture::TestRepository;
+    use git_ports::{EnvironmentVariable, ProcessProgress, RepositoryReader};
+    use tokio::sync::mpsc;
+    use tokio_util::sync::CancellationToken;
+
+    fn context() -> ExecutionContext {
+        let (progress, _receiver) = mpsc::channel::<ProcessProgress>(32);
+        ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress)
+    }
+
+    fn environment(fixture: &TestRepository) -> Vec<EnvironmentVariable> {
+        fixture
+            .isolated_environment()
+            .into_iter()
+            .map(|(name, value)| EnvironmentVariable::public(name, value))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn reads_real_head_index_and_worktree_versions() {
+        let fixture = TestRepository::init().expect("fixture should initialize");
+        fixture
+            .commit_file("conflict.txt", b"base\n")
+            .expect("fixture commit should succeed");
+        fixture
+            .write_file("conflict.txt", b"edited\n")
+            .expect("worktree edit should succeed");
+        let location = GitCliRepositoryReader::new(TokioProcessRunner)
+            .with_environment(environment(&fixture))
+            .discover(fixture.worktree.clone(), context())
+            .await
+            .expect("repository should be discovered");
+        let reader = GitCliVersionReader::new(TokioProcessRunner);
+        let versions = reader
+            .read(
+                &location,
+                &RepoPath::try_from("conflict.txt").expect("valid path"),
+                context(),
+            )
+            .await
+            .expect("versions should be readable");
+
+        assert!(
+            versions
+                .head
+                .as_ref()
+                .and_then(|version| version.oid)
+                .is_some()
+        );
+        assert!(
+            versions
+                .index
+                .as_ref()
+                .and_then(|version| version.oid)
+                .is_some()
+        );
+        assert_eq!(
+            versions
+                .worktree
+                .as_ref()
+                .and_then(|version| version.byte_length),
+            Some(7)
+        );
+    }
+}
+
 struct IndexVersionCommand {
     cwd: PathBuf,
     path: String,
