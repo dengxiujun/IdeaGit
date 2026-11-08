@@ -616,4 +616,81 @@ mod tests {
             .expect("git show");
         assert_eq!(unselected_head.stdout, b"unselected-base\n");
     }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn temporary_partial_commit_hook_rejection_keeps_head_and_real_index() {
+        let fixture = TestRepository::init().expect("fixture");
+        fixture
+            .commit_file("selected.txt", b"base\n")
+            .expect("initial commit");
+        let real_index = fixture.worktree.join(".git/index");
+        let index_before = fs::read(&real_index).expect("real Index");
+        let head_before = fixture.head_oid().expect("head").expect("committed HEAD");
+        fixture
+            .install_hook("pre-commit", b"#!/bin/sh\nexit 1\n")
+            .expect("hook");
+
+        fixture
+            .write_file("selected.txt", b"changed\n")
+            .expect("edit");
+        let temporary_index = fixture.temp_dir.path().join("hook-rejected-index");
+        let mut read_tree = Command::new("git");
+        read_tree
+            .args(["read-tree", "HEAD"])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (name, value) in fixture.isolated_environment() {
+            read_tree.env(name, value);
+        }
+        assert!(read_tree.status().expect("git starts").success());
+        let mut add = Command::new("git");
+        add.args(["add", "--", "selected.txt"])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (name, value) in fixture.isolated_environment() {
+            add.env(name, value);
+        }
+        assert!(add.status().expect("git starts").success());
+
+        let location = RepositoryLocation::worktree(
+            &fixture.worktree,
+            fixture.worktree.join(".git"),
+            fixture.worktree.join(".git"),
+        );
+        let writer =
+            GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location, &temporary_index)
+                .with_environment(fixture.isolated_environment());
+        let (progress, _receiver) = mpsc::channel(4);
+        let result = writer
+            .commit(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                StandardCommitRequest {
+                    options: CommitOptions {
+                        message: b"rejected partial commit\n".to_vec(),
+                        amend: false,
+                        allow_empty: false,
+                        signoff: false,
+                        author: None,
+                        committer: None,
+                        signing: SigningMode::Disable,
+                    },
+                    expected_revision: SnapshotRevision::new(1),
+                    expected_head: None,
+                    expected_index: None,
+                },
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await;
+
+        assert!(result.is_err(), "a rejecting hook must not report success");
+        assert_eq!(
+            fixture
+                .head_oid()
+                .expect("head")
+                .expect("HEAD remains committed"),
+            head_before
+        );
+        assert_eq!(fs::read(&real_index).expect("real Index"), index_before);
+    }
 }
