@@ -973,3 +973,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：尚未将该应用服务装配进 `OperationCoordinator`，UI-013 真实入口仍关闭；需要继续实现 OperationExecutor 组合和真实成功路径集成测试。
 - 下一步：实现受 OperationCoordinator 调度的 Selection Commit executor 组合点。
+
+## M4 UI-013：OperationCoordinator Selection Commit 组合点（2026-11-08）
+
+- 完成：新增 `SelectionCommitHandler` 与 `SelectionCommitOperationExecutor`，将 `GitCommand::CommitSelection` 作为独立 OperationExecutor 路由到专用 handler。
+- 安全边界：跨 Session 在 handler 前拒绝；executor 只接受 `CommitSelection`，不会转换或降级为 `CommitIndex`；写操作仍需由 `OperationCoordinator` 调度。
+- 测试：新增专用路由和跨 Session 拒绝测试；保留并通过 M2 防降级测试；workspace `fmt/check/clippy/test/diff check` 全部通过；git-operations 24 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：尚未把该 executor 与已确认事务服务及 Git CLI `PartialCommitCoordinator` 在应用组合根装配，UI-013 真实入口仍关闭。
+- 下一步：实现 handler 到 `SelectionCommitExecutionService`/Git CLI PartialCommitCoordinator 的真实组合，并增加 OperationCoordinator 真实仓库成功路径测试。

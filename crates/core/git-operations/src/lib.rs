@@ -8,6 +8,7 @@ mod commit;
 mod index;
 mod lock;
 mod recovery;
+mod selection_commit;
 
 pub use branch::{CoordinatedBranchWriter, JournaledBranchWriter, ReconciledBranchWriter};
 pub use commit::{
@@ -24,6 +25,7 @@ pub use recovery::{
     RecoveryDisposition, RecoveryInspection, RecoveryObservation, RecoveryStateReader,
     StartupRecoveryInspector, StartupRecoveryReport, classify as classify_recovery,
 };
+pub use selection_commit::{SelectionCommitHandler, SelectionCommitOperationExecutor};
 
 use std::{collections::HashMap, sync::Arc};
 
