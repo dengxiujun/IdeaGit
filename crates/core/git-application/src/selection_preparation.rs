@@ -271,4 +271,53 @@ mod tests {
         );
         let _ = std::fs::remove_file(prepared.preview.temporary_index.path.clone());
     }
+
+    #[tokio::test]
+    async fn rejects_preview_for_a_foreign_diff_target_before_creating_index() {
+        let target = SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1);
+        let foreign = SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1);
+        let selection = ChangeSelection::WholeFile {
+            file: FileIdentity {
+                target,
+                path: RepoPath::try_from("file.txt").expect("path"),
+                previous_path: None,
+                kind: FileKind::Regular,
+            },
+        };
+        let service = SelectionCommitPreparationService::new(Reader, Indexes, Tree);
+        let error = service
+            .prepare_preview(
+                &RepositoryLocation::worktree("/repo", "/repo/.git", "/repo/.git"),
+                OperationId::new(),
+                SelectionCommitPreviewRequest {
+                    target,
+                    diff_request: DiffReadRequest {
+                        target: foreign,
+                        before: git_diff::ContentSource::Head,
+                        after: git_diff::ContentSource::Worktree,
+                        paths: Vec::new(),
+                        context_lines: 3,
+                    },
+                    selection,
+                    options: CommitOptions {
+                        message: b"foreign\n".to_vec(),
+                        amend: false,
+                        allow_empty: false,
+                        signoff: false,
+                        author: None,
+                        committer: None,
+                        signing: SigningMode::Disable,
+                    },
+                    expected_head: None,
+                    expected_index: None,
+                    original_index_digest: [0; 32],
+                    expected_revision: SnapshotRevision::new(1),
+                },
+                context(),
+            )
+            .await
+            .expect_err("foreign Preview target must be rejected");
+
+        assert_eq!(error.kind, git_domain::GitErrorKind::StaleSelection);
+    }
 }

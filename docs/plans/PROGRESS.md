@@ -1103,3 +1103,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 影响范围：UI-013 桌面生产组合根暂不开放；不修改现有核心接口、不以 UI 环境变量绕过阻塞。
 - 测试：本次为边界审查和 ADR 草案，未执行代码门禁；此前 `31c2a0e` 的 workspace 门禁已通过。
 - 下一步：等待 ADR 批准；批准后实现动态 Temporary Index 写端口并增加真实 Git 并发/隔离测试。
+
+## M4 UI-013：Preview 跨 Session 失败门禁（2026-11-08）
+
+- 完成：新增 `SelectionCommitPreparationService` 的跨 Session target 失败测试，验证 Diff 请求 target 不一致时在创建 Temporary Index 前即返回 `StaleSelection`。
+- 安全证据：错误 Preview 不会进入 Diff/Temporary Index/Candidate Tree 写准备链路。
+- 修改文件：`crates/core/git-application/src/selection_preparation.rs`、`docs/plans/PROGRESS.md`。
+- 测试：git-application 22 项专项测试通过；workspace 门禁待本次提交前执行。
+- 风险：动态 Temporary Index writer ADR 仍待批准，UI-013 生产入口继续关闭。
+- 下一步：等待 ADR-M4-DYNAMIC-TEMP-INDEX-WRITER-001 批准后继续实现；在此之前保持核心写端口不变。
