@@ -216,7 +216,32 @@ impl InteractiveRebasePlan {
         {
             return Err(RebasePlanValidationError::UpstreamIncluded);
         }
+        for (index, entry) in self.entries.iter().enumerate() {
+            if matches!(entry.action, RebaseAction::Squash | RebaseAction::Fixup) && index == 0 {
+                return Err(RebasePlanValidationError::SquashOrFixupWithoutPrevious);
+            }
+            if entry.action == RebaseAction::Drop && entry.message_override.is_some() {
+                return Err(RebasePlanValidationError::DropMessageOverride);
+            }
+        }
         Ok(())
+    }
+
+    /// Renders the supported plan into Git's non-comment todo format.
+    pub fn render_todo(&self) -> Result<Vec<u8>, RebasePlanValidationError> {
+        self.validate()?;
+        let mut output = Vec::new();
+        for entry in &self.entries {
+            output.extend_from_slice(entry.action.git_keyword().as_bytes());
+            output.push(b' ');
+            output.extend_from_slice(entry.commit.to_string().as_bytes());
+            if let Some(message) = &entry.message_override {
+                output.push(b' ');
+                output.extend_from_slice(message.as_bytes());
+            }
+            output.push(b'\n');
+        }
+        Ok(output)
     }
 }
 
@@ -278,6 +303,10 @@ pub enum RebasePlanValidationError {
     EmptyEntries,
     #[error("interactive rebase plan must not include its upstream commit")]
     UpstreamIncluded,
+    #[error("squash or fixup requires a previous todo entry")]
+    SquashOrFixupWithoutPrevious,
+    #[error("drop todo entry cannot override a commit message")]
+    DropMessageOverride,
 }
 
 /// Sequencer operation kept separate from ordinary command state.
@@ -584,6 +613,56 @@ mod tests {
         assert_eq!(
             RebaseAction::parse_git_keyword("merge"),
             Err(RebaseTodoValidationError::UnsupportedAction)
+        );
+    }
+
+    #[test]
+    fn interactive_rebase_plan_rejects_invalid_todo_order_and_drop_message() {
+        let target = target();
+        let upstream =
+            ObjectId::from_str("0000000000000000000000000000000000000001").expect("test object id");
+        let commit =
+            ObjectId::from_str("0000000000000000000000000000000000000002").expect("test object id");
+        let first_squash = InteractiveRebasePlan {
+            target,
+            upstream,
+            entries: vec![RebaseTodoEntry {
+                commit,
+                action: RebaseAction::Squash,
+                message_override: None,
+            }],
+        };
+        assert_eq!(
+            first_squash.validate(),
+            Err(RebasePlanValidationError::SquashOrFixupWithoutPrevious)
+        );
+
+        let drop_with_message = InteractiveRebasePlan {
+            target,
+            upstream,
+            entries: vec![RebaseTodoEntry {
+                commit,
+                action: RebaseAction::Drop,
+                message_override: Some("must be rejected".to_owned()),
+            }],
+        };
+        assert_eq!(
+            drop_with_message.validate(),
+            Err(RebasePlanValidationError::DropMessageOverride)
+        );
+
+        let renderable = InteractiveRebasePlan {
+            target,
+            upstream,
+            entries: vec![RebaseTodoEntry {
+                commit,
+                action: RebaseAction::Pick,
+                message_override: Some("subject".to_owned()),
+            }],
+        };
+        assert_eq!(
+            renderable.render_todo().expect("todo should render"),
+            format!("pick {commit} subject\n").into_bytes()
         );
     }
 }
