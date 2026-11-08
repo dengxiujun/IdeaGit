@@ -1201,3 +1201,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - GitHub Runner：Rust CI #120（Run ID `42468104829`，提交 `37bfa70`）当时运行中；本次修改尚未推送 CI。
 - 风险：仍需真实 Git Preview→Coordinator Confirm 的桌面组合测试，并验证 Selection Commit 操作快照在失败/恢复路径中完整反馈。
 - 下一步：补桌面真实 Git M4 Runtime 集成测试，随后等待本次提交的跨平台 CI。
+
+## M4 UI-013：真实 Git Preview→Coordinator Confirm 验证（2026-11-08）
+
+- 完成：新增桌面真实仓库集成测试，覆盖 Preview 生成 Candidate Tree、arm Handler、通过 Selection Commit Coordinator 提交、Real Index Reconciliation 以及最终 HEAD/工作区状态；测试确认成功协调后 Index 发布 Candidate 内容且仓库状态干净。
+- 修改文件：`apps/desktop/src/main.rs`、`docs/plans/PROGRESS.md`。
+- 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过；桌面测试 18 项通过。
+- GitHub Runner：本次测试提交尚未推送 CI；前置 Rust CI #117（Run ID `42466409971`）已全绿。Rust CI #118/#119/#120 的旧提交状态仍需分别记录最终结果。
+- 风险：UI-013 代码路径已接入，但完整 M4 仍需本次提交跨平台 CI、PR 合并及最终全量审查。
+- 下一步：推送本次测试提交，按 3 分钟间隔确认四平台 Runner；随后更新 UI-013/M4 验收状态。

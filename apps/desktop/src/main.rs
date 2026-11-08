@@ -1859,6 +1859,135 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn selection_commit_runtime_previews_then_confirms_through_coordinator() {
+        use git_operations::CommitStateReader as _;
+        use sha2::{Digest, Sha256};
+
+        let repository = git_fixture::TestRepository::init().expect("fixture should initialize");
+        repository
+            .commit_file("selected.txt", b"base\n")
+            .expect("initial commit");
+        repository
+            .write_file("selected.txt", b"selected\n")
+            .expect("worktree edit");
+        let location = git_ports::RepositoryLocation::worktree(
+            &repository.worktree,
+            repository.worktree.join(".git"),
+            repository.worktree.join(".git"),
+        );
+        let target = SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1);
+        let state_reader = DesktopCommitStateReader::new(
+            target,
+            git_cli::GitCliCommitStateProbe::new(git_cli::TokioProcessRunner, location.clone()),
+        );
+        let context = ExecutionContext::new(
+            git_domain::OperationId::new(),
+            tokio_util::sync::CancellationToken::new(),
+            tokio::sync::mpsc::channel(4).0,
+        );
+        let state = state_reader
+            .read(target, context.clone())
+            .await
+            .expect("state should be readable");
+        let real_index = repository.worktree.join(".git/index");
+        let original_index = fs::read(&real_index).expect("real Index");
+        let selection = git_domain::ChangeSelection::WholeFile {
+            file: git_domain::FileIdentity {
+                target,
+                path: RepoPath::try_from("selected.txt").expect("path"),
+                previous_path: None,
+                kind: git_domain::FileKind::Regular,
+            },
+        };
+        let session = build_selection_commit_session(
+            target,
+            location.clone(),
+            repository
+                .temp_dir
+                .path()
+                .join("selection-runtime-journal.json"),
+        )
+        .expect("M4 session should build");
+        let request = git_application::SelectionCommitPreviewRequest {
+            target,
+            diff_request: git_ports::DiffReadRequest {
+                target,
+                before: git_diff::ContentSource::Head,
+                after: git_diff::ContentSource::Worktree,
+                paths: vec![RepoPath::try_from("selected.txt").expect("path")],
+                context_lines: 3,
+            },
+            selection,
+            options: CommitOptions {
+                message: b"runtime partial commit\n".to_vec(),
+                amend: false,
+                allow_empty: false,
+                signoff: false,
+                author: None,
+                committer: None,
+                signing: SigningMode::Disable,
+            },
+            expected_head: state.head,
+            expected_index: state.index,
+            original_index_digest: Sha256::digest(&original_index).into(),
+            expected_revision: SnapshotRevision::new(1),
+        };
+        let preview_request = session
+            .prepare_preview(&location, git_domain::OperationId::new(), request, context)
+            .await
+            .expect("Preview should prepare");
+        let coordinator = build_selection_commit_coordinator(target, &session, 1)
+            .expect("M4 coordinator should build");
+        let operation = coordinator
+            .submit(git_domain::GitCommand::CommitSelection {
+                target,
+                request: preview_request,
+            })
+            .await
+            .expect("Selection Commit should queue");
+        let mut updates = coordinator
+            .subscribe(operation)
+            .await
+            .expect("operation should be observable");
+        while updates.borrow().phase != OperationPhase::Finished {
+            updates.changed().await.expect("operation should finish");
+        }
+        let snapshot = coordinator
+            .operation(operation)
+            .await
+            .expect("operation snapshot should exist");
+        assert!(matches!(
+            snapshot.outcome,
+            Some(git_operations::OperationOutcome::Success)
+        ));
+        assert_ne!(
+            fs::read(&real_index).expect("real Index"),
+            original_index,
+            "successful reconciliation should publish the committed candidate Index"
+        );
+        let status = std::process::Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(&repository.worktree)
+            .output()
+            .expect("git status");
+        assert!(status.status.success());
+        assert!(
+            status.stdout.is_empty(),
+            "committed worktree should be clean"
+        );
+        let head = std::process::Command::new("git")
+            .args(["show", "HEAD:selected.txt"])
+            .current_dir(&repository.worktree)
+            .output()
+            .expect("HEAD blob");
+        assert_eq!(head.stdout, b"selected\n");
+        coordinator
+            .join()
+            .await
+            .expect("Selection Commit coordinator should stop");
+    }
+
+    #[tokio::test]
     async fn selection_commit_handler_runs_real_coordinator_transaction() {
         use git_application::{
             CandidateTreePreview, PreparedPartialCommit, PreparedSelectionCommitHandler,
