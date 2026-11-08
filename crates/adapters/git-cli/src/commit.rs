@@ -501,15 +501,55 @@ impl sealed::Sealed for ParentsCommand {
 
 #[cfg(test)]
 mod tests {
-    use git_domain::{CommitOptions, OperationId, RepositoryId, SnapshotRevision, WorktreeId};
+    use async_trait::async_trait;
+    use git_commit::{
+        PartialCommitCoordinator, PartialCommitJournal, PartialCommitPhase,
+        PartialCommitTransaction,
+    };
+    use git_domain::{
+        ChangeSelection, CommitOptions, FileIdentity, FileKind, JournalRecord, JournalResult,
+        OperationId, RecoveryPath, RecoveryScope, RepoPath, RepositoryId, SelectionCommitRequest,
+        SelectionFingerprint, SessionTarget, SnapshotRevision, WorktreeId,
+    };
     use git_fixture::TestRepository;
-    use git_ports::{CandidateTreeBuilder, CandidateTreeRequest};
+    use git_ports::{
+        CandidateTreeBuilder, CandidateTreeRequest, JournalStore, PendingJournalRecords,
+    };
+    #[cfg(unix)]
+    use std::os::unix::ffi::OsStrExt;
+    use std::sync::{Arc, Mutex};
     use std::{fs, process::Command};
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 
     use super::*;
-    use crate::{GitCliCandidateTreeBuilder, GitCliExecutor, TokioProcessRunner};
+    use crate::{
+        GitCliCandidateTreeBuilder, GitCliExecutor, GitCliIndexReconciliationPublisher,
+        TokioProcessRunner,
+    };
+
+    #[derive(Clone, Default)]
+    struct MemoryJournal {
+        record: Arc<Mutex<Option<JournalRecord>>>,
+    }
+
+    #[async_trait]
+    impl JournalStore for MemoryJournal {
+        async fn append(&self, record: JournalRecord) -> GitResult<()> {
+            *self.record.lock().expect("journal lock") = Some(record);
+            Ok(())
+        }
+        async fn replace(&self, record: JournalRecord) -> GitResult<()> {
+            *self.record.lock().expect("journal lock") = Some(record);
+            Ok(())
+        }
+        async fn get(&self, _operation_id: OperationId) -> GitResult<Option<JournalRecord>> {
+            Ok(self.record.lock().expect("journal lock").clone())
+        }
+        async fn pending(&self, _scope: &RecoveryScope) -> GitResult<PendingJournalRecords> {
+            Ok(PendingJournalRecords::default())
+        }
+    }
 
     fn test_context() -> ExecutionContext {
         let (progress, _receiver) = mpsc::channel(4);
@@ -1263,6 +1303,154 @@ mod tests {
             .expect("observe after commit");
 
         assert_ne!(before.worktree_digest, after.worktree_digest);
+        assert!(fixture.worktree.join("hook-side-effect.txt").exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn coordinator_persists_recovery_for_hook_worktree_mutation() {
+        let fixture = TestRepository::init().expect("fixture");
+        fixture
+            .commit_file("selected.txt", b"base\n")
+            .expect("initial commit");
+        fixture
+            .write_file("selected.txt", b"changed\n")
+            .expect("edit");
+        fixture.stage_file("selected.txt").expect("stage");
+        fixture
+            .install_hook(
+                "pre-commit",
+                b"#!/bin/sh\nprintf 'hook side effect\n' > hook-side-effect.txt\nexit 0\n",
+            )
+            .expect("hook");
+
+        let location = RepositoryLocation::worktree(
+            &fixture.worktree,
+            fixture.worktree.join(".git"),
+            fixture.worktree.join(".git"),
+        );
+        let target = SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1);
+        let probe = GitCliCommitStateProbe::new(TokioProcessRunner, location.clone());
+        let state = probe.read(test_context()).await.expect("state");
+        let real_index = fixture.worktree.join(".git/index");
+        let original_index = fs::read(&real_index).expect("real index");
+
+        let temporary_index = fixture.temp_dir.path().join("coordinator-hook-index");
+        let mut read_tree = Command::new("git");
+        read_tree
+            .args(["read-tree", "HEAD"])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (name, value) in fixture.isolated_environment() {
+            read_tree.env(name, value);
+        }
+        assert!(read_tree.status().expect("git starts").success());
+        let patch = b"diff --git a/selected.txt b/selected.txt\n--- a/selected.txt\n+++ b/selected.txt\n@@ -1 +1 @@\n-base\n+changed\n";
+        let builder = GitCliCandidateTreeBuilder::new(GitCliExecutor::new(TokioProcessRunner));
+        let tree = builder
+            .build(
+                CandidateTreeRequest {
+                    temporary_index: temporary_index.clone(),
+                    worktree_root: fixture.worktree.clone(),
+                    patch: patch.to_vec(),
+                },
+                test_context(),
+            )
+            .await
+            .expect("candidate tree");
+
+        let selection = ChangeSelection::WholeFile {
+            file: FileIdentity {
+                target,
+                path: RepoPath::try_from("selected.txt").expect("path"),
+                previous_path: None,
+                kind: FileKind::Regular,
+            },
+        };
+        let request = SelectionCommitRequest {
+            options: CommitOptions {
+                message: b"coordinated partial commit\n".to_vec(),
+                amend: false,
+                allow_empty: false,
+                signoff: false,
+                author: None,
+                committer: None,
+                signing: SigningMode::Disable,
+            },
+            selections: vec![selection],
+            fingerprints: vec![SelectionFingerprint {
+                expected_head: state.head,
+                expected_index: Some(state.index),
+                diff_generation: SnapshotRevision::new(1),
+                content_digest: vec![1; 32],
+            }],
+            expected_revision: SnapshotRevision::new(1),
+        };
+        let mut transaction = PartialCommitTransaction::begin(request).expect("transaction");
+        transaction
+            .temp_index_prepared(state.head, Some(state.index))
+            .expect("temporary index phase");
+        transaction.candidate_ready(tree).expect("candidate phase");
+        transaction
+            .reconciliation_candidate(
+                sha2::Sha256::digest(&original_index).into(),
+                fs::read(&temporary_index).expect("candidate index"),
+            )
+            .expect("reconciliation candidate");
+        transaction
+            .revalidate_before_commit(state.head, Some(state.index))
+            .expect("revalidation");
+
+        let journal_store = MemoryJournal::default();
+        let journal_snapshot = Arc::clone(&journal_store.record);
+        let scope = RecoveryScope::worktree(
+            RecoveryPath::unix(
+                fixture
+                    .worktree
+                    .join(".git")
+                    .as_os_str()
+                    .as_bytes()
+                    .to_vec(),
+            )
+            .expect("scope"),
+            RecoveryPath::unix(
+                fixture
+                    .worktree
+                    .join(".git")
+                    .as_os_str()
+                    .as_bytes()
+                    .to_vec(),
+            )
+            .expect("scope"),
+        );
+        let writer = GitCliTemporaryIndexCommitWriter::new(
+            TokioProcessRunner,
+            location.clone(),
+            &temporary_index,
+        )
+        .with_environment(fixture.isolated_environment());
+        let observer = GitCliCommitSideEffectObserver::new(TokioProcessRunner, location.clone());
+        let publisher = GitCliIndexReconciliationPublisher::new(location);
+        let coordinator = PartialCommitCoordinator::new(
+            writer,
+            PartialCommitJournal::new(journal_store, scope),
+            observer,
+            publisher,
+        );
+        let error = coordinator
+            .commit(target, OperationId::new(), &mut transaction, test_context())
+            .await
+            .expect_err("hook side effects must require recovery");
+        assert_eq!(error.kind, GitErrorKind::HooksMutatedRepository);
+        assert_eq!(transaction.phase, PartialCommitPhase::RecoveryRequired);
+        assert!(matches!(
+            journal_snapshot
+                .lock()
+                .expect("journal lock")
+                .as_ref()
+                .and_then(|record| record.result.as_ref()),
+            Some(JournalResult::RecoveryRequired { .. })
+        ));
         assert!(fixture.worktree.join("hook-side-effect.txt").exists());
     }
 

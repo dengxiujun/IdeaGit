@@ -839,3 +839,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 专项测试：`cargo test -p git-diff --locked`（12 passed）；`cargo fmt --all` 与 `git diff --check` 已通过。
 - 本切片尚未接通 Candidate Tree、Partial Commit 或真实 Index；下一项继续补齐 Selection Patch 到 Candidate Tree 的应用层边界，随后推进 TEST-004 安全回归。
 - GitHub Runner：未执行（当前环境未配置 GitHub connector）；PR：未创建。
+
+## M4 TEST-004：协调器级 Hook 副作用恢复（2026-11-08）
+
+- 完成：新增真实 Git 仓库测试，由 `PartialCommitCoordinator` 驱动临时 Index Commit；提交后 Hook 副作用被 `CommitSideEffectObserver` 识别，返回 `HooksMutatedRepository`，事务进入 `RecoveryRequired`，Journal 持久化恢复结果。
+- 修改：`git-cli` 测试开发依赖加入既有 workspace crate `git-commit`，仅用于真实协调器集成测试；未升级任何依赖版本。
+- 测试：专项测试通过；`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过；Git CLI 测试 76 个通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：TEST-004 仍需补齐外部 Index/HEAD 竞争、签名失败后状态确认、崩溃重启诊断与跨平台矩阵的最终审计；UI-013 生产入口继续关闭。
+- 下一步：补 TEST-004 剩余安全矩阵并重新审查 M4 高级能力开放条件。

@@ -13,6 +13,7 @@ sha2.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+git-commit = { path = "../../core/git-commit" }
 git-fixture = { path = "../../../tests/fixtures" }
 tempfile.workspace = true
 tokio-util.workspace = true
