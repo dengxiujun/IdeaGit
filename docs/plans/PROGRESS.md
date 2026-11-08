@@ -1000,3 +1000,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：apps/desktop 组合根尚未实际连通 state reader、handler、Git CLI coordinator 和 OperationCoordinator；真实成功路径仍需组合测试，UI-013 入口继续关闭。
 - 下一步：在真实 Git fixture 中装配 PreparedSelectionCommitHandler 与 PartialCommitCoordinator，验证 Coordinator 成功提交和恢复失败路径。
+
+## M4 UI-013：PartialCommitCoordinator 应用桥接（2026-11-08）
+
+- 完成：`PartialCommitCoordinator` 已实现 `ConfirmedPartialCommitRunner`，可作为 `PreparedSelectionCommitHandler` 的真实底层 runner；桥接保留事务、Journal、Hook observer 和 Index reconciliation 语义。
+- 测试：workspace `fmt/check/clippy/test/diff check` 全部通过；git-application 18 项测试、Git CLI 78 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：尚未在 `apps/desktop` 组合根实际连通 state reader、handler、Git CLI coordinator 和 OperationCoordinator；真实 Git fixture 成功/恢复组合测试仍待补齐，UI-013 入口继续关闭。
+- 下一步：新增真实 Git fixture 的应用 handler + OperationCoordinator 成功提交与失败恢复测试。
