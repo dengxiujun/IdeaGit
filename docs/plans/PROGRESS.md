@@ -1380,5 +1380,6 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 证据：`docs/performance/PERF-001-baseline-2026-11-09.md`；入口为 `crates/adapters/git-cli/tests/m6_perf.rs`，默认 ignored，避免普通 PR 产生长时间基准开销。
 - 已执行：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；ignored benchmark 真实运行通过。
 - 未完成：严格冷缓存、峰值内存、大型 Diff reader/UI 完整路径及 Windows/Linux 基线仍未测量；因此 PERF-001 尚未完成，不能进入后续 M6 任务。
+- 跨平台补充：已新增 `.github/workflows/m6-perf.yml`；Run ID `42498965576`（提交 `8899f00`）的 Ubuntu 24.04、Windows 2022、macOS 15 jobs 均成功执行三类 benchmark。Artifact 已生成，但当前环境下载接口返回 401/403，三平台具体 P50/P95 与峰值内存尚未归档，不能据此关闭 PERF-001。
 - 风险与回滚：当前仅新增测试和文档，不修改 Git 写路径；删除本分支新增文件即可回滚。严格冷缓存和峰值内存需要明确的跨平台采集方案，不能以当前首轮样本替代。
 - 下一步：补齐同一任务要求的 UI projection / 大 Diff / 多仓库与取消 benchmark，并建立可审计的跨平台运行记录。

@@ -36,6 +36,13 @@
 - 100,000 行大型 unified diff 解析：1.300MB 输入，20.857ms；独立入口为 `cargo test -p git-diff --test m6_perf_diff --locked -- --ignored --nocapture`。
 - UI projection 和取消结果不包含 GPUI 实际渲染帧率，也不包含峰值内存。
 
+## 跨平台 Runner 证据
+
+- GitHub Actions：`M6 Performance Baseline`，Run ID `42498965576`，提交 `8899f00`，最终状态 `success`。
+- Runner 矩阵：Ubuntu 24.04、Windows 2022、macOS 15；三个 job 均执行 Git CLI、UI projection 和 large diff parser benchmark。
+- Artifact：`m6-perf-Linux-42498965576`（ID `13624304378`）、`m6-perf-Windows-42498965576`（ID `13624179776`）、`m6-perf-macOS-42498965576`（ID `13624831776`）。
+- 当前环境无法下载这些 artifact（GitHub API 返回 401/403），所以三平台具体 P50/P95 和 runner 峰值内存尚未复制到本报告；workflow 成功只能证明步骤通过，不能替代数值记录。
+
 ## 验收状态
 
 - [x] 真实 Git 10 万 Commit 数据集可重复生成。
@@ -47,6 +54,7 @@
 - [ ] 峰值内存测量。
 - [x] 多仓库切换与大型 Diff 解析基线已记录。
 - [ ] 大型 Diff 完整 reader/UI/峰值内存测量。
-- [ ] 三平台基线。
+- [x] 三平台 benchmark workflow 执行成功。
+- [ ] 三平台具体 P50/P95 与峰值内存数值归档。
 
 因此，本文件是 PERF-001 的 macOS 基线证据，不代表 PERF-001 或 M6 门禁完成。
