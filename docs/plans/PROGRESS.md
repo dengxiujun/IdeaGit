@@ -2,6 +2,16 @@
 
 更新日期：2026-11-08。
 
+## M4 CCD-002：Selection Fingerprints（2026-11-08）
+
+- 分支：`feat/CCD-002`；从 `main` 创建并带入 CCD-001。
+- 完成：新增确定性 SHA-256 选区指纹引擎，绑定 Repository/Worktree、HEAD/Index、Diff Generation、ChangeSelection 与原始内容字节；状态变化分类为 Valid、Stale 或 Ambiguous，跨目标选择拒绝。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；专项测试 4/4 通过。
+- 依赖：仅使用 workspace 已锁定的 `serde_json`/`sha2`，更新 Cargo.lock 依赖边，未升级版本或引入外部依赖。
+- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
+- 风险：指纹重定位仍是保守分类，不自动移动选区；持久化事务留给 CCD-003。
+- 下一任务：CCD-003（Changelist Persistence）。
+
 ## M4 CCD-001：Changelist Domain（2026-11-08）
 
 - 分支：`feat/CCD-001`；从 `main` 创建，未提前引入后续 M4 实现。

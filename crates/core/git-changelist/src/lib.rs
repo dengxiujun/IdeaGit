@@ -2,6 +2,7 @@
 
 use git_domain::{ChangeSelection, FileIdentity, SelectionFingerprint, SessionTarget};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -79,6 +80,67 @@ impl ChangelistBinding {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FingerprintObservation {
+    pub target: SessionTarget,
+    pub head: Option<git_domain::ObjectId>,
+    pub index: Option<git_domain::ObjectId>,
+    pub diff_generation: git_domain::SnapshotRevision,
+}
+
+#[derive(Debug, Default)]
+pub struct SelectionFingerprintEngine;
+
+impl SelectionFingerprintEngine {
+    pub fn compute(
+        observation: FingerprintObservation,
+        selection: &ChangeSelection,
+        content: &[u8],
+    ) -> Result<SelectionFingerprint, ChangelistError> {
+        if selection.target() != observation.target {
+            return Err(ChangelistError::TargetMismatch);
+        }
+        Ok(SelectionFingerprint {
+            expected_head: observation.head,
+            expected_index: observation.index,
+            diff_generation: observation.diff_generation,
+            content_digest: digest(selection, content)?,
+        })
+    }
+
+    pub fn verify(
+        binding: &ChangelistBinding,
+        observation: FingerprintObservation,
+        content: &[u8],
+    ) -> Result<BindingState, ChangelistError> {
+        if binding.target != observation.target || binding.selection.target() != observation.target
+        {
+            return Err(ChangelistError::TargetMismatch);
+        }
+        let expected = &binding.fingerprint;
+        if expected.expected_head != observation.head
+            || expected.expected_index != observation.index
+            || expected.diff_generation != observation.diff_generation
+        {
+            return Ok(BindingState::Stale);
+        }
+        if expected.content_digest != digest(&binding.selection, content)? {
+            return Ok(BindingState::Ambiguous);
+        }
+        Ok(BindingState::Valid)
+    }
+}
+
+fn digest(selection: &ChangeSelection, content: &[u8]) -> Result<Vec<u8>, ChangelistError> {
+    let selection =
+        serde_json::to_vec(selection).map_err(|_| ChangelistError::FingerprintEncoding)?;
+    let mut hasher = Sha256::new();
+    hasher.update((selection.len() as u64).to_le_bytes());
+    hasher.update(selection);
+    hasher.update(content);
+    Ok(hasher.finalize().to_vec())
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Changelist {
     pub id: ChangelistId,
@@ -145,6 +207,8 @@ pub enum ChangelistError {
     TargetMismatch,
     #[error("changelist binding was not found")]
     BindingNotFound,
+    #[error("selection fingerprint could not be encoded")]
+    FingerprintEncoding,
 }
 
 #[cfg(test)]
@@ -152,7 +216,7 @@ mod tests {
     use super::*;
     use git_domain::{FileKind, LineSpan, RepoPath, RepositoryId, SnapshotRevision, WorktreeId};
 
-    fn target(generation: u64) -> SessionTarget {
+    fn make_target(generation: u64) -> SessionTarget {
         SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), generation)
     }
     fn binding(target: SessionTarget) -> ChangelistBinding {
@@ -184,7 +248,7 @@ mod tests {
 
     #[test]
     fn creates_default_changelist_and_tracks_binding_state() {
-        let target = target(1);
+        let target = make_target(1);
         let mut list = Changelist::new(target, "Feature", true, 42).expect("list should be valid");
         let binding = binding(target);
         let id = binding.id;
@@ -197,14 +261,71 @@ mod tests {
 
     #[test]
     fn rejects_empty_names_and_cross_session_bindings() {
-        let first = target(1);
+        let first = make_target(1);
         assert_eq!(
             Changelist::new(first, " ", false, 0),
             Err(ChangelistError::EmptyName)
         );
         let mut list = Changelist::new(first, "Default", true, 0).expect("list should be valid");
         assert_eq!(
-            list.add_binding(binding(target(2))),
+            list.add_binding(binding(make_target(2))),
+            Err(ChangelistError::TargetMismatch)
+        );
+    }
+
+    #[test]
+    fn fingerprint_binds_selection_content_and_repository_state() {
+        let target = make_target(1);
+        let mut bound = binding(target);
+        let observation = FingerprintObservation {
+            target,
+            head: None,
+            index: None,
+            diff_generation: SnapshotRevision::new(2),
+        };
+        bound.fingerprint =
+            SelectionFingerprintEngine::compute(observation, &bound.selection, b"selected bytes")
+                .expect("fingerprint should compute");
+        assert_eq!(
+            SelectionFingerprintEngine::verify(&bound, observation, b"selected bytes"),
+            Ok(BindingState::Valid)
+        );
+        assert_eq!(
+            SelectionFingerprintEngine::verify(&bound, observation, b"changed bytes"),
+            Ok(BindingState::Ambiguous)
+        );
+    }
+
+    #[test]
+    fn fingerprint_marks_state_changes_stale_and_rejects_foreign_target() {
+        let target = make_target(1);
+        let binding = binding(target);
+        let observation = FingerprintObservation {
+            target,
+            head: None,
+            index: None,
+            diff_generation: SnapshotRevision::new(2),
+        };
+        assert_eq!(
+            SelectionFingerprintEngine::verify(
+                &binding,
+                FingerprintObservation {
+                    diff_generation: SnapshotRevision::new(3),
+                    ..observation
+                },
+                b"bytes",
+            ),
+            Ok(BindingState::Stale)
+        );
+        assert_eq!(
+            SelectionFingerprintEngine::compute(
+                FingerprintObservation {
+                    target: make_target(2),
+                    ..observation
+                },
+                &binding.selection,
+                b"bytes",
+            ),
             Err(ChangelistError::TargetMismatch)
         );
     }
