@@ -2052,11 +2052,14 @@ dependencies = [
 name = "git-commit"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "git-diff",
  "git-domain",
  "git-fixture",
  "git-ports",
  "sha2 0.10.9",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]

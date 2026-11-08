@@ -11,4 +11,7 @@ git-diff.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]
+async-trait.workspace = true
 git-fixture = { path = "../../../tests/fixtures" }
+tokio.workspace = true
+tokio-util.workspace = true

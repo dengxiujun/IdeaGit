@@ -369,10 +369,140 @@ impl PartialCommitTransaction {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
     use git_domain::{
-        ChangeSelection, FileIdentity, FileKind, RepoPath, RepositoryId, SelectionFingerprint,
-        SessionTarget, SnapshotRevision, WorktreeId,
+        ChangeSelection, FileIdentity, FileKind, RecoveryPath, RepoPath, RepositoryId,
+        SelectionFingerprint, SessionTarget, SnapshotRevision, WorktreeId,
     };
+    use git_ports::{CommitSideEffectSnapshot, PendingJournalRecords, ProcessProgress};
+    use std::sync::{Arc, Mutex};
+    use tokio_util::sync::CancellationToken;
+
+    #[derive(Clone, Default)]
+    struct TestJournalStore {
+        record: Arc<Mutex<Option<JournalRecord>>>,
+    }
+
+    #[async_trait]
+    impl JournalStore for TestJournalStore {
+        async fn append(&self, record: JournalRecord) -> GitResult<()> {
+            *self.record.lock().expect("journal lock") = Some(record);
+            Ok(())
+        }
+
+        async fn replace(&self, record: JournalRecord) -> GitResult<()> {
+            *self.record.lock().expect("journal lock") = Some(record);
+            Ok(())
+        }
+
+        async fn get(&self, _operation_id: OperationId) -> GitResult<Option<JournalRecord>> {
+            Ok(self.record.lock().expect("journal lock").clone())
+        }
+
+        async fn pending(&self, _scope: &RecoveryScope) -> GitResult<PendingJournalRecords> {
+            Ok(PendingJournalRecords::default())
+        }
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    struct TestWriter;
+
+    #[async_trait]
+    impl CommitWriter for TestWriter {
+        async fn commit(
+            &self,
+            _target: SessionTarget,
+            _request: git_domain::StandardCommitRequest,
+            _context: ExecutionContext,
+        ) -> GitResult<CommitOutcome> {
+            Ok(CommitOutcome {
+                commit: "1111111111111111111111111111111111111111"
+                    .parse()
+                    .expect("commit oid"),
+                parents: Vec::new(),
+            })
+        }
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    struct MutatingObserver;
+
+    #[async_trait]
+    impl CommitSideEffectObserver for MutatingObserver {
+        async fn capture(
+            &self,
+            _target: SessionTarget,
+            _context: ExecutionContext,
+        ) -> GitResult<CommitSideEffectSnapshot> {
+            Ok(CommitSideEffectSnapshot {
+                head: None,
+                worktree_digest: [1; 32],
+                refs_digest: [2; 32],
+            })
+        }
+
+        async fn observe(
+            &self,
+            _target: SessionTarget,
+            _context: ExecutionContext,
+        ) -> GitResult<CommitSideEffectSnapshot> {
+            Ok(CommitSideEffectSnapshot {
+                head: None,
+                worktree_digest: [3; 32],
+                refs_digest: [2; 32],
+            })
+        }
+    }
+
+    fn test_context() -> ExecutionContext {
+        let (progress, _receiver) = tokio::sync::mpsc::channel::<ProcessProgress>(4);
+        ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress)
+    }
+
+    #[tokio::test]
+    async fn coordinator_persists_recovery_when_observer_detects_side_effect() {
+        let store = TestJournalStore::default();
+        let scope = RecoveryScope::worktree(
+            RecoveryPath::unix(b"/tmp/ideagit-common".to_vec()).expect("common path"),
+            RecoveryPath::unix(b"/tmp/ideagit-git".to_vec()).expect("git path"),
+        );
+        let journal = PartialCommitJournal::new(store.clone(), scope);
+        let coordinator = PartialCommitCoordinator::new(TestWriter, journal, MutatingObserver);
+        let mut transaction = PartialCommitTransaction::begin(request()).expect("transaction");
+        transaction
+            .temp_index_prepared(None, None)
+            .expect("temporary Index");
+        transaction
+            .candidate_ready(
+                "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+                    .parse()
+                    .expect("tree"),
+            )
+            .expect("candidate");
+        transaction
+            .revalidate_before_commit(None, None)
+            .expect("revalidation");
+        let target = transaction.request.selections[0].target();
+
+        let error = coordinator
+            .commit(target, OperationId::new(), &mut transaction, test_context())
+            .await
+            .expect_err("side effects must not report success");
+
+        assert_eq!(error.kind, GitErrorKind::HooksMutatedRepository);
+        assert_eq!(transaction.phase, PartialCommitPhase::RecoveryRequired);
+        let record = store
+            .record
+            .lock()
+            .expect("journal lock")
+            .clone()
+            .expect("journal record");
+        assert_eq!(record.phase, JournalPhase::RecoveryRequired);
+        assert!(matches!(
+            record.result,
+            Some(JournalResult::RecoveryRequired { .. })
+        ));
+    }
 
     fn request() -> SelectionCommitRequest {
         let target = SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1);
