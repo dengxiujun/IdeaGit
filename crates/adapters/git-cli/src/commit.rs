@@ -555,20 +555,27 @@ impl sealed::Sealed for ParentsCommand {
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
+    #[cfg(unix)]
     use git_commit::{
         PartialCommitCoordinator, PartialCommitJournal, PartialCommitPhase,
         PartialCommitTransaction,
     };
+    #[cfg(unix)]
     use git_domain::{
-        ChangeSelection, CommitOptions, FileIdentity, FileKind, JournalRecord, JournalResult,
-        OperationId, RecoveryPath, RecoveryScope, RepoPath, RepositoryId, SelectionCommitRequest,
-        SelectionFingerprint, SessionTarget, SnapshotRevision, WorktreeId,
+        ChangeSelection, FileIdentity, FileKind, JournalRecord, JournalResult, RecoveryPath,
+        RecoveryScope, RepoPath, SelectionCommitRequest, SelectionFingerprint,
+    };
+    use git_domain::{
+        CommitOptions, OperationId, RepositoryId, SessionTarget, SnapshotRevision, WorktreeId,
     };
     use git_fixture::TestRepository;
     use git_ports::{
-        CandidateTreeBuilder, CandidateTreeRequest, ExecutionContext, IndexReconciliationOutcome,
-        IndexReconciliationPublisher, IndexReconciliationRequest, JournalStore,
-        PendingJournalRecords, TemporaryIndexLease,
+        CandidateTreeBuilder, CandidateTreeRequest, ExecutionContext, TemporaryIndexLease,
+    };
+    #[cfg(unix)]
+    use git_ports::{
+        IndexReconciliationOutcome, IndexReconciliationPublisher, IndexReconciliationRequest,
+        JournalStore, PendingJournalRecords,
     };
     #[cfg(unix)]
     use std::os::unix::ffi::OsStrExt;
@@ -583,16 +590,19 @@ mod tests {
         TokioProcessRunner,
     };
 
+    #[cfg(unix)]
     #[derive(Clone, Default)]
     struct MemoryJournal {
         record: Arc<Mutex<Option<JournalRecord>>>,
     }
 
+    #[cfg(unix)]
     struct ExternalIndexMutationPublisher {
         fixture: std::path::PathBuf,
         inner: GitCliIndexReconciliationPublisher,
     }
 
+    #[cfg(unix)]
     #[async_trait]
     impl IndexReconciliationPublisher for ExternalIndexMutationPublisher {
         async fn publish(
@@ -608,6 +618,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[async_trait]
     impl JournalStore for MemoryJournal {
         async fn append(&self, record: JournalRecord) -> GitResult<()> {
@@ -1441,6 +1452,7 @@ mod tests {
         writer
             .commit(
                 SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                operation,
                 StandardCommitRequest {
                     options: CommitOptions {
                         message: b"partial non-utf8 path\n".to_vec(),

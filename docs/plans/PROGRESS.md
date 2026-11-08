@@ -1144,3 +1144,13 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit：待本次门禁通过后生成；GitHub Runner 待 PR 创建后按固定 3 分钟间隔检查。
 - 风险：本地仅验证 macOS；Windows/Linux/macOS 的最终跨平台结论必须以 GitHub `Rust CI` 三平台 Runner 为准。在 Runner 全绿前，TEST-004 不标记为发布验收完成，UI-013 生产入口继续关闭。
 - 下一步：执行 workspace 全量门禁并提交，推送 `feat/m4`、创建 PR，等待三平台 Rust CI；通过后再继续 UI-013。
+
+## M4 TEST-004：跨平台 CI 修复（2026-11-08）
+
+- 完成：修复 Rust CI 暴露的跨平台测试编译问题：Unix 专用恢复测试辅助类型与导入增加 `cfg(unix)`，非 UTF-8 路径 Temporary Index 提交测试补齐 Preview Operation ID。
+- 修改文件：`crates/adapters/git-cli/src/commit.rs`。
+- Commit：`aaff9f4 fix(M4 TEST-004): 修复跨平台 Partial Commit 测试`。
+- 本地门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
+- GitHub Runner：Rust CI #114（Run ID `42463768350`）已确认 Format 通过；Ubuntu 因非 UTF-8 路径测试缺少 Operation ID、Windows 因 Unix 专用测试辅助项未加条件编译而失败；macOS 状态待本次修复推送后的新 Run 重新确认。
+- 风险：TEST-004 仍未达到跨平台发布验收，必须等待新 CI 三平台全绿；UI-013 生产入口继续关闭。
+- 下一步：推送 `feat/m4`，等待新 Rust CI；CI 全绿后再继续 UI-013 生产 Preview Session/ActionDispatcher 装配。
