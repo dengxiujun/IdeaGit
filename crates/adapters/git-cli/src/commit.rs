@@ -494,4 +494,126 @@ mod tests {
         assert!(!outcome.commit.to_string().is_empty());
         assert_eq!(fs::read(&real_index).expect("real index"), before);
     }
+
+    #[tokio::test]
+    async fn temporary_partial_commit_keeps_unselected_worktree_and_index_content() {
+        let fixture = TestRepository::init().expect("fixture");
+        fixture
+            .commit_file("selected.txt", b"selected-base\n")
+            .expect("first file");
+        fixture
+            .write_file("unselected.txt", b"unselected-base\n")
+            .expect("second file");
+        fixture
+            .stage_file("unselected.txt")
+            .expect("stage second file");
+        let commit_writer = GitCliCommitWriter::new(
+            TokioProcessRunner,
+            RepositoryLocation::worktree(
+                &fixture.worktree,
+                fixture.worktree.join(".git"),
+                fixture.worktree.join(".git"),
+            ),
+        )
+        .with_environment(fixture.isolated_environment());
+        let (progress, _receiver) = mpsc::channel(4);
+        commit_writer
+            .commit(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                StandardCommitRequest {
+                    options: CommitOptions {
+                        message: b"add second file\n".to_vec(),
+                        amend: false,
+                        allow_empty: false,
+                        signoff: false,
+                        author: None,
+                        committer: None,
+                        signing: SigningMode::Disable,
+                    },
+                    expected_revision: SnapshotRevision::new(1),
+                    expected_head: None,
+                    expected_index: None,
+                },
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect("baseline commit");
+
+        fixture
+            .write_file("selected.txt", b"selected-changed\n")
+            .expect("selected edit");
+        fixture
+            .write_file("unselected.txt", b"unselected-changed\n")
+            .expect("unselected edit");
+        let real_index = fixture.worktree.join(".git/index");
+        let index_before = fs::read(&real_index).expect("real Index");
+        let temporary_index = fixture.temp_dir.path().join("partial-candidate-index");
+        let mut read_tree = Command::new("git");
+        read_tree
+            .args(["read-tree", "HEAD"])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (name, value) in fixture.isolated_environment() {
+            read_tree.env(name, value);
+        }
+        assert!(read_tree.status().expect("git starts").success());
+        let mut add_selected = Command::new("git");
+        add_selected
+            .args(["add", "--", "selected.txt"])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (name, value) in fixture.isolated_environment() {
+            add_selected.env(name, value);
+        }
+        assert!(add_selected.status().expect("git starts").success());
+
+        let location = RepositoryLocation::worktree(
+            &fixture.worktree,
+            fixture.worktree.join(".git"),
+            fixture.worktree.join(".git"),
+        );
+        let writer =
+            GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location, &temporary_index)
+                .with_environment(fixture.isolated_environment());
+        let (progress, _receiver) = mpsc::channel(4);
+        writer
+            .commit(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                StandardCommitRequest {
+                    options: CommitOptions {
+                        message: b"partial selected commit\n".to_vec(),
+                        amend: false,
+                        allow_empty: false,
+                        signoff: false,
+                        author: None,
+                        committer: None,
+                        signing: SigningMode::Disable,
+                    },
+                    expected_revision: SnapshotRevision::new(2),
+                    expected_head: None,
+                    expected_index: None,
+                },
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect("partial commit");
+
+        assert_eq!(fs::read(&real_index).expect("real Index"), index_before);
+        assert_eq!(
+            fs::read(fixture.worktree.join("unselected.txt")).expect("worktree"),
+            b"unselected-changed\n"
+        );
+        let selected_head = Command::new("git")
+            .args(["show", "HEAD:selected.txt"])
+            .current_dir(&fixture.worktree)
+            .output()
+            .expect("git show");
+        assert_eq!(selected_head.stdout, b"selected-changed\n");
+        let unselected_head = Command::new("git")
+            .args(["show", "HEAD:unselected.txt"])
+            .current_dir(&fixture.worktree)
+            .output()
+            .expect("git show");
+        assert_eq!(unselected_head.stdout, b"unselected-base\n");
+    }
 }
