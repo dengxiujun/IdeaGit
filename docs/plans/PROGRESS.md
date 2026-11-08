@@ -5,7 +5,7 @@
 ## M4 TEST-004：Partial Commit Safety Tests（2026-11-08）
 
 - 分支：`feat/TEST-004`；从 `main` 创建，带入 DIFF-003..007 与 CCD-001..009 的前置实现。
-- 完成：新增安全测试，覆盖混合 Staged/Unstaged 的 Index 身份拒绝、外部 HEAD 变化、提交结果与实际 HEAD 不一致进入 RecoveryRequired，以及真实 Git 仓库外部提交导致 Index 变化时的保守恢复判定；新增真实临时 Index 部分提交测试，确认未选文件的 HEAD/Worktree 内容与真实 Index 均保持不变；新增隔离 `core.hooksPath` 的 Hook 拒绝、签名失败分类、重命名候选提交和 CRLF 保真测试。
+- 完成：新增安全测试，覆盖混合 Staged/Unstaged 的 Index 身份拒绝、外部 HEAD 变化、提交结果与实际 HEAD 不一致进入 RecoveryRequired，以及真实 Git 仓库外部提交导致 Index 变化时的保守恢复判定；新增真实临时 Index 部分提交测试，确认未选文件的 HEAD/Worktree 内容与真实 Index 均保持不变；新增隔离 `core.hooksPath` 的 Hook 拒绝、签名失败分类、重命名候选提交、CRLF 保真和二进制未选内容保留测试。
 - 测试：`git-commit` 专项 10 个测试、Git CLI 专项 64 个测试通过；workspace 全量测试通过。
 - 门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过。
 - Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。

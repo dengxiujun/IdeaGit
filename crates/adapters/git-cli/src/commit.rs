@@ -510,8 +510,12 @@ mod tests {
             .write_file("unselected.txt", b"unselected-base\r\n")
             .expect("second file");
         fixture
+            .write_file("binary.bin", b"\0binary-base\xff")
+            .expect("binary file");
+        fixture
             .stage_file("unselected.txt")
             .expect("stage second file");
+        fixture.stage_file("binary.bin").expect("stage binary file");
         let commit_writer = GitCliCommitWriter::new(
             TokioProcessRunner,
             RepositoryLocation::worktree(
@@ -550,6 +554,9 @@ mod tests {
         fixture
             .write_file("unselected.txt", b"unselected-changed\r\n")
             .expect("unselected edit");
+        fixture
+            .write_file("binary.bin", b"\0binary-changed\xfe")
+            .expect("binary edit");
         let real_index = fixture.worktree.join(".git/index");
         let index_before = fs::read(&real_index).expect("real Index");
         let temporary_index = fixture.temp_dir.path().join("partial-candidate-index");
@@ -608,6 +615,10 @@ mod tests {
             fs::read(fixture.worktree.join("unselected.txt")).expect("worktree"),
             b"unselected-changed\r\n"
         );
+        assert_eq!(
+            fs::read(fixture.worktree.join("binary.bin")).expect("binary worktree"),
+            b"\0binary-changed\xfe"
+        );
         let selected_head = Command::new("git")
             .args(["show", "HEAD:selected.txt"])
             .current_dir(&fixture.worktree)
@@ -620,6 +631,12 @@ mod tests {
             .output()
             .expect("git show");
         assert_eq!(unselected_head.stdout, b"unselected-base\r\n");
+        let binary_head = Command::new("git")
+            .args(["show", "HEAD:binary.bin"])
+            .current_dir(&fixture.worktree)
+            .output()
+            .expect("git show binary path");
+        assert_eq!(binary_head.stdout, b"\0binary-base\xff");
     }
 
     #[tokio::test]
