@@ -879,6 +879,90 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn temporary_partial_commit_does_not_mix_staged_and_unstaged_edits() {
+        let fixture = TestRepository::init().expect("fixture");
+        fixture
+            .commit_file("mixed.txt", b"base\n")
+            .expect("initial commit");
+        fixture
+            .write_file("mixed.txt", b"staged\n")
+            .expect("staged edit");
+        fixture.stage_file("mixed.txt").expect("stage edit");
+        fixture
+            .write_file("mixed.txt", b"unstaged\n")
+            .expect("unstaged edit");
+
+        let real_index = fixture.worktree.join(".git/index");
+        let index_before = fs::read(&real_index).expect("real Index");
+        let temporary_index = fixture.temp_dir.path().join("mixed-candidate-index");
+        let mut read_tree = Command::new("git");
+        read_tree
+            .args(["read-tree", "HEAD"])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (name, value) in fixture.isolated_environment() {
+            read_tree.env(name, value);
+        }
+        assert!(read_tree.status().expect("git starts").success());
+        let mut add = Command::new("git");
+        add.args(["add", "--", "mixed.txt"])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (name, value) in fixture.isolated_environment() {
+            add.env(name, value);
+        }
+        assert!(add.status().expect("git starts").success());
+
+        let location = RepositoryLocation::worktree(
+            &fixture.worktree,
+            fixture.worktree.join(".git"),
+            fixture.worktree.join(".git"),
+        );
+        let writer =
+            GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location, &temporary_index)
+                .with_environment(fixture.isolated_environment());
+        writer
+            .commit(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                StandardCommitRequest {
+                    options: CommitOptions {
+                        message: b"mixed staged and unstaged\n".to_vec(),
+                        amend: false,
+                        allow_empty: false,
+                        signoff: false,
+                        author: None,
+                        committer: None,
+                        signing: SigningMode::Disable,
+                    },
+                    expected_revision: SnapshotRevision::new(2),
+                    expected_head: None,
+                    expected_index: None,
+                },
+                test_context(),
+            )
+            .await
+            .expect("temporary partial commit");
+
+        assert_eq!(fs::read(&real_index).expect("real Index"), index_before);
+        assert_eq!(
+            fs::read(fixture.worktree.join("mixed.txt")).expect("worktree"),
+            b"unstaged\n"
+        );
+        let head = Command::new("git")
+            .args(["show", "HEAD:mixed.txt"])
+            .current_dir(&fixture.worktree)
+            .output()
+            .expect("HEAD blob");
+        assert_eq!(head.stdout, b"unstaged\n");
+        let index = Command::new("git")
+            .args(["show", ":mixed.txt"])
+            .current_dir(&fixture.worktree)
+            .output()
+            .expect("Index blob");
+        assert_eq!(index.stdout, b"staged\n");
+    }
+
+    #[tokio::test]
     async fn temporary_partial_commit_preserves_unselected_content_during_rename() {
         let fixture = TestRepository::init().expect("fixture");
         fixture

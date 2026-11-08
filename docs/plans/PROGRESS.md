@@ -945,3 +945,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：TEST-004 仍需跨平台矩阵最终审计；UI-013 真实入口继续关闭。
 - 下一步：完成 TEST-004 全矩阵逐项审计，并确认是否仍有未覆盖的真实路径。
+
+## M4 TEST-004：同文件 Staged/Unstaged 不混淆（2026-11-08）
+
+- 完成：新增真实 Git 仓库测试，构造同一文件先 Staged、后产生 Unstaged 修改的状态；临时 Index 提交后分别校验 HEAD、真实 Index 和 Worktree 内容。
+- 安全证据：HEAD 使用候选内容，真实 Index 保留 staged 内容，Worktree 保留 unstaged 内容，证明 Partial Commit 不混淆三种内容来源。
+- 测试：专项 Git CLI 测试通过；workspace `fmt/check/clippy/test/diff check` 全部通过；Git CLI 78 项、git-changelist 6 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：TEST-004 已覆盖主要安全矩阵；仍需跨平台 Runner 验证和最终逐项审计，UI-013 真实入口继续关闭。
+- 下一步：完成 TEST-004 矩阵审计记录，确认高级能力开放条件后再推进 UI-013。
