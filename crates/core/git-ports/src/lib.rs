@@ -15,6 +15,7 @@ mod index_reconciliation;
 mod journal;
 mod merge;
 mod process;
+mod rebase;
 mod remote;
 mod repository;
 mod resolution;
@@ -50,6 +51,7 @@ pub use process::{
     DEFAULT_OUTPUT_LIMIT, EnvironmentVariable, ExecutionContext, ProcessOutput, ProcessProgress,
     ProcessRunner, ProcessSpec, ProcessStdin, ProcessStream, Sensitivity,
 };
+pub use rebase::InteractiveRebasePlanReader;
 pub use remote::{PushPreviewReader, RemoteReader, RemoteWriter};
 pub use repository::{RepositoryLocation, RepositoryReader};
 pub use resolution::{

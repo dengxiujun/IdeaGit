@@ -1,9 +1,9 @@
-use std::{fs, process::Command};
+use std::{fs, process::Command, str::FromStr};
 
 use git_cli::{
     GitCliCloneWriter, GitCliCommitWriter, GitCliConflictResolutionWriter,
-    GitCliConflictStageReader, GitCliMergeWriter, GitCliRemoteAdapter, GitCliSequencerWriter,
-    TokioProcessRunner,
+    GitCliConflictStageReader, GitCliInteractiveRebasePlanReader, GitCliMergeWriter,
+    GitCliRemoteAdapter, GitCliSequencerWriter, TokioProcessRunner,
 };
 use git_domain::{
     CommitOptions, MergeCommand, OperationId, RefName, RemoteCommand, RepoPath, RepositoryId,
@@ -13,7 +13,8 @@ use git_domain::{
 use git_fixture::TestRepository;
 use git_ports::{
     ApplyResolutionRequest, CloneRequest, CloneWriter, CommitWriter, ConflictResolutionWriter,
-    ConflictStageReader, ExecutionContext, IndexWriter, MergeWriter, RemoteWriter, SequencerWriter,
+    ConflictStageReader, ExecutionContext, IndexWriter, InteractiveRebasePlanReader, MergeWriter,
+    RemoteWriter, SequencerWriter,
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -306,5 +307,54 @@ async fn rebase_abort_clears_conflict_without_claiming_success() {
     assert_eq!(
         fs::read(fixture.worktree.join("conflict.txt")).expect("topic file"),
         b"topic\n"
+    );
+}
+
+#[tokio::test]
+async fn interactive_rebase_plan_reads_linear_commits_in_git_order() {
+    let fixture = TestRepository::init().expect("fixture");
+    fixture.configure_local_identity().expect("identity");
+    git(&fixture.worktree, &["config", "core.autocrlf", "false"]);
+    fixture
+        .commit_file("base.txt", b"base\n")
+        .expect("base commit");
+    let upstream = Command::new("git")
+        .args([
+            "-C",
+            fixture.worktree.to_str().expect("utf8 path"),
+            "rev-parse",
+            "HEAD",
+        ])
+        .output()
+        .expect("rev-parse should run");
+    let upstream = git_domain::ObjectId::from_str(String::from_utf8_lossy(&upstream.stdout).trim())
+        .expect("upstream oid");
+    fixture
+        .commit_file("first.txt", b"first\n")
+        .expect("first commit");
+    fixture
+        .commit_file("second.txt", b"second\n")
+        .expect("second commit");
+
+    let plan =
+        GitCliInteractiveRebasePlanReader::new(TokioProcessRunner, location(&fixture.worktree))
+            .plan(target(), upstream, context())
+            .await
+            .expect("plan should be read");
+
+    assert_eq!(plan.upstream, upstream);
+    assert_eq!(plan.entries.len(), 2);
+    assert!(
+        plan.entries
+            .iter()
+            .all(|entry| entry.action == git_domain::RebaseAction::Pick)
+    );
+    assert_eq!(
+        plan.entries[0].message_override.as_deref(),
+        Some("fixture commit")
+    );
+    assert_eq!(
+        plan.entries[1].message_override.as_deref(),
+        Some("fixture commit")
     );
 }
