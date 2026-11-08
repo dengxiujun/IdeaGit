@@ -11,15 +11,15 @@
 - 操作系统：macOS，`aarch64`。
 - CPU：`10` 个逻辑并行度。
 - 磁盘：测试夹具所在临时文件系统；未记录具体物理介质型号。
-- 数据集生成：691ms，使用单个 `git fast-import` 流；不是被测 Status/Log 查询时间。
+- 数据集生成：719ms，使用单个 `git fast-import` 流；不是被测 Status/Log 查询时间。
 - 样本数：11 次首轮样本和 11 次后续样本。
 
 ## 实测结果
 
 | 场景 | 首轮 P50 | 首轮 P95 | 后续轮次 P50 | 后续轮次 P95 |
 |---|---:|---:|---:|---:|
-| Status | 8.452ms | 9.970ms | 8.079ms | 8.274ms |
-| Log 首页（limit=100） | 9.197ms | 9.571ms | 8.673ms | 9.088ms |
+| Status | 7.924ms | 9.543ms | 7.730ms | 8.848ms |
+| Log 首页（limit=100） | 8.589ms | 9.892ms | 8.391ms | 8.930ms |
 
 这些结果来自生产 `GitCliStatusReader` 和 `GitCliHistoryReader`，通过真实 Git CLI 读取隔离仓库。首轮不是严格冷缓存：测试没有清空操作系统文件缓存，因此不能将其解释为冷缓存结果。
 
@@ -32,6 +32,8 @@
 - Changes Tree：P50 0.091ms，P95 0.427ms。
 - Branch Popup：P50 0.301ms，P95 1.030ms。
 - 取消 Status：0.078ms 返回结构化 `Cancelled` 错误。
+- 三仓库顺序切换 Status：P50 24.608ms，P95 25.708ms。
+- 100,000 行大型 unified diff 解析：1.300MB 输入，20.857ms；独立入口为 `cargo test -p git-diff --test m6_perf_diff --locked -- --ignored --nocapture`。
 - UI projection 和取消结果不包含 GPUI 实际渲染帧率，也不包含峰值内存。
 
 ## 验收状态
@@ -43,7 +45,8 @@
 - [x] 真实 Git Status 取消路径已记录。
 - [ ] 严格冷缓存测量。
 - [ ] 峰值内存测量。
-- [ ] 大型 Diff、多仓库切换覆盖。
+- [x] 多仓库切换与大型 Diff 解析基线已记录。
+- [ ] 大型 Diff 完整 reader/UI/峰值内存测量。
 - [ ] 三平台基线。
 
 因此，本文件是 PERF-001 的 macOS 基线证据，不代表 PERF-001 或 M6 门禁完成。

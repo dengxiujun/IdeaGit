@@ -223,3 +223,50 @@ async fn perf_001_cancelled_status_is_bounded() {
     assert_eq!(error.kind, GitErrorKind::Cancelled);
     println!("cancelled_status_ms={:.3}", elapsed.as_secs_f64() * 1000.0);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "scheduled M6 benchmark"]
+async fn perf_001_multi_repository_switch_baseline() {
+    let fixtures = (0..3)
+        .map(|index| {
+            let fixture = TestRepository::init().expect("fixture");
+            fixture
+                .commit_file(&format!("repo-{index}.txt"), b"repository\n")
+                .expect("commit");
+            fixture
+        })
+        .collect::<Vec<_>>();
+    let locations = fixtures
+        .iter()
+        .map(|fixture| {
+            RepositoryLocation::worktree(
+                &fixture.worktree,
+                fixture.worktree.join(".git"),
+                fixture.worktree.join(".git"),
+            )
+        })
+        .collect::<Vec<_>>();
+    let readers = fixtures
+        .iter()
+        .map(|fixture| {
+            GitCliStatusReader::new(TokioProcessRunner).with_environment(environment(fixture))
+        })
+        .collect::<Vec<_>>();
+    let mut samples = Vec::with_capacity(SAMPLES);
+    for _ in 0..SAMPLES {
+        let started = Instant::now();
+        for (reader, location) in readers.iter().zip(&locations) {
+            reader
+                .status(location, StatusOptions::default(), context())
+                .await
+                .expect("status");
+        }
+        samples.push(started.elapsed());
+    }
+    println!(
+        "multi_repository_status_ms.p50={:.3} p95={:.3}",
+        percentile(&mut samples, 50).as_secs_f64() * 1000.0,
+        percentile(&mut samples, 95).as_secs_f64() * 1000.0
+    );
+    println!("multi_repository.count=3");
+}
