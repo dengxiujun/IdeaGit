@@ -23,7 +23,9 @@ mod version;
 pub use branch::GitCliBranchWriter;
 pub use candidate_tree::GitCliCandidateTreeBuilder;
 pub use clone::GitCliCloneWriter;
-pub use commit::{GitCliCommitState, GitCliCommitStateProbe, GitCliCommitWriter};
+pub use commit::{
+    GitCliCommitState, GitCliCommitStateProbe, GitCliCommitWriter, GitCliTemporaryIndexCommitWriter,
+};
 pub use conflict::GitCliConflictStageReader;
 pub use executor::{GitCliCommand, GitCliExecutor, GitVersionCommand};
 pub use head::GitCliHeadReader;
