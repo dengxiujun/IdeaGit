@@ -2,6 +2,15 @@
 
 更新日期：2026-11-08。
 
+## M4 CCD-006：Partial Commit Transaction（2026-11-08）
+
+- 分支：`feat/CCD-005`；当前分支带入 CCD-001～005 前置提交；事务实现已按 CCD-006 任务范围落在 `git-commit` 编排层。
+- 完成：新增 Partial Commit 事务阶段模型和启动校验；拒绝空选择、选择/指纹数量不匹配、跨 Session 选择及冲突的 HEAD 身份；候选 Tree 仅允许在临时 Index 阶段之后进入 PreviewReady。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo test -p git-commit --locked`、`git diff --check` 已通过；专项 2/2 通过。
+- Commit/Runner：`e2fed6f`；GitHub Runner 尚未创建/执行 PR。
+- 风险：真实 Commit 执行、Journal 持久化、Hook/HEAD 竞争和 Real Index reconciliation 尚未完成，分别留给 CCD-006 后续实现与 CCD-007；当前未执行真实 Commit。
+- 下一任务：继续完善 CCD-006 的协调执行边界，再进入 CCD-007。
+
 ## M4 DIFF-007：Line Patch Builder（2026-11-08）
 
 - 分支：`feat/DIFF-007`；从 `main` 创建并按依赖带入 DIFF-003～006。
