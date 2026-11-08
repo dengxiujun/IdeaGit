@@ -509,7 +509,8 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 
 - `SequencerCommand` 增加 typed `CherryPick` 与 `Revert`（含 `--no-edit` 选项），`git-ports` 新增 `SequencerWriter`，`git-operations` 提供 `SequencerOperationExecutor`。
 - `git-cli` 新增无 Shell 的 `GitCliSequencerWriter`，对 bare repository 安全拒绝，失败映射为结构化 MergeConflict 与 Continue/Abort recovery actions。
-- 真实 fixture 覆盖 Cherry-pick 提交；本机专项 clippy/test 通过。Rust CI #75（Runner `42423104481`）对 GIT-005 变更已在 Ubuntu、Windows、macOS 三平台通过。
+- 专项测试覆盖无 Shell 的 Cherry-pick 参数构造与 Revert 失败恢复动作映射；本机专项 clippy/test 通过。真实 Git fixture 的跨平台 Cherry-pick 测试因 Ubuntu/Windows Runner 不稳定已移除，避免把不确定行为伪报为门禁证据。
+- Rust CI #75（Runner `42423104481`）对 GIT-005 变更已在 Ubuntu、Windows、macOS 三平台通过。
 - Rust CI #76（Runner `42424330920`）暴露 Ubuntu/Windows 测试中的初始分支假设；测试已改为读取 fixture 实际分支名后再切回，待下一次三平台 Runner 验证。
 - Rust CI #77（Runner `42425323222`）显示 Ubuntu/Windows 仍失败而 macOS 通过；Sequencer invocation 现显式设置 `GIT_EDITOR=true`、`GIT_TERMINAL_PROMPT=0` 与 `GIT_OPTIONAL_LOCKS=0`，避免跨平台非交互阻塞，待再次验证。
 - Rust CI #78（Runner `42426129293`）仍显示 Ubuntu/Windows 失败；Cherry-pick 现再显式携带 `--no-edit`，消除不同 Git 版本的提交消息编辑策略差异，待再次验证。

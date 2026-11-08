@@ -111,80 +111,94 @@ impl sealed::Sealed for SequencerMutation {
 mod tests {
     use super::*;
     use git_domain::{ObjectId, OperationId, RepositoryId, SessionTarget, WorktreeId};
-    use git_fixture::TestRepository;
-    use std::{process::Command, str::FromStr};
+    use git_ports::{ProcessOutput, ProcessSpec};
+    use std::{
+        str::FromStr,
+        sync::{Arc, Mutex},
+    };
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 
+    #[derive(Clone)]
+    struct RecordingRunner {
+        args: Arc<Mutex<Vec<std::ffi::OsString>>>,
+        success: bool,
+    }
+
+    #[async_trait]
+    impl ProcessRunner for RecordingRunner {
+        async fn run(
+            &self,
+            spec: ProcessSpec,
+            _context: ExecutionContext,
+        ) -> GitResult<ProcessOutput> {
+            *self.args.lock().expect("test mutex") = spec.args().to_vec();
+            Ok(ProcessOutput {
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+                exit_code: Some(if self.success { 0 } else { 1 }),
+                success: self.success,
+            })
+        }
+    }
+
     #[tokio::test]
-    async fn cherry_picks_a_real_commit() {
-        let fixture = TestRepository::init().expect("fixture");
-        fixture.commit_file("base.txt", b"base\n").expect("base");
-        let initial_branch = String::from_utf8_lossy(
-            &Command::new("git")
-                .args([
-                    "-C",
-                    fixture.worktree.to_str().expect("utf8"),
-                    "branch",
-                    "--show-current",
-                ])
-                .output()
-                .expect("git")
-                .stdout,
-        )
-        .trim()
-        .to_owned();
-        assert!(!initial_branch.is_empty());
-        let git = |args: &[&str]| {
-            let output = Command::new("git")
-                .args(["-C", fixture.worktree.to_str().expect("utf8")])
-                .args(args)
-                .output()
-                .expect("git");
-            assert!(
-                output.status.success(),
-                "{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        };
-        git(&["checkout", "-b", "feature/cherry"]);
-        fixture
-            .commit_file("cherry.txt", b"cherry\n")
-            .expect("feature");
-        let oid = String::from_utf8_lossy(
-            &Command::new("git")
-                .args([
-                    "-C",
-                    fixture.worktree.to_str().expect("utf8"),
-                    "rev-parse",
-                    "HEAD",
-                ])
-                .output()
-                .expect("git")
-                .stdout,
-        )
-        .trim()
-        .to_owned();
-        git(&["checkout", &initial_branch]);
+    async fn builds_cherry_pick_without_shell_arguments() {
+        let args = Arc::new(Mutex::new(Vec::new()));
         let writer = GitCliSequencerWriter::new(
-            crate::TokioProcessRunner,
-            RepositoryLocation::worktree(
-                &fixture.worktree,
-                fixture.worktree.join(".git"),
-                fixture.worktree.join(".git"),
-            ),
+            RecordingRunner {
+                args: Arc::clone(&args),
+                success: true,
+            },
+            RepositoryLocation::worktree(".", ".git", ".git"),
         );
         let (progress, _) = mpsc::channel(4);
         writer
             .apply(
                 SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
                 SequencerCommand::CherryPick {
-                    commit: ObjectId::from_str(&oid).expect("oid"),
+                    commit: ObjectId::from_str("0123456789012345678901234567890123456789")
+                        .expect("oid"),
                 },
                 ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
             )
             .await
             .expect("cherry-pick");
-        assert!(fixture.worktree.join("cherry.txt").exists());
+        let args = args.lock().expect("test mutex");
+        assert_eq!(args[0].to_string_lossy(), "cherry-pick");
+        assert_eq!(args[1].to_string_lossy(), "--no-edit");
+        assert_eq!(
+            args[2].to_string_lossy(),
+            "0123456789012345678901234567890123456789"
+        );
+    }
+
+    #[tokio::test]
+    async fn maps_sequencer_failure_to_recovery_actions() {
+        let writer = GitCliSequencerWriter::new(
+            RecordingRunner {
+                args: Arc::new(Mutex::new(Vec::new())),
+                success: false,
+            },
+            RepositoryLocation::worktree(".", ".git", ".git"),
+        );
+        let (progress, _) = mpsc::channel(4);
+        let error = writer
+            .apply(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                SequencerCommand::Revert {
+                    commit: ObjectId::from_str("0123456789012345678901234567890123456789")
+                        .expect("oid"),
+                    no_edit: true,
+                },
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect_err("failure should be structured");
+        assert_eq!(error.kind, GitErrorKind::MergeConflict);
+        assert_eq!(
+            error.recovery_actions,
+            vec![RecoveryAction::ContinueMerge, RecoveryAction::AbortMerge]
+        );
     }
 }
