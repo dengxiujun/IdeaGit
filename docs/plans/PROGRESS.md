@@ -612,3 +612,9 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `StartupRecoveryReport::recovery_actions` 根据实际活动中的 Merge、Rebase、Cherry-pick sequencer 返回受限的安全后续动作；无活动 sequencer 仅返回刷新动作。
 - Revert 当前没有专用的 Continue/Abort 端口契约，因此只提供 `InspectRepository`，避免虚构或误执行恢复操作。
 - 新增四类 sequencer 及空状态的单元测试；`cargo fmt`、专项测试与 `git diff --check` 已通过。
+
+## TEST-003 M3 主链路 E2E（2026-11-08）
+
+- 新增真实 Git 组合测试 `m3_gate_clone_edit_commit_push_fetch_pull_merge_conflict_resolve_continue`。
+- 测试通过生产 CLI 适配器完成 Clone、Commit、Push、Fetch、Pull、Merge、Conflict Stage Read、Resolution Write/Stage 与 Merge Continue；fixture 仅提供隔离临时仓库及本地 bare remote。
+- 已验证解决后的内容落盘且 Merge Continue 成功；认证失败、外部竞争、崩溃恢复与网络异常专项证据仍需补齐，M3 §6.7 尚未关闭。
