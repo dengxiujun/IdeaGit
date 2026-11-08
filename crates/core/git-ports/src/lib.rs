@@ -51,7 +51,7 @@ pub use process::{
     DEFAULT_OUTPUT_LIMIT, EnvironmentVariable, ExecutionContext, ProcessOutput, ProcessProgress,
     ProcessRunner, ProcessSpec, ProcessStdin, ProcessStream, Sensitivity,
 };
-pub use rebase::InteractiveRebasePlanReader;
+pub use rebase::{InteractiveRebasePlanReader, InteractiveRebaseWriter};
 pub use remote::{PushPreviewReader, RemoteReader, RemoteWriter};
 pub use repository::{RepositoryLocation, RepositoryReader};
 pub use resolution::{
