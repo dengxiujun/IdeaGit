@@ -11,6 +11,7 @@ use git_ports::{
     IndexReconciliationPublisher, JournalStore, PartialCommitWriter, RepositoryLocation,
     TemporaryIndexLease, TemporaryIndexManager,
 };
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::PreparedPartialCommit;
@@ -120,7 +121,7 @@ pub struct PreparedSelectionCommitHandler<R, P> {
 #[derive(Debug)]
 pub struct SelectionCommitPreviewSession<D, T, B, R, P> {
     preparation: crate::SelectionCommitPreparationService<D, T, B>,
-    handler: PreparedSelectionCommitHandler<R, P>,
+    handler: Arc<PreparedSelectionCommitHandler<R, P>>,
 }
 
 impl<D, T, B, R, P> SelectionCommitPreviewSession<D, T, B, R, P> {
@@ -131,8 +132,18 @@ impl<D, T, B, R, P> SelectionCommitPreviewSession<D, T, B, R, P> {
     ) -> Self {
         Self {
             preparation,
-            handler,
+            handler: Arc::new(handler),
         }
+    }
+
+    /// Returns the application-owned handler for composition into an
+    /// [`git_operations::SelectionCommitOperationExecutor`].
+    ///
+    /// The handler is intentionally exposed only as a shared trait implementation; callers must
+    /// submit the resulting `CommitSelection` command through `OperationCoordinator`.
+    #[must_use]
+    pub fn handler(&self) -> Arc<PreparedSelectionCommitHandler<R, P>> {
+        Arc::clone(&self.handler)
     }
 }
 
@@ -159,18 +170,6 @@ where
         let commit_request = prepared.transaction.request.clone();
         self.handler.arm(prepared).await;
         Ok(commit_request)
-    }
-
-    #[allow(clippy::result_large_err)]
-    pub async fn confirm(
-        &self,
-        target: SessionTarget,
-        request: SelectionCommitRequest,
-        context: ExecutionContext,
-    ) -> GitResult<()> {
-        self.handler
-            .commit_selection(target, request, context)
-            .await
     }
 }
 

@@ -5,6 +5,7 @@ use git_domain::{
     GitCommand, GitError, GitErrorKind, GitResult, SelectionCommitRequest, SessionTarget,
 };
 use git_ports::ExecutionContext;
+use std::sync::Arc;
 
 use crate::OperationExecutor;
 
@@ -17,6 +18,18 @@ pub trait SelectionCommitHandler: Send + Sync + 'static {
         request: SelectionCommitRequest,
         context: ExecutionContext,
     ) -> GitResult<()>;
+}
+
+#[async_trait]
+impl<H: SelectionCommitHandler + ?Sized> SelectionCommitHandler for Arc<H> {
+    async fn commit_selection(
+        &self,
+        target: SessionTarget,
+        request: SelectionCommitRequest,
+        context: ExecutionContext,
+    ) -> GitResult<()> {
+        (**self).commit_selection(target, request, context).await
+    }
 }
 
 /// Routes only `CommitSelection` through the OperationCoordinator executor boundary.
