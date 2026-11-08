@@ -27,6 +27,15 @@
 - 风险：Apply 后真实 Index 的最终 Blob 逐字节回读、clean filter 和冲突 stage 完整矩阵仍需补充；UI-012/UI-013 继续关闭。
 - 下一步：补 Apply 发布后的真实 Index Blob 回读与 filter/冲突 stage 拒绝测试，再进入 CCD-009/UI-012 依赖检查。
 
+## M4 TEST-004：Index 协调失败恢复持久化（2026-11-08）
+
+- 分支：`feat/m4`。
+- 完成：修复 Partial Commit 协调器在 Index 发布器返回错误时的失败路径；提交已观察但 Index 发布失败时，原始错误继续返回，同时事务和 Journal 均持久化为 `RecoveryRequired`，不虚报提交成功。
+- 测试：新增协调器发布失败测试；验证错误分类、事务终态和 Journal 恢复记录；workspace 全量门禁通过，git-commit 当前 15 个测试通过。
+- Commit/Runner：本次提交待生成；GitHub Runner 未创建（当前环境无 GitHub 连接器）。
+- 风险：TEST-004 仍需补启动重启后的真实 Journal 恢复演练，以及 Apply 的 clean filter/冲突 stage 完整矩阵；UI-012/UI-013 继续关闭。
+- 下一步：补 TEST-004 崩溃恢复/重启诊断测试，再重新审查 M4 前置门禁。
+
 ## M4 TEST-004 / CCD-006：提交副作用观察与恢复边界（2026-11-08）
 
 - 分支：`feat/m4`；已统一承载全部已完成 M4 分支内容，保留用户未跟踪文件不动。

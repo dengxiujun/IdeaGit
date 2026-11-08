@@ -128,7 +128,7 @@ impl<W: CommitWriter, J: JournalStore, O: CommitSideEffectObserver, P: IndexReco
                         )
                         .await;
                 };
-                match self
+                let reconciliation = self
                     .publisher
                     .publish(
                         IndexReconciliationRequest {
@@ -138,8 +138,20 @@ impl<W: CommitWriter, J: JournalStore, O: CommitSideEffectObserver, P: IndexReco
                         },
                         context.clone(),
                     )
-                    .await?
-                {
+                    .await;
+                let reconciliation = match reconciliation {
+                    Ok(outcome) => outcome,
+                    Err(error) => {
+                        transaction.phase = PartialCommitPhase::RecoveryRequired;
+                        record.phase = JournalPhase::RecoveryRequired;
+                        record.result = Some(JournalResult::RecoveryRequired {
+                            reason: error.to_string(),
+                        });
+                        let _ = self.journal.store.replace(record).await;
+                        return Err(error);
+                    }
+                };
+                match reconciliation {
                     IndexReconciliationOutcome::Published => {
                         transaction.phase = PartialCommitPhase::Completed;
                         record.phase = JournalPhase::Completed;
@@ -587,6 +599,23 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Copy, Debug)]
+    struct FailingPublisher;
+
+    #[async_trait]
+    impl IndexReconciliationPublisher for FailingPublisher {
+        async fn publish(
+            &self,
+            _request: IndexReconciliationRequest,
+            _context: ExecutionContext,
+        ) -> GitResult<IndexReconciliationOutcome> {
+            Err(GitError::new(
+                GitErrorKind::PermissionDenied,
+                "simulated Index publication failure",
+            ))
+        }
+    }
+
     fn test_context() -> ExecutionContext {
         let (progress, _receiver) = tokio::sync::mpsc::channel::<ProcessProgress>(4);
         ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress)
@@ -684,6 +713,55 @@ mod tests {
             .expect("journal record");
         assert_eq!(record.phase, JournalPhase::Completed);
         assert_eq!(record.result, Some(JournalResult::Completed));
+    }
+
+    #[tokio::test]
+    async fn coordinator_persists_recovery_when_index_reconciliation_fails() {
+        let store = TestJournalStore::default();
+        let scope = RecoveryScope::worktree(
+            RecoveryPath::unix(b"/tmp/ideagit-common".to_vec()).expect("common path"),
+            RecoveryPath::unix(b"/tmp/ideagit-git".to_vec()).expect("git path"),
+        );
+        let journal = PartialCommitJournal::new(store.clone(), scope);
+        let coordinator =
+            PartialCommitCoordinator::new(TestWriter, journal, StableObserver, FailingPublisher);
+        let mut transaction = PartialCommitTransaction::begin(request()).expect("transaction");
+        transaction
+            .temp_index_prepared(None, None)
+            .expect("temporary Index");
+        transaction
+            .candidate_ready(
+                "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+                    .parse()
+                    .expect("tree"),
+            )
+            .expect("candidate");
+        transaction
+            .reconciliation_candidate([7; 32], b"verified-index".to_vec())
+            .expect("reconciliation candidate");
+        transaction
+            .revalidate_before_commit(None, None)
+            .expect("revalidation");
+        let target = transaction.request.selections[0].target();
+
+        let error = coordinator
+            .commit(target, OperationId::new(), &mut transaction, test_context())
+            .await
+            .expect_err("publication failure must require recovery");
+
+        assert_eq!(error.kind, GitErrorKind::PermissionDenied);
+        assert_eq!(transaction.phase, PartialCommitPhase::RecoveryRequired);
+        let record = store
+            .record
+            .lock()
+            .expect("journal lock")
+            .clone()
+            .expect("journal record");
+        assert_eq!(record.phase, JournalPhase::RecoveryRequired);
+        assert!(matches!(
+            record.result,
+            Some(JournalResult::RecoveryRequired { .. })
+        ));
     }
 
     fn request() -> SelectionCommitRequest {
