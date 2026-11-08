@@ -1,13 +1,83 @@
 //! Application-owned changelists.  These values never masquerade as Git Index state.
 
 use async_trait::async_trait;
-use git_domain::{ChangeSelection, FileIdentity, SelectionFingerprint, SessionTarget};
+use git_domain::{
+    ChangeSelection, FileIdentity, ObjectId, OperationId, SelectionFingerprint, SessionTarget,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use uuid::Uuid;
 
 pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PreviewState {
+    Ready,
+    Confirmed,
+    Expired,
+    Cancelled,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangelistPreview {
+    pub operation_id: OperationId,
+    pub target: SessionTarget,
+    pub expected_head: Option<ObjectId>,
+    pub expected_index: Option<ObjectId>,
+    pub candidate_tree: ObjectId,
+    pub selections: Vec<SelectionFingerprint>,
+    pub state: PreviewState,
+}
+
+impl ChangelistPreview {
+    pub fn new(
+        operation_id: OperationId,
+        target: SessionTarget,
+        expected_head: Option<ObjectId>,
+        expected_index: Option<ObjectId>,
+        candidate_tree: ObjectId,
+        selections: Vec<SelectionFingerprint>,
+    ) -> Result<Self, ChangelistError> {
+        if selections.is_empty() {
+            return Err(ChangelistError::EmptyPreview);
+        }
+        if selections.iter().any(|fingerprint| {
+            fingerprint.expected_head != expected_head
+                || fingerprint.expected_index != expected_index
+        }) {
+            return Err(ChangelistError::PreviewIdentityMismatch);
+        }
+        Ok(Self {
+            operation_id,
+            target,
+            expected_head,
+            expected_index,
+            candidate_tree,
+            selections,
+            state: PreviewState::Ready,
+        })
+    }
+
+    #[allow(clippy::result_large_err)]
+    pub fn confirm(
+        &mut self,
+        target: SessionTarget,
+        head: Option<ObjectId>,
+        index: Option<ObjectId>,
+    ) -> Result<ObjectId, ChangelistError> {
+        if self.state != PreviewState::Ready
+            || self.target != target
+            || self.expected_head != head
+            || self.expected_index != index
+        {
+            self.state = PreviewState::Expired;
+            return Err(ChangelistError::PreviewExpired);
+        }
+        self.state = PreviewState::Confirmed;
+        Ok(self.candidate_tree)
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -257,6 +327,12 @@ pub enum ChangelistError {
     BindingNotFound,
     #[error("selection fingerprint could not be encoded")]
     FingerprintEncoding,
+    #[error("preview requires at least one selection fingerprint")]
+    EmptyPreview,
+    #[error("preview identity does not match its selection fingerprints")]
+    PreviewIdentityMismatch,
+    #[error("preview is expired, cancelled, already confirmed, or has stale repository identity")]
+    PreviewExpired,
     #[error("unsupported changelist schema")]
     UnsupportedSchema,
 }
@@ -276,7 +352,9 @@ pub enum ChangelistPersistenceError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use git_domain::{FileKind, LineSpan, RepoPath, RepositoryId, SnapshotRevision, WorktreeId};
+    use git_domain::{
+        FileKind, LineSpan, OperationId, RepoPath, RepositoryId, SnapshotRevision, WorktreeId,
+    };
 
     fn make_target(generation: u64) -> SessionTarget {
         SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), generation)
@@ -389,6 +467,40 @@ mod tests {
                 b"bytes",
             ),
             Err(ChangelistError::TargetMismatch)
+        );
+    }
+
+    #[test]
+    fn preview_expires_on_identity_change_and_cannot_be_reused() {
+        let target = make_target(1);
+        let binding = binding(target);
+        let mut preview = ChangelistPreview::new(
+            OperationId::new(),
+            target,
+            None,
+            None,
+            "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+                .parse()
+                .expect("tree"),
+            vec![binding.fingerprint],
+        )
+        .expect("preview should be valid");
+        assert_eq!(
+            preview.confirm(
+                target,
+                None,
+                Some(
+                    "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+                        .parse()
+                        .expect("index")
+                )
+            ),
+            Err(ChangelistError::PreviewExpired)
+        );
+        assert_eq!(preview.state, PreviewState::Expired);
+        assert_eq!(
+            preview.confirm(target, None, None),
+            Err(ChangelistError::PreviewExpired)
         );
     }
 }
