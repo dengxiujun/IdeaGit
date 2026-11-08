@@ -414,6 +414,33 @@ mod tests {
     }
 
     #[test]
+    fn keeps_shared_file_selections_owned_by_their_changelist() {
+        let target = make_target(1);
+        let first_binding = binding(target);
+        let mut second_binding = binding(target);
+        if let ChangeSelection::Lines { ranges, .. } = &mut second_binding.selection {
+            ranges[0] = LineSpan { start: 3, end: 4 };
+        }
+
+        let mut first = Changelist::new(target, "First", false, 0).expect("first list");
+        let mut second = Changelist::new(target, "Second", false, 1).expect("second list");
+        first
+            .add_binding(first_binding.clone())
+            .expect("first binding should be owned by first list");
+        second
+            .add_binding(second_binding.clone())
+            .expect("second binding should be owned by second list");
+
+        assert_eq!(first.bindings[0].file.path, second.bindings[0].file.path);
+        assert_ne!(
+            first.bindings[0].selection, second.bindings[0].selection,
+            "same file must not collapse distinct Changelist selections"
+        );
+        assert_eq!(first.bindings[0].id, first_binding.id);
+        assert_eq!(second.bindings[0].id, second_binding.id);
+    }
+
+    #[test]
     fn fingerprint_binds_selection_content_and_repository_state() {
         let target = make_target(1);
         let mut bound = binding(target);

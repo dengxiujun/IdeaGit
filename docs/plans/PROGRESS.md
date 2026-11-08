@@ -936,3 +936,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：TEST-004 仍需签名失败和跨平台矩阵最终审计；UI-013 真实入口继续关闭。
 - 下一步：审查 TEST-004 全部矩阵覆盖，补足仍缺失的真实路径后再评估 UI-013 开放条件。
+
+## M4 TEST-004：共享文件的 Changelist 归属隔离（2026-11-08）
+
+- 完成：新增两个 Changelist 共享同一文件但持有不同 Line selection 的领域测试，验证 binding 不会因文件路径相同而合并或串属。
+- 安全证据：两个列表分别保留独立 binding ID、selection 和归属，覆盖发布阻断矩阵中的“Changelist A/B 共享文件”场景。
+- 测试：专项 `git-changelist` 测试通过；workspace `fmt/check/clippy/test/diff check` 全部通过；Git CLI 77 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：TEST-004 仍需跨平台矩阵最终审计；UI-013 真实入口继续关闭。
+- 下一步：完成 TEST-004 全矩阵逐项审计，并确认是否仍有未覆盖的真实路径。
