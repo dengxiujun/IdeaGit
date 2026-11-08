@@ -1324,3 +1324,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - CI：Rust CI #133（Run ID `42490024486`，提交 `414456cd22ad9fcb46ea72fb48baddf8e9b20c0e`）已成功；Format、Ubuntu 24.04、macOS 15、Windows 2022 全部通过。
 - 分支：已确认合并提交进入 `main`；本地和远程 `feat/HISTORY-001` 均已清理。
 - 结论：HISTORY-001 完成；下一任务为 `GRAPH-002`，必须从已验证的 `main` 按串行规则创建新分支。
+
+## M5 GRAPH-002：DAG Filters / Multi Refs（2026-11-08）
+
+- 完成：扩展纯 Rust `git-graph` 模型，支持文本、作者和提交时间过滤，并在 lane 投影中保留多个 Ref 装饰及 HEAD 标记。
+- 安全边界：过滤器只改变只读 Graph 投影，不修改提交、Refs 或工作区状态；lane 计算仍基于提交父关系。
+- 测试：新增多 Ref、HEAD 和过滤条件的 Graph 单元测试；`git-graph` 测试与 Clippy 已通过。
+- 修改文件：`crates/core/git-graph/src/lib.rs`、`docs/plans/PROGRESS.md`。
+- 风险：PR、完整工作区门禁、GitHub CI 和合并门禁尚未完成。
