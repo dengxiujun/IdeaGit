@@ -511,6 +511,11 @@ mod tests {
     use super::*;
     use crate::{GitCliCandidateTreeBuilder, GitCliExecutor, TokioProcessRunner};
 
+    fn test_context() -> ExecutionContext {
+        let (progress, _receiver) = mpsc::channel(4);
+        ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress)
+    }
+
     #[tokio::test]
     async fn commits_real_index_and_returns_oid_and_parents() {
         let fixture = TestRepository::init().expect("fixture");
@@ -1173,6 +1178,92 @@ mod tests {
             head_before
         );
         assert_eq!(fs::read(&real_index).expect("real Index"), index_before);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn side_effect_observer_detects_hook_worktree_mutation_after_real_commit() {
+        let fixture = TestRepository::init().expect("fixture");
+        fixture
+            .commit_file("selected.txt", b"base\n")
+            .expect("initial commit");
+        fixture
+            .write_file("selected.txt", b"changed\n")
+            .expect("edit");
+        fixture.stage_file("selected.txt").expect("stage");
+        fixture
+            .install_hook(
+                "pre-commit",
+                b"#!/bin/sh\nprintf 'hook side effect\\n' > hook-side-effect.txt\nexit 0\n",
+            )
+            .expect("hook");
+
+        let temporary_index = fixture.temp_dir.path().join("observer-index");
+        let mut read_tree = Command::new("git");
+        read_tree
+            .args(["read-tree", "HEAD"])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (name, value) in fixture.isolated_environment() {
+            read_tree.env(name, value);
+        }
+        assert!(read_tree.status().expect("git starts").success());
+        let mut add = Command::new("git");
+        add.args(["add", "--", "selected.txt"])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (name, value) in fixture.isolated_environment() {
+            add.env(name, value);
+        }
+        assert!(add.status().expect("git starts").success());
+
+        let location = RepositoryLocation::worktree(
+            &fixture.worktree,
+            fixture.worktree.join(".git"),
+            fixture.worktree.join(".git"),
+        );
+        let observer = GitCliCommitSideEffectObserver::new(TokioProcessRunner, location.clone());
+        let before = observer
+            .capture(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                test_context(),
+            )
+            .await
+            .expect("capture before commit");
+        let writer =
+            GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location, &temporary_index)
+                .with_environment(fixture.isolated_environment());
+        writer
+            .commit(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                StandardCommitRequest {
+                    options: CommitOptions {
+                        message: b"hook mutation\n".to_vec(),
+                        amend: false,
+                        allow_empty: false,
+                        signoff: false,
+                        author: None,
+                        committer: None,
+                        signing: SigningMode::Disable,
+                    },
+                    expected_revision: SnapshotRevision::new(1),
+                    expected_head: None,
+                    expected_index: None,
+                },
+                test_context(),
+            )
+            .await
+            .expect("commit succeeds before side-effect reconciliation");
+        let after = observer
+            .observe(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                test_context(),
+            )
+            .await
+            .expect("observe after commit");
+
+        assert_ne!(before.worktree_digest, after.worktree_digest);
+        assert!(fixture.worktree.join("hook-side-effect.txt").exists());
     }
 
     #[cfg(unix)]
