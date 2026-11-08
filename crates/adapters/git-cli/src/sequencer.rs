@@ -60,18 +60,27 @@ impl SequencerReader for GitCliSequencerReader {
                 }
             }
         }
-        let rebase = if path_exists(git_dir.join("rebase-merge")).await
-            || path_exists(git_dir.join("rebase-apply")).await
-        {
+        let rebase_dir = if path_exists(git_dir.join("rebase-merge")).await {
+            Some(git_dir.join("rebase-merge"))
+        } else if path_exists(git_dir.join("rebase-apply")).await {
+            Some(git_dir.join("rebase-apply"))
+        } else {
+            None
+        };
+        let rebase = if rebase_dir.is_some() || path_exists(git_dir.join("rebase-apply")).await {
             Some(SequencerKind::Rebase)
         } else {
             None
         };
+        let (current, total) = match rebase_dir {
+            Some(directory) => rebase_progress(&directory).await,
+            None => (None, None),
+        };
         Ok(SequencerSnapshot {
             kind: rebase.unwrap_or(SequencerKind::Merge),
             active: rebase.is_some(),
-            current: None,
-            total: None,
+            current,
+            total,
             conflicts: Vec::<RepoPath>::new(),
         })
     }
@@ -79,6 +88,38 @@ impl SequencerReader for GitCliSequencerReader {
 
 async fn path_exists(path: impl AsRef<Path>) -> bool {
     tokio::fs::metadata(path).await.is_ok()
+}
+
+async fn rebase_progress(directory: &Path) -> (Option<u32>, Option<u32>) {
+    let done = count_todo_entries(&directory.join("done")).await;
+    let pending = count_todo_entries(&directory.join("git-rebase-todo")).await;
+    match (done, pending) {
+        (Some(done), Some(pending)) if done + pending > 0 => (Some(done + 1), Some(done + pending)),
+        _ => {
+            let current = read_number(&directory.join("msgnum")).await;
+            let total = read_number(&directory.join("end")).await;
+            (current, total)
+        }
+    }
+}
+
+async fn count_todo_entries(path: &Path) -> Option<u32> {
+    let bytes = tokio::fs::read(path).await.ok()?;
+    Some(
+        bytes
+            .split(|byte| *byte == b'\n')
+            .filter(|line| {
+                let mut line = line.iter().copied().skip_while(u8::is_ascii_whitespace);
+                !line.clone().next().is_none_or(|byte| byte == b'#')
+                    && line.any(|byte| !byte.is_ascii_whitespace())
+            })
+            .count() as u32,
+    )
+}
+
+async fn read_number(path: &Path) -> Option<u32> {
+    let value = tokio::fs::read_to_string(path).await.ok()?;
+    value.trim().parse().ok()
 }
 
 impl<R> GitCliSequencerWriter<R> {

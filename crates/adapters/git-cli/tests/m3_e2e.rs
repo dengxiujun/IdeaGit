@@ -3,7 +3,8 @@ use std::{fs, process::Command, str::FromStr};
 use git_cli::{
     GitCliCloneWriter, GitCliCommitWriter, GitCliConflictResolutionWriter,
     GitCliConflictStageReader, GitCliInteractiveRebasePlanReader, GitCliInteractiveRebaseWriter,
-    GitCliMergeWriter, GitCliRemoteAdapter, GitCliSequencerWriter, TokioProcessRunner,
+    GitCliMergeWriter, GitCliRemoteAdapter, GitCliSequencerReader, GitCliSequencerWriter,
+    TokioProcessRunner,
 };
 use git_domain::{
     CommitOptions, MergeCommand, OperationId, RefName, RemoteCommand, RepoPath, RepositoryId,
@@ -14,7 +15,7 @@ use git_fixture::TestRepository;
 use git_ports::{
     ApplyResolutionRequest, CloneRequest, CloneWriter, CommitWriter, ConflictResolutionWriter,
     ConflictStageReader, ExecutionContext, IndexWriter, InteractiveRebasePlanReader,
-    InteractiveRebaseWriter, MergeWriter, RemoteWriter, SequencerWriter,
+    InteractiveRebaseWriter, MergeWriter, RemoteWriter, SequencerReader, SequencerWriter,
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -283,6 +284,15 @@ async fn rebase_abort_clears_conflict_without_claiming_success() {
         .output()
         .expect("rebase should start");
     assert!(!rebase.status.success(), "rebase should stop at conflict");
+
+    let snapshot = GitCliSequencerReader
+        .read(&location(&fixture.worktree), context())
+        .await
+        .expect("rebase state should be readable");
+    assert!(snapshot.active);
+    assert_eq!(snapshot.kind, git_domain::SequencerKind::Rebase);
+    assert!(snapshot.current.is_some());
+    assert!(snapshot.total.is_some());
 
     let location = location(&fixture.worktree);
     GitCliSequencerWriter::new(TokioProcessRunner, location)
