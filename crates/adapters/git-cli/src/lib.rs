@@ -14,6 +14,7 @@ mod repository;
 mod runner;
 mod sequencer;
 mod status;
+mod version;
 
 pub use branch::GitCliBranchWriter;
 pub use clone::GitCliCloneWriter;
@@ -29,3 +30,4 @@ pub use repository::GitCliRepositoryReader;
 pub use runner::TokioProcessRunner;
 pub use sequencer::{GitCliSequencerReader, GitCliSequencerWriter};
 pub use status::{GitCliStatusReader, PorcelainV2StatusParser};
+pub use version::GitCliVersionReader;

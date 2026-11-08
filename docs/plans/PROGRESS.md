@@ -553,6 +553,7 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 请求在适配器执行前拒绝非法 mode；允许空候选内容表达删除，不把普通 Stage 请求冒充冲突解决。
 - 本节点仅冻结 Core Port 与失败路径测试，真实三方内容读取、外部竞争校验、工作区写入、Stage 与 Continue 留给同一 MERGE-002 的后续实现切片。
 - `VersionReader`、`FileVersions` 与 `VersionDescriptor` 补充只读三版本身份边界，适配器可分别读取 HEAD、Index、Worktree，不在读取阶段修改真实 Index。
+- `GitCliVersionReader` 使用 typed `git ls-files --stage -z` 与 `git ls-tree -z HEAD` 读取 Index/HEAD 的 mode 与 OID，并以只读文件元数据投影 Worktree；非 UTF-8 路径显式返回 `UnsupportedEncoding`。
 
 ## GIT-001 Stage / Unstage（2026-11-07）
 
