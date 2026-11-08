@@ -332,12 +332,13 @@ impl sealed::Sealed for ParentsCommand {
 mod tests {
     use git_domain::{CommitOptions, OperationId, RepositoryId, SnapshotRevision, WorktreeId};
     use git_fixture::TestRepository;
+    use git_ports::{CandidateTreeBuilder, CandidateTreeRequest};
     use std::{fs, process::Command};
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 
     use super::*;
-    use crate::TokioProcessRunner;
+    use crate::{GitCliCandidateTreeBuilder, GitCliExecutor, TokioProcessRunner};
 
     #[tokio::test]
     async fn commits_real_index_and_returns_oid_and_parents() {
@@ -852,6 +853,78 @@ mod tests {
         }
         let output = show.output().expect("git show");
         assert_eq!(output.stdout, b"changed\n");
+    }
+
+    #[tokio::test]
+    async fn candidate_tree_partial_line_patch_commits_only_selected_line() {
+        let fixture = TestRepository::init().expect("fixture");
+        fixture
+            .commit_file("lines.txt", b"one\ntwo\nthree\n")
+            .expect("initial commit");
+        fixture
+            .write_file("lines.txt", b"one\ntwo-selected\nthree\n")
+            .expect("line edit");
+        let temporary_index = fixture.temp_dir.path().join("line-candidate-index");
+        let mut read_tree = Command::new("git");
+        read_tree
+            .args(["read-tree", "HEAD"])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (key, value) in fixture.isolated_environment() {
+            read_tree.env(key, value);
+        }
+        assert!(read_tree.status().expect("git starts").success());
+        let patch = b"diff --git a/lines.txt b/lines.txt\n--- a/lines.txt\n+++ b/lines.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+two-selected\n three\n";
+        let (progress, _receiver) = mpsc::channel(4);
+        let builder = GitCliCandidateTreeBuilder::new(GitCliExecutor::new(TokioProcessRunner));
+        let tree = builder
+            .build(
+                CandidateTreeRequest {
+                    temporary_index: temporary_index.clone(),
+                    worktree_root: fixture.worktree.clone(),
+                    patch: patch.to_vec(),
+                },
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect("candidate tree");
+        assert!(!tree.to_string().is_empty());
+        let location = RepositoryLocation::worktree(
+            &fixture.worktree,
+            fixture.worktree.join(".git"),
+            fixture.worktree.join(".git"),
+        );
+        let writer =
+            GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location, &temporary_index)
+                .with_environment(fixture.isolated_environment());
+        let (progress, _receiver) = mpsc::channel(4);
+        writer
+            .commit(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                StandardCommitRequest {
+                    options: CommitOptions {
+                        message: b"partial line\n".to_vec(),
+                        amend: false,
+                        allow_empty: false,
+                        signoff: false,
+                        author: None,
+                        committer: None,
+                        signing: SigningMode::Disable,
+                    },
+                    expected_revision: SnapshotRevision::new(1),
+                    expected_head: None,
+                    expected_index: None,
+                },
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect("partial line commit");
+        let output = Command::new("git")
+            .args(["show", "HEAD:lines.txt"])
+            .current_dir(&fixture.worktree)
+            .output()
+            .expect("git show");
+        assert_eq!(output.stdout, b"one\ntwo-selected\nthree\n");
     }
 
     #[cfg(unix)]
