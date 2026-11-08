@@ -113,6 +113,19 @@ impl<R> GitCliTemporaryIndexCommitWriter<R> {
                 .with_environment([(OsString::from("GIT_INDEX_FILE"), index.into())]),
         }
     }
+
+    #[must_use]
+    pub fn with_environment(
+        mut self,
+        variables: impl IntoIterator<Item = (OsString, OsString)>,
+    ) -> Self {
+        self.inner.environment.extend(
+            variables
+                .into_iter()
+                .map(|(name, value)| EnvironmentVariable::public(name, value)),
+        );
+        self
+    }
 }
 
 #[async_trait]
@@ -314,10 +327,12 @@ impl sealed::Sealed for ParentsCommand {
 mod tests {
     use git_domain::{CommitOptions, OperationId, RepositoryId, SnapshotRevision, WorktreeId};
     use git_fixture::TestRepository;
+    use std::{fs, process::Command};
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 
     use super::*;
+    use crate::TokioProcessRunner;
 
     #[tokio::test]
     async fn commits_real_index_and_returns_oid_and_parents() {
@@ -417,5 +432,66 @@ mod tests {
             .expect("changed Index state should be readable");
         assert_eq!(changed.head, committed.head);
         assert_ne!(changed.index, committed.index);
+    }
+
+    #[tokio::test]
+    async fn temporary_index_commit_preserves_real_index_bytes() {
+        let fixture = TestRepository::init().expect("fixture");
+        fixture
+            .commit_file("file.txt", b"one\n")
+            .expect("initial commit");
+        let real_index = fixture.worktree.join(".git/index");
+        let before = fs::read(&real_index).expect("real index");
+        fixture.write_file("file.txt", b"two\n").expect("modify");
+        let temporary_index = fixture.temp_dir.path().join("candidate-index");
+        let mut read_tree = Command::new("git");
+        read_tree
+            .args(["read-tree", "HEAD"])
+            .current_dir(&fixture.worktree);
+        for (name, value) in fixture.isolated_environment() {
+            read_tree.env(name, value);
+        }
+        read_tree.env("GIT_INDEX_FILE", &temporary_index);
+        assert!(read_tree.status().expect("git starts").success());
+        let mut add = Command::new("git");
+        add.args(["add", "--", "file.txt"])
+            .current_dir(&fixture.worktree);
+        for (name, value) in fixture.isolated_environment() {
+            add.env(name, value);
+        }
+        add.env("GIT_INDEX_FILE", &temporary_index);
+        assert!(add.status().expect("git starts").success());
+        let location = RepositoryLocation::worktree(
+            &fixture.worktree,
+            fixture.worktree.join(".git"),
+            fixture.worktree.join(".git"),
+        );
+        let writer =
+            GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location, &temporary_index)
+                .with_environment(fixture.isolated_environment());
+        let (progress, _receiver) = mpsc::channel(4);
+        let outcome = writer
+            .commit(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                StandardCommitRequest {
+                    options: CommitOptions {
+                        message: b"temporary commit\n".to_vec(),
+                        amend: false,
+                        allow_empty: false,
+                        signoff: false,
+                        author: None,
+                        committer: None,
+                        signing: SigningMode::Disable,
+                    },
+                    expected_revision: SnapshotRevision::new(1),
+                    expected_head: None,
+                    expected_index: None,
+                },
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect("temporary commit should succeed");
+        assert!(!outcome.commit.to_string().is_empty());
+        assert_eq!(fs::read(&real_index).expect("real index"), before);
     }
 }
