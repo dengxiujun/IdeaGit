@@ -517,6 +517,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Rust CI #79（Runner `42426931288`）仍显示 Ubuntu/Windows 失败；在已有 `--no-edit` 后移除跨平台不一致的 `GIT_EDITOR=true`，仅保留终端提示与可选锁控制，待再次验证。
 - Rust CI #80（Runner `42427465577`）仍显示 Ubuntu/Windows 失败；测试分支切换改用兼容性更广的 `git checkout`，生产 Sequencer 参数保持不变，待再次验证。
 
+## M3 GIT-008 Sequencer Inspector（2026-11-08）
+
+- `git-domain` 新增 `SequencerKind` 与 `SequencerSnapshot`；`git-ports` 新增只读 `SequencerReader`，保留 Merge/Rebase/Cherry-pick/Revert 身份及可选进度/冲突列表。
+- `git-cli` 新增 `GitCliSequencerReader`：只读检查 `MERGE_HEAD`、`CHERRY_PICK_HEAD`、`REVERT_HEAD` 与 rebase marker 目录，不启动 Git 进程、不修改仓库；异常 IO 映射为结构化 InvalidRepository。
+- 专项测试覆盖 Merge marker 识别、无 Shell Sequencer 参数与失败恢复映射；Rust CI #82（Runner `42428772755`）三平台通过。当前进度/冲突列表仍为空，完整 sequencer todo 与 Conflict Stage Reader 留给后续恢复/冲突节点。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。

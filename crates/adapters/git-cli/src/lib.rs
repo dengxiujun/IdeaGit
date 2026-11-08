@@ -23,5 +23,5 @@ pub use merge::GitCliMergeWriter;
 pub use remote::GitCliRemoteAdapter;
 pub use repository::GitCliRepositoryReader;
 pub use runner::TokioProcessRunner;
-pub use sequencer::GitCliSequencerWriter;
+pub use sequencer::{GitCliSequencerReader, GitCliSequencerWriter};
 pub use status::{GitCliStatusReader, PorcelainV2StatusParser};

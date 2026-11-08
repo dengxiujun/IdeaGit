@@ -19,7 +19,7 @@ pub use command::{
     BranchCommand, ChangeSelection, CommandValidationError, CommitOptions, EditedIndexSessionId,
     FileIdentity, FileKind, GitCommand, LineSpan, MergeCommand, PushMode, PushPreview,
     RemoteCommand, RemoteConfig, SelectionCommitRequest, SelectionFingerprint, SequencerCommand,
-    SigningMode, StandardCommitRequest,
+    SequencerKind, SequencerSnapshot, SigningMode, StandardCommitRequest,
 };
 pub use error::{GitError, GitErrorKind, GitResult, RecoveryAction};
 pub use head::{BranchTracking, HeadState};

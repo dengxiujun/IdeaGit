@@ -192,6 +192,25 @@ pub enum SequencerCommand {
     Abort,
 }
 
+/// Kind of an active Git sequencer state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SequencerKind {
+    Merge,
+    Rebase,
+    CherryPick,
+    Revert,
+}
+
+/// Read-only observation of Git's active sequencer state.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SequencerSnapshot {
+    pub kind: SequencerKind,
+    pub active: bool,
+    pub current: Option<u32>,
+    pub total: Option<u32>,
+    pub conflicts: Vec<RepoPath>,
+}
+
 /// Every write intent accepted by the application boundary.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GitCommand {

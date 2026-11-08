@@ -1,9 +1,9 @@
 //! Merge mutation boundary.
 
 use async_trait::async_trait;
-use git_domain::{GitResult, MergeCommand, SequencerCommand, SessionTarget};
+use git_domain::{GitResult, MergeCommand, SequencerCommand, SequencerSnapshot, SessionTarget};
 
-use crate::ExecutionContext;
+use crate::{ExecutionContext, RepositoryLocation};
 
 /// Executes a typed merge against the selected repository session.
 #[async_trait]
@@ -25,4 +25,14 @@ pub trait SequencerWriter: Send + Sync {
         command: SequencerCommand,
         context: ExecutionContext,
     ) -> GitResult<()>;
+}
+
+/// Reads active Merge/Rebase/Cherry-pick/Revert state without mutating Git.
+#[async_trait]
+pub trait SequencerReader: Send + Sync {
+    async fn read(
+        &self,
+        location: &RepositoryLocation,
+        context: ExecutionContext,
+    ) -> GitResult<SequencerSnapshot>;
 }
