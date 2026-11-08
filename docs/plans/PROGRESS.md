@@ -1355,4 +1355,8 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 安全边界：ViewModel 通过 Shelf 领域的 `unshelve_decision` 显示 Apply 或显式冲突解决状态；过期基线或脏工作区不会被标记为可直接恢复，UI 不直接运行 Git 或修改工作区。
 - 测试：新增匹配基线可恢复、过期基线冲突标记、搜索过滤和选择测试。
 - 修改文件：`crates/ui/git-ui-model/Cargo.toml`、`Cargo.lock`、`crates/ui/git-ui-model/src/lib.rs`、`docs/plans/PROGRESS.md`。
-- 风险：PR、完整工作区门禁、GitHub CI 和合并门禁尚未完成。
+- 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
+- PR：[#13](https://github.com/dengxiujun/IdeaGit/pull/13) 已合并，合并提交为 `ebf076b679d586f6be6e9f3c0fc3d53bad9243ea`。
+- CI：Rust CI #136（Run ID `42493272193`，提交 `cb6f8edc928e2327258bfbafb00265de3efb7ad2`）已成功；Format、Ubuntu 24.04、macOS 15、Windows 2022 全部通过。
+- 分支：已确认合并提交进入 `main`；本地 `feat/UI-015` 已删除，远程删除操作已完成。
+- 结论：UI-015 完成；下一任务为 `TEST-005`，必须从已验证的 `main` 按串行规则创建新分支。
