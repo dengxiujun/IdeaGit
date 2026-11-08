@@ -357,4 +357,10 @@ async fn interactive_rebase_plan_reads_linear_commits_in_git_order() {
         plan.entries[1].message_override.as_deref(),
         Some("fixture commit")
     );
+
+    let todo = plan.render_todo().expect("plan should render");
+    let reparsed = git_domain::InteractiveRebasePlan::parse_todo(target(), upstream, &todo)
+        .expect("rendered todo should parse");
+    assert_eq!(reparsed.upstream, plan.upstream);
+    assert_eq!(reparsed.entries, plan.entries);
 }
