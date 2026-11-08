@@ -2,6 +2,10 @@
 //!
 //! INFRA-001 skeleton only; behavior is implemented by subsequent tracked tasks.
 
+mod reconciliation;
+
+pub use reconciliation::{RealIndexReconciler, ReconciliationPlan};
+
 use git_domain::{
     GitCommand, GitError, GitErrorKind, GitResult, JournalPhase, JournalRecord, JournalResult,
     ObjectId, OperationId, RecoveryScope, SelectionCommitRequest,
