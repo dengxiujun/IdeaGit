@@ -47,6 +47,7 @@ git-diff = { path = "crates/core/git-diff" }
 git-diff-ui = { path = "crates/ui/git-diff-ui" }
 git-domain = { path = "crates/core/git-domain" }
 git-graph = { path = "crates/core/git-graph" }
+git-shelf = { path = "crates/core/git-shelf" }
 git-libgit2 = { path = "crates/adapters/git-libgit2" }
 git-log-ui = { path = "crates/ui/git-log-ui" }
 git-merge-ui = { path = "crates/ui/git-merge-ui" }

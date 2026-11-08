@@ -2176,6 +2176,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "git-shelf"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "git-domain",
+ "serde",
+ "thiserror 2.0.21",
+ "uuid",
+]
+
+[[package]]
 name = "git-ui-model"
 version = "0.1.0"
 dependencies = [
@@ -4888,6 +4899,7 @@ dependencies = [
  "git-changelist",
  "git-domain",
  "git-ports",
+ "git-shelf",
  "serde",
  "serde_json",
  "tempfile",

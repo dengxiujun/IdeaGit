@@ -3,6 +3,9 @@
 mod changelist;
 pub use changelist::JsonChangelistStore;
 
+mod shelf;
+pub use shelf::JsonShelfStore;
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,

@@ -1286,3 +1286,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - CI：Rust CI #130（Run ID `42486183329`，提交 `6b989da9df0d14cde96d3dae46916c5a1d6ee687`）已成功；Format、Ubuntu 24.04、macOS 15、Windows 2022 全部通过。
 - 分支：已确认合并提交进入 `main`；本地和远程 `feat/REBASE-004` 均已清理。
 - 结论：REBASE-004 完成；下一任务为 `SHELF-001`，必须从已验证的 `main` 按串行规则创建新分支。
+
+## M5 SHELF-001：Shelf Domain/Persistence（2026-11-08）
+
+- 完成：新增独立 `git-shelf` 领域 crate，提供 `ShelfEntry`、`ShelvedFile`、`PatchBundle`、版本化 `ShelfBundle` 与 `ShelfStore` 端口；Shelf 明确不等同于 Git Stash。
+- 安全与持久化：新增 JSON Shelf Store，支持目标会话校验、schema 校验、revision 乐观并发、原子临时文件替换和 `.json.bak` 备份；非法/重复路径、空 Patch 和过期 revision 均拒绝写入。
+- 测试：领域校验 2 项、持久化 2 项；覆盖真实文件写入、重开读取、备份生成和 revision 冲突不覆盖现有数据。
+- 修改文件：`Cargo.toml`、`Cargo.lock`、`crates/core/git-shelf/`、`crates/adapters/persistence/Cargo.toml`、`crates/adapters/persistence/src/lib.rs`、`crates/adapters/persistence/src/shelf.rs`、`docs/plans/PROGRESS.md`。
+- 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
+- 风险：PR、GitHub CI、代码审查和合并门禁尚未完成。
