@@ -2,6 +2,14 @@
 
 更新日期：2026-11-08。
 
+## M4 CCD-008：EditableIndexSession / Apply（2026-11-08）
+
+- 分支：`feat/CCD-008`；从 `main` 创建并带入 CCD-001～007、CCD-009 前置实现。
+- 完成：新增可编辑 Index 会话模型，保存 SessionTarget、原始 HEAD/Index 身份和内容摘要；编辑只修改会话内候选内容，Apply 预检要求 dirty 且身份未变化，未确认或过期会话拒绝返回内容。
+- 测试：`git-commit` 专项 7/7 通过，覆盖未编辑拒绝、正常候选返回和身份变化拒绝；未写入真实 Index。
+- 风险：Apply 的真实 Blob/Mode/Filter 校验和协调器发布仍受 CCD-007 安全发布协议约束；当前只开放预检，不开放真实写入。
+- 下一任务：补齐 CCD-007 发布端口后继续 CCD-008 Apply 适配，再进入 UI-011。
+
 ## M4 CCD-007：Real Index Reconciliation（2026-11-08）
 
 - 分支：`feat/CCD-007`；从 `main` 创建并带入 CCD-001～006、CCD-009。

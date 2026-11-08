@@ -2,8 +2,10 @@
 //!
 //! INFRA-001 skeleton only; behavior is implemented by subsequent tracked tasks.
 
+mod editable_index;
 mod reconciliation;
 
+pub use editable_index::EditableIndexSession;
 pub use reconciliation::{RealIndexReconciler, ReconciliationPlan};
 
 use git_domain::{
