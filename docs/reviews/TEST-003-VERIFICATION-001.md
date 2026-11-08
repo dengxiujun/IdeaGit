@@ -27,7 +27,7 @@ cargo test --workspace --locked
 git diff --check
 ```
 
-CI 结果以推送 `c59bbb2` 对应的 `Rust CI #104` 为最终跨平台证据。
+CI 最终结果以修复跨平台 fixture identity 后的最新 `Rust CI` 为准；`Rust CI #107` 已确认 macOS 通过、Ubuntu/Windows 因测试仓库缺少本地提交身份失败。
 
 ## 4. 安全边界
 

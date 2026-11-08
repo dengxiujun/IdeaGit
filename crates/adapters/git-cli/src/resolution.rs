@@ -123,6 +123,9 @@ mod tests {
     async fn writes_and_stages_a_real_conflict_resolution() {
         let fixture = TestRepository::init().expect("fixture should initialize");
         fixture
+            .configure_local_identity()
+            .expect("fixture identity should configure");
+        fixture
             .create_conflict("conflict.txt", b"base\n", b"ours\n", b"theirs\n")
             .expect("fixture should create conflict");
         let location = RepositoryLocation::worktree(
