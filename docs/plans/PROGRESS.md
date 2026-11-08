@@ -954,3 +954,13 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：TEST-004 已覆盖主要安全矩阵；仍需跨平台 Runner 验证和最终逐项审计，UI-013 真实入口继续关闭。
 - 下一步：完成 TEST-004 矩阵审计记录，确认高级能力开放条件后再推进 UI-013。
+
+## M4 TEST-004：安全矩阵本地审计完成（2026-11-08）
+
+- 审计结论：IP-001 §7.6 的 14 项安全场景均已找到对应测试证据，涵盖正常路径、失败路径、身份过期、外部 HEAD/Index 竞争、Hook、副作用、提交后协调失败、重启诊断、Rename、CRLF、非 UTF-8 和 Binary。
+- 关键证据：真实 Git 仓库测试验证未选择内容保留；真实临时 Index 与真实 Index 分离；外部修改不会被候选内容覆盖；RecoveryRequired 状态和 Journal 诊断均可观察。
+- 未验证项：当前环境无 GitHub connector，无法提供 Windows/Linux Runner 或 CI ID；因此跨平台 CI 仍为发布前置验证项，未伪造通过结论。
+- 高级能力条件：本地 TEST-004 阻断矩阵满足；UI-013 仍必须通过应用层已确认事务和 OperationCoordinator 装配后才开放真实入口。
+- 测试基线：workspace `fmt/check/clippy/test/diff check` 已通过；Git CLI 78 项、git-changelist 6 项、git-commit 15 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 下一步：推进 UI-013 的应用层已确认 Selection Commit 执行边界，不降级为 `CommitIndex`。
