@@ -14,6 +14,14 @@
 - Commit/Runner：本地提交待本次记录后生成；GitHub Runner 未创建（当前环境无 GitHub 连接器）。
 - 下一步：补真实 Partial Commit 提交后 Index 协调集成测试，以及发布失败/重启恢复测试。
 
+## M4 CCD-008：EditableIndexSession / Apply（2026-11-08）
+
+- 分支：`feat/m4`。
+- 完成：`EditableIndexSession` 新增 Apply 入口；先校验会话 dirty 状态及 HEAD/Index 身份，再校验候选内容与编辑内容一致，最后通过 `IndexReconciliationPublisher` 发布候选 Index；Conflict 映射为外部 Index 变化，未直接写真实 Index。
+- 测试：新增 Apply 正常发布和候选内容不匹配拒绝测试；git-commit 专项当前 14 个测试通过。
+- 风险：候选 Index 的 Blob/mode/filter 构造与 Apply 后重新读取 Blob 校验仍需 Git CLI 适配器和真实仓库集成测试；UI-012/UI-013 继续关闭。
+- 下一步：实现真实 Git 的编辑内容到候选 Index 条目转换及 Apply 后 Blob 校验。
+
 ## M4 TEST-004 / CCD-006：提交副作用观察与恢复边界（2026-11-08）
 
 - 分支：`feat/m4`；已统一承载全部已完成 M4 分支内容，保留用户未跟踪文件不动。
