@@ -48,6 +48,29 @@ impl<R: ProcessRunner> EditableIndexCandidateBuilder for GitCliEditableIndexCand
             ));
         }
         let path = repo_path_arg(&request.path)?;
+        let conflict = self
+            .executor
+            .execute(
+                ConflictStageCheckCommand {
+                    cwd: cwd.to_path_buf(),
+                    index: request.temporary_index.clone(),
+                    path: path.clone(),
+                },
+                context.clone(),
+            )
+            .await?;
+        if !conflict.success {
+            return Err(GitError::new(
+                GitErrorKind::InvalidRepository,
+                "Git could not inspect candidate Index conflict stages",
+            ));
+        }
+        if !conflict.stdout.is_empty() {
+            return Err(GitError::new(
+                GitErrorKind::MergeConflict,
+                "editable Index Apply does not support unresolved conflict stages",
+            ));
+        }
         let blob = self
             .executor
             .execute(
@@ -145,6 +168,28 @@ struct UpdateIndexCommand {
     cwd: PathBuf,
     index: PathBuf,
     entry: OsString,
+}
+
+struct ConflictStageCheckCommand {
+    cwd: PathBuf,
+    index: PathBuf,
+    path: OsString,
+}
+impl GitCliCommand for ConflictStageCheckCommand {}
+impl sealed::Sealed for ConflictStageCheckCommand {
+    fn into_invocation(self) -> GitCliInvocation {
+        GitCliInvocation::new(
+            None,
+            [
+                OsString::from("ls-files"),
+                OsString::from("--unmerged"),
+                OsString::from("--"),
+                self.path,
+            ],
+        )
+        .with_cwd(self.cwd)
+        .with_environment([EnvironmentVariable::public("GIT_INDEX_FILE", self.index)])
+    }
 }
 impl GitCliCommand for UpdateIndexCommand {}
 impl sealed::Sealed for UpdateIndexCommand {
@@ -352,5 +397,38 @@ mod tests {
             .expect("read candidate blob");
         assert!(output.status.success());
         assert_eq!(output.stdout, b"edited\n");
+    }
+
+    #[tokio::test]
+    async fn rejects_editing_a_path_with_unresolved_conflict_stages() {
+        let fixture = TestRepository::init().expect("fixture");
+        fixture
+            .create_conflict("conflict.txt", b"base\n", b"ours\n", b"theirs\n")
+            .expect("conflict fixture");
+        let real_index = fixture.worktree.join(".git/index");
+        let temporary_index = fixture.temp_dir.path().join("editable-conflict-index");
+        fs::copy(&real_index, &temporary_index).expect("copy conflict Index");
+        let builder = GitCliEditableIndexCandidateBuilder::new(
+            crate::TokioProcessRunner,
+            RepositoryLocation::worktree(
+                &fixture.worktree,
+                fixture.worktree.join(".git"),
+                fixture.worktree.join(".git"),
+            ),
+        );
+        let error = builder
+            .build(
+                EditableIndexCandidateRequest {
+                    target: SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                    path: RepoPath::try_from("conflict.txt").expect("path"),
+                    mode: 0o100644,
+                    content: b"resolved\n".to_vec(),
+                    temporary_index,
+                },
+                context(),
+            )
+            .await
+            .expect_err("unresolved stages must be rejected");
+        assert_eq!(error.kind, GitErrorKind::MergeConflict);
     }
 }

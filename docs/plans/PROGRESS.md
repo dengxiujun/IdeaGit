@@ -43,8 +43,17 @@
 - 完成：候选 Blob 构造使用 Git `hash-object --filters --path`，按目标路径应用 clean filter；新增 `.gitattributes` 与 CRLF 输入的真实仓库测试，确认候选 Index Blob 为过滤后的 LF 内容。
 - 测试：workspace 全量 fmt、check、clippy、test、diff check 全部通过；Git CLI 当前 71 个测试通过。
 - Commit/Runner：提交待生成；GitHub Runner 未创建（当前环境无 GitHub 连接器）。
-- 风险：冲突 stage、sparse/split Index 和特殊 mode 的拒绝矩阵仍需补充；UI-012/UI-013 继续关闭。
+- 风险：sparse/split Index 和特殊 mode 的拒绝矩阵仍需补充；UI-012/UI-013 继续关闭。
 - 下一步：补 CCD-008 冲突 stage 拒绝测试。
+
+## M4 CCD-008：冲突 stage 拒绝（2026-11-08）
+
+- 分支：`feat/m4`。
+- 完成：候选 Index 构造前检查目标路径的未合并 stage；发现 stage 1/2/3 时返回 `MergeConflict`，不执行 `hash-object`、不写入候选 Index；新增真实 merge conflict 测试。
+- 测试：workspace 全量 fmt、check、clippy、test、diff check 全部通过；Git CLI 当前 72 个测试通过。
+- Commit/Runner：提交待生成；GitHub Runner 未创建（当前环境无 GitHub 连接器）。
+- 风险：sparse/split Index 和特殊 mode 的拒绝矩阵仍需补充；UI-012/UI-013 继续关闭。
+- 下一步：完成 CCD-008 特殊 mode/Index 扩展拒绝审查，再进入 UI-012 依赖检查。
 
 ## M4 TEST-004 / CCD-006：提交副作用观察与恢复边界（2026-11-08）
 
