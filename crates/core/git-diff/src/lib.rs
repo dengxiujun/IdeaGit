@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+use git_domain::{ObjectId, RepoPath};
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Patch {
     pub files: Vec<FilePatch>,
@@ -13,6 +15,75 @@ pub struct FilePatch {
     pub new_path: Option<Vec<u8>>,
     pub hunks: Vec<Hunk>,
     pub binary: bool,
+}
+
+/// A stable source for a read-only diff.  HEAD, Index and Worktree are deliberately distinct
+/// even when their content currently has the same object identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ContentSource {
+    Head,
+    Index,
+    Worktree,
+    Commit(ObjectId),
+    Tree(ObjectId),
+    ConflictStage(u8),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VersionPair {
+    pub before: ContentSource,
+    pub after: ContentSource,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThreeVersionFile {
+    pub path: RepoPath,
+    pub head: Option<VersionIdentity>,
+    pub index: Option<VersionIdentity>,
+    pub worktree: Option<VersionIdentity>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VersionIdentity {
+    pub source: ContentSource,
+    pub oid: Option<ObjectId>,
+    pub mode: Option<u32>,
+}
+
+impl ThreeVersionFile {
+    #[must_use]
+    pub fn source(&self, source: ContentSource) -> Option<VersionIdentity> {
+        match source {
+            ContentSource::Head => self.head,
+            ContentSource::Index => self.index,
+            ContentSource::Worktree => self.worktree,
+            ContentSource::Commit(_) | ContentSource::Tree(_) | ContentSource::ConflictStage(_) => {
+                None
+            }
+        }
+    }
+}
+
+/// The three comparisons needed by staging UI: HEAD↔Index, Index↔Worktree and HEAD↔Worktree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThreeVersionDocument {
+    pub path: RepoPath,
+    pub file: ThreeVersionFile,
+    pub head_to_index: Option<Patch>,
+    pub index_to_worktree: Option<Patch>,
+    pub head_to_worktree: Option<Patch>,
+}
+
+impl ThreeVersionDocument {
+    #[must_use]
+    pub fn comparison(&self, pair: VersionPair) -> Option<&Patch> {
+        match (pair.before, pair.after) {
+            (ContentSource::Head, ContentSource::Index) => self.head_to_index.as_ref(),
+            (ContentSource::Index, ContentSource::Worktree) => self.index_to_worktree.as_ref(),
+            (ContentSource::Head, ContentSource::Worktree) => self.head_to_worktree.as_ref(),
+            _ => None,
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Hunk {
@@ -359,5 +430,68 @@ mod tests {
         let rows = align_hunk(2, &deleted.files[0].hunks[0]);
         assert_eq!(rows[1].kind, AlignedRowKind::Deleted);
         assert_eq!(rows[2].kind, AlignedRowKind::Deleted);
+    }
+
+    #[test]
+    fn keeps_head_index_and_worktree_as_distinct_sources() {
+        let path = RepoPath::try_from("file.txt").expect("valid path");
+        let file = ThreeVersionFile {
+            path: path.clone(),
+            head: Some(VersionIdentity {
+                source: ContentSource::Head,
+                oid: None,
+                mode: Some(0o100644),
+            }),
+            index: Some(VersionIdentity {
+                source: ContentSource::Index,
+                oid: None,
+                mode: Some(0o100644),
+            }),
+            worktree: Some(VersionIdentity {
+                source: ContentSource::Worktree,
+                oid: None,
+                mode: Some(0o100644),
+            }),
+        };
+        assert_ne!(
+            file.head.map(|version| version.source),
+            file.index.map(|version| version.source)
+        );
+        assert_eq!(file.source(ContentSource::Worktree), file.worktree);
+        assert_eq!(file.path, path);
+    }
+
+    #[test]
+    fn selects_only_supported_three_version_comparisons() {
+        let patch = parse(b"diff --git a/x b/x\n@@ -1 +1 @@\n-a\n+b\n").expect("valid");
+        let path = RepoPath::try_from("x").expect("valid path");
+        let document = ThreeVersionDocument {
+            path: path.clone(),
+            file: ThreeVersionFile {
+                path,
+                head: None,
+                index: None,
+                worktree: None,
+            },
+            head_to_index: Some(patch),
+            index_to_worktree: None,
+            head_to_worktree: None,
+        };
+        assert!(
+            document
+                .comparison(VersionPair {
+                    before: ContentSource::Head,
+                    after: ContentSource::Index,
+                })
+                .is_some()
+        );
+        assert!(
+            document
+                .comparison(VersionPair {
+                    before: ContentSource::Index,
+                    after: ContentSource::Head,
+                })
+                .is_none()
+        );
     }
 }
