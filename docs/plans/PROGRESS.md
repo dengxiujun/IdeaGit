@@ -24,7 +24,7 @@
 - 完成：候选 Index 构造后重新读取临时 Index 条目，核对 mode 与 Blob OID；新增特殊路径和 executable mode 真实 Git 测试，真实 Index 保持不变；真实 Index 原子发布后增加逐字节回读校验，回读不一致进入未知恢复状态。
 - 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过；Git CLI 当前 70 个测试、git-commit 当前 14 个测试通过。
 - Commit/Runner：提交待生成；GitHub Runner 未创建（当前环境无 GitHub 连接器）。
-- 风险：Apply 后真实 Index 的最终 Blob 逐字节回读、clean filter 和冲突 stage 完整矩阵仍需补充；UI-012/UI-013 继续关闭。
+- 风险：Apply 后真实 Index 的最终 Blob 逐字节回读已覆盖候选构造路径；冲突 stage 完整矩阵仍需补充；UI-012/UI-013 继续关闭。
 - 下一步：补 Apply 发布后的真实 Index Blob 回读与 filter/冲突 stage 拒绝测试，再进入 CCD-009/UI-012 依赖检查。
 
 ## M4 TEST-004：Index 协调失败恢复持久化（2026-11-08）
@@ -36,6 +36,15 @@
 - Commit/Runner：提交待生成；GitHub Runner 未创建（当前环境无 GitHub 连接器）。
 - 风险：TEST-004 仍需补启动重启后的真实 Journal 恢复演练，以及 Apply 的 clean filter/冲突 stage 完整矩阵；UI-012/UI-013 继续关闭。
 - 下一步：补 TEST-004 崩溃恢复/重启诊断测试，再重新审查 M4 前置门禁。
+
+## M4 CCD-008：Apply clean filter 校验（2026-11-08）
+
+- 分支：`feat/m4`。
+- 完成：候选 Blob 构造使用 Git `hash-object --filters --path`，按目标路径应用 clean filter；新增 `.gitattributes` 与 CRLF 输入的真实仓库测试，确认候选 Index Blob 为过滤后的 LF 内容。
+- 测试：workspace 全量 fmt、check、clippy、test、diff check 全部通过；Git CLI 当前 71 个测试通过。
+- Commit/Runner：提交待生成；GitHub Runner 未创建（当前环境无 GitHub 连接器）。
+- 风险：冲突 stage、sparse/split Index 和特殊 mode 的拒绝矩阵仍需补充；UI-012/UI-013 继续关闭。
+- 下一步：补 CCD-008 冲突 stage 拒绝测试。
 
 ## M4 TEST-004 / CCD-006：提交副作用观察与恢复边界（2026-11-08）
 

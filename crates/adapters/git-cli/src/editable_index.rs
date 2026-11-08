@@ -127,6 +127,7 @@ impl sealed::Sealed for HashObjectCommand {
             [
                 OsString::from("hash-object"),
                 OsString::from("-w"),
+                OsString::from("--filters"),
                 OsString::from("--stdin"),
                 {
                     let mut path = OsString::from("--path=");
@@ -285,5 +286,71 @@ mod tests {
         assert_eq!(candidate.content, b"edited\n");
         assert_ne!(candidate.index_bytes, original);
         assert_eq!(fs::read(real_index).expect("real index"), original);
+    }
+
+    #[tokio::test]
+    async fn applies_clean_filter_before_writing_candidate_blob() {
+        let fixture = TestRepository::init().expect("fixture");
+        fixture
+            .commit_file(".gitattributes", b"*.txt text eol=lf\n")
+            .expect("attributes commit");
+        fixture
+            .commit_file("filtered.txt", b"base\n")
+            .expect("file commit");
+        let temporary_index = fixture.temp_dir.path().join("editable-filter-index");
+        let mut read_tree = Command::new("git");
+        read_tree
+            .args(["read-tree", "HEAD"])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (name, value) in fixture.isolated_environment() {
+            read_tree.env(name, value);
+        }
+        assert!(read_tree.status().expect("git starts").success());
+
+        let builder = GitCliEditableIndexCandidateBuilder::new(
+            crate::TokioProcessRunner,
+            RepositoryLocation::worktree(
+                &fixture.worktree,
+                fixture.worktree.join(".git"),
+                fixture.worktree.join(".git"),
+            ),
+        );
+        builder
+            .build(
+                EditableIndexCandidateRequest {
+                    target: SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                    path: RepoPath::try_from("filtered.txt").expect("path"),
+                    mode: 0o100644,
+                    content: b"edited\r\n".to_vec(),
+                    temporary_index: temporary_index.clone(),
+                },
+                context(),
+            )
+            .await
+            .expect("filtered candidate");
+
+        let mut read_entry = Command::new("git");
+        read_entry
+            .args(["ls-files", "--stage", "--", "filtered.txt"])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (name, value) in fixture.isolated_environment() {
+            read_entry.env(name, value);
+        }
+        let entry = read_entry.output().expect("read candidate entry");
+        assert!(entry.status.success());
+        let oid = String::from_utf8_lossy(&entry.stdout)
+            .split_whitespace()
+            .nth(1)
+            .expect("candidate blob oid")
+            .to_owned();
+        let output = Command::new("git")
+            .args(["cat-file", "blob", &oid])
+            .current_dir(&fixture.worktree)
+            .output()
+            .expect("read candidate blob");
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"edited\n");
     }
 }
