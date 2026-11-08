@@ -560,6 +560,7 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 新增 `validate_conflict_stages`，逐项比较路径及 Stage 1/2/3 OID；路径或任一阶段变化时返回结构化错误并阻止写入。
 - `GitCliConflictStageReader` 新增真实 Merge 冲突集成测试，验证 Stage 1/2/3 OID 均从真实 Index 读取；读取—校验链路已具备真实 Git 证据。
 - 新增 `validate_resolution_request` 组合全部只读前置条件；任何请求、阶段身份或 Worktree digest 不匹配都会在写入前失败。
+- `GitCliConflictResolutionWriter` 接入真实 Worktree 写入与 literal `git add -- <path>`；真实冲突集成测试验证解决内容写入后不再保留 `UU` 状态。Continue/Abort 仍未自动执行。
 
 ## GIT-001 Stage / Unstage（2026-11-07）
 
