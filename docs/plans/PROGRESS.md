@@ -2,6 +2,15 @@
 
 更新日期：2026-11-08。
 
+## M4 DIFF-004：Side-by-side Alignment（2026-11-08）
+
+- 分支：`feat/DIFF-004`；从 `main` 创建并带入已验证的 DIFF-003 依赖提交。
+- 完成：新增独立于 UI 的逻辑行对齐引擎，保留 Hunk/Line 身份，支持上下文、成对替换、纯新增和纯删除行。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；专项 5 个 Diff 测试通过。
+- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
+- 风险：当前仍未实现三版本 Diff、Hunk/Line Stage 和 UI Viewer；对齐算法按连续删除/新增块配对，不做文本相似度重排。
+- 下一任务：DIFF-005（HEAD/Index/Worktree 三版本）。
+
 ## M4 DIFF-003：Patch AST/Hunk/Line（2026-11-08）
 
 - 分支：`feat/DIFF-003`；已从干净 `main` 创建。
