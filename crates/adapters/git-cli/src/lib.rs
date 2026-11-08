@@ -1,6 +1,7 @@
 //! Git CLI process execution and machine-output adapters.
 
 mod branch;
+mod candidate_tree;
 mod clone;
 mod commit;
 mod conflict;
@@ -20,6 +21,7 @@ mod temporary_index;
 mod version;
 
 pub use branch::GitCliBranchWriter;
+pub use candidate_tree::GitCliCandidateTreeBuilder;
 pub use clone::GitCliCloneWriter;
 pub use commit::{GitCliCommitState, GitCliCommitStateProbe, GitCliCommitWriter};
 pub use conflict::GitCliConflictStageReader;
