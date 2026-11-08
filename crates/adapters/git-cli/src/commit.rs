@@ -504,10 +504,10 @@ mod tests {
     async fn temporary_partial_commit_keeps_unselected_worktree_and_index_content() {
         let fixture = TestRepository::init().expect("fixture");
         fixture
-            .commit_file("selected.txt", b"selected-base\n")
+            .commit_file("selected.txt", b"selected-base\r\n")
             .expect("first file");
         fixture
-            .write_file("unselected.txt", b"unselected-base\n")
+            .write_file("unselected.txt", b"unselected-base\r\n")
             .expect("second file");
         fixture
             .stage_file("unselected.txt")
@@ -545,10 +545,10 @@ mod tests {
             .expect("baseline commit");
 
         fixture
-            .write_file("selected.txt", b"selected-changed\n")
+            .write_file("selected.txt", b"selected-changed\r\n")
             .expect("selected edit");
         fixture
-            .write_file("unselected.txt", b"unselected-changed\n")
+            .write_file("unselected.txt", b"unselected-changed\r\n")
             .expect("unselected edit");
         let real_index = fixture.worktree.join(".git/index");
         let index_before = fs::read(&real_index).expect("real Index");
@@ -606,20 +606,20 @@ mod tests {
         assert_eq!(fs::read(&real_index).expect("real Index"), index_before);
         assert_eq!(
             fs::read(fixture.worktree.join("unselected.txt")).expect("worktree"),
-            b"unselected-changed\n"
+            b"unselected-changed\r\n"
         );
         let selected_head = Command::new("git")
             .args(["show", "HEAD:selected.txt"])
             .current_dir(&fixture.worktree)
             .output()
             .expect("git show");
-        assert_eq!(selected_head.stdout, b"selected-changed\n");
+        assert_eq!(selected_head.stdout, b"selected-changed\r\n");
         let unselected_head = Command::new("git")
             .args(["show", "HEAD:unselected.txt"])
             .current_dir(&fixture.worktree)
             .output()
             .expect("git show");
-        assert_eq!(unselected_head.stdout, b"unselected-base\n");
+        assert_eq!(unselected_head.stdout, b"unselected-base\r\n");
     }
 
     #[tokio::test]
