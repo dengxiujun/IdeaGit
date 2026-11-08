@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use git_domain::{LineSpan, ObjectId, RepoPath};
+use git_domain::{ChangeSelection, LineSpan, ObjectId, RepoPath};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Patch {
@@ -213,6 +213,82 @@ pub enum PatchBuildError {
     SelectionOutOfBounds,
     ContextOnlySelection,
     InvalidLineRange,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SelectionPatchError {
+    FileNotFound,
+    BinaryFile,
+    EmptySelection,
+    HunkOutOfBounds,
+    LinePatch(PatchBuildError),
+}
+
+/// Builds a patch for a domain selection without consulting or mutating Git state.
+///
+/// File identity is matched against either side of the raw Git patch.  This keeps rename and
+/// deletion selections byte-oriented and prevents a selection for another file from being
+/// accidentally applied to the current patch.
+pub fn build_selection_patch(
+    patch: &Patch,
+    selection: &ChangeSelection,
+) -> Result<Vec<u8>, SelectionPatchError> {
+    let path = selection_path(selection);
+    let file = patch
+        .files
+        .iter()
+        .find(|file| {
+            file.old_path.as_deref() == Some(path) || file.new_path.as_deref() == Some(path)
+        })
+        .ok_or(SelectionPatchError::FileNotFound)?;
+    if file.binary {
+        return Err(SelectionPatchError::BinaryFile);
+    }
+
+    match selection {
+        ChangeSelection::WholeFile { .. } => {
+            if file.hunks.is_empty() {
+                return Err(SelectionPatchError::EmptySelection);
+            }
+            let mut output = Vec::new();
+            write_file_headers(&mut output, file);
+            for hunk in &file.hunks {
+                write_hunk(&mut output, &hunk.lines);
+            }
+            Ok(output)
+        }
+        ChangeSelection::Hunks { ids, .. } => {
+            if ids.is_empty() {
+                return Err(SelectionPatchError::EmptySelection);
+            }
+            let mut output = Vec::new();
+            write_file_headers(&mut output, file);
+            for id in ids {
+                let index =
+                    usize::try_from(*id).map_err(|_| SelectionPatchError::HunkOutOfBounds)?;
+                let hunk = file
+                    .hunks
+                    .get(index)
+                    .ok_or(SelectionPatchError::HunkOutOfBounds)?;
+                write_hunk(&mut output, &hunk.lines);
+            }
+            Ok(output)
+        }
+        ChangeSelection::Lines { hunk, ranges, .. } => build_line_patch(
+            file,
+            usize::try_from(*hunk).map_err(|_| SelectionPatchError::HunkOutOfBounds)?,
+            ranges,
+        )
+        .map_err(SelectionPatchError::LinePatch),
+    }
+}
+
+fn selection_path(selection: &ChangeSelection) -> &[u8] {
+    match selection {
+        ChangeSelection::WholeFile { file }
+        | ChangeSelection::Hunks { file, .. }
+        | ChangeSelection::Lines { file, .. } => file.path.as_bytes(),
+    }
 }
 
 /// Build a minimal, byte-preserving patch for selected changed lines in one hunk.
@@ -668,6 +744,55 @@ mod tests {
         assert_eq!(
             build_line_patch(&binary.files[0], 0, &[LineSpan { start: 0, end: 1 }]),
             Err(PatchBuildError::BinaryFile)
+        );
+    }
+
+    fn selection(path: &str) -> ChangeSelection {
+        ChangeSelection::WholeFile {
+            file: git_domain::FileIdentity {
+                target: git_domain::SessionTarget::worktree(
+                    git_domain::RepositoryId::new(),
+                    git_domain::WorktreeId::new(),
+                    1,
+                ),
+                path: RepoPath::try_from(path).expect("valid path"),
+                previous_path: None,
+                kind: git_domain::FileKind::Regular,
+            },
+        }
+    }
+
+    #[test]
+    fn builds_patch_for_matching_whole_file_selection() {
+        let patch = parse(b"diff --git a/x b/x\n@@ -1 +1 @@\n-old\n+new\n").expect("valid");
+        let output = build_selection_patch(&patch, &selection("x")).expect("selection is valid");
+        assert!(output.starts_with(b"diff --git a/x b/x\n"));
+        assert!(
+            output
+                .windows(b"+new\n".len())
+                .any(|window| window == b"+new\n")
+        );
+    }
+
+    #[test]
+    fn rejects_foreign_empty_and_out_of_bounds_selections() {
+        let patch = parse(b"diff --git a/x b/x\n@@ -1 +1 @@\n-old\n+new\n").expect("valid");
+        assert_eq!(
+            build_selection_patch(&patch, &selection("other")),
+            Err(SelectionPatchError::FileNotFound)
+        );
+        assert_eq!(
+            build_selection_patch(
+                &patch,
+                &ChangeSelection::Hunks {
+                    file: match selection("x") {
+                        ChangeSelection::WholeFile { file } => file,
+                        _ => unreachable!(),
+                    },
+                    ids: Vec::new(),
+                },
+            ),
+            Err(SelectionPatchError::EmptySelection)
         );
     }
 }

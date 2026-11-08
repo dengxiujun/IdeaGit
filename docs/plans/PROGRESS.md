@@ -831,3 +831,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - `Rust CI #108` 的 Windows artifact 显示主链路已执行到 Pull 后内容断言，仅因系统默认 `core.autocrlf` 将 LF 转为 CRLF；E2E 现对 source/clone 仓库显式设置本地 `core.autocrlf=false`，固定跨平台字节语义。
 - `Rust CI #109`（Runner ID `42443666319`）在 Ubuntu、Windows、macOS 与 Format 全部成功；M3 §6.7 的主链路、认证失败、外部竞争、网络异常与崩溃恢复证据完成审计，门禁关闭。
 - `Rust CI #110`（Runner ID `42444369117`）验证最终门禁文档提交，Ubuntu、Windows、macOS 与 Format 全部成功；M3 交付审计完成。
+
+## M4 Selection Patch Boundary（2026-11-08）
+
+- 在 `git-diff` 增加 `build_selection_patch`，将 `ChangeSelection` 安全投影为 WholeFile、Hunks 或 Lines 补丁；文件身份按原始 Git 路径字节匹配，支持 rename/delete 两侧路径。
+- 拒绝未知文件、二进制文件、空选区、越界 Hunk，并复用现有行补丁校验，避免把不属于当前 Patch 的选择送入后续 Candidate Tree 流程。
+- 专项测试：`cargo test -p git-diff --locked`（12 passed）；`cargo fmt --all` 与 `git diff --check` 已通过。
+- 本切片尚未接通 Candidate Tree、Partial Commit 或真实 Index；下一项继续补齐 Selection Patch 到 Candidate Tree 的应用层边界，随后推进 TEST-004 安全回归。
+- GitHub Runner：未执行（当前环境未配置 GitHub connector）；PR：未创建。
