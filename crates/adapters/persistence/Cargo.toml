@@ -10,6 +10,7 @@ serde_json.workspace = true
 git-ports.workspace = true
 git-domain.workspace = true
 git-changelist.workspace = true
+git-shelf.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
 
