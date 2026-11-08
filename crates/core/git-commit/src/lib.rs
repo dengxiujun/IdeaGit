@@ -6,7 +6,7 @@ use git_domain::{
     GitCommand, GitError, GitErrorKind, GitResult, JournalPhase, JournalRecord, JournalResult,
     ObjectId, OperationId, RecoveryScope, SelectionCommitRequest,
 };
-use git_ports::JournalStore;
+use git_ports::{CommitOutcome, CommitWriter, ExecutionContext, JournalStore};
 
 /// Durable state of a partial-commit transaction. The states deliberately mirror the CCD
 /// journal phases and never imply that a real commit is atomic with Index reconciliation.
@@ -39,6 +39,60 @@ pub struct PartialCommitTransaction {
 pub struct PartialCommitJournal<J> {
     store: J,
     scope: RecoveryScope,
+}
+
+#[derive(Debug)]
+pub struct PartialCommitCoordinator<W, J> {
+    writer: W,
+    journal: PartialCommitJournal<J>,
+}
+
+impl<W, J> PartialCommitCoordinator<W, J> {
+    #[must_use]
+    pub fn new(writer: W, journal: PartialCommitJournal<J>) -> Self {
+        Self { writer, journal }
+    }
+}
+
+impl<W: CommitWriter, J: JournalStore> PartialCommitCoordinator<W, J> {
+    #[allow(clippy::result_large_err)]
+    pub async fn commit(
+        &self,
+        target: git_domain::SessionTarget,
+        operation: OperationId,
+        transaction: &mut PartialCommitTransaction,
+        context: ExecutionContext,
+    ) -> GitResult<CommitOutcome> {
+        let mut record = self.journal.record_intent(operation, transaction).await?;
+        let _tree = transaction.begin_commit()?;
+        record.phase = JournalPhase::CommitInProgress;
+        self.journal.store.replace(record.clone()).await?;
+        match self
+            .writer
+            .commit(target, transaction.standard_request()?, context)
+            .await
+        {
+            Ok(outcome) => {
+                transaction.commit_observed(outcome.commit)?;
+                transaction.observe_head_after_commit(Some(outcome.commit))?;
+                record.phase = JournalPhase::CommitObserved;
+                record.observed_commit = Some(outcome.commit);
+                record.observed_parents = outcome.parents.clone();
+                record.result = Some(JournalResult::Completed);
+                self.journal.store.replace(record).await?;
+                Ok(outcome)
+            }
+            Err(error) => {
+                record.phase = JournalPhase::RecoveryRequired;
+                record.result = Some(JournalResult::RecoveryRequired {
+                    reason: error.to_string(),
+                });
+                let _ = self.journal.store.replace(record).await;
+                transaction.phase = PartialCommitPhase::RecoveryRequired;
+                Err(error)
+            }
+        }
+    }
 }
 
 impl<J> PartialCommitJournal<J> {
@@ -101,6 +155,15 @@ fn phase_to_journal(phase: PartialCommitPhase) -> JournalPhase {
 }
 
 impl PartialCommitTransaction {
+    #[allow(clippy::result_large_err)]
+    fn standard_request(&self) -> GitResult<git_domain::StandardCommitRequest> {
+        Ok(git_domain::StandardCommitRequest {
+            options: self.request.options.clone(),
+            expected_revision: self.request.expected_revision,
+            expected_head: self.expected_head,
+            expected_index: self.expected_index,
+        })
+    }
     #[allow(clippy::result_large_err)]
     pub fn begin(request: SelectionCommitRequest) -> GitResult<Self> {
         if request.selections.is_empty() {
