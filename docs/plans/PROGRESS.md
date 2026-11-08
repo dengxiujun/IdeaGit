@@ -848,3 +848,11 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：TEST-004 仍需补齐外部 Index/HEAD 竞争、签名失败后状态确认、崩溃重启诊断与跨平台矩阵的最终审计；UI-013 生产入口继续关闭。
 - 下一步：补 TEST-004 剩余安全矩阵并重新审查 M4 高级能力开放条件。
+
+## M4 UI-013：Selection Commit 应用层装配阻断（2026-11-08）
+
+- 已验证事实：底层 `CandidateTreeBuilder`、`PartialCommitCoordinator`、Temporary Index、Index reconciliation 和 Preview/指纹模型已存在；`M2OperationExecutor` 仍明确拒绝 `CommitSelection`，避免降级为普通 Index Commit。
+- 阻断原因：当前缺少架构契约要求的 `diff`/`prepare_commit` 应用层 Facade、完整 Patch 读取端口、Selection Patch 编排和 OperationCoordinator 装配；直接从 UI 或 Git CLI 适配器连接会违反依赖方向和写入边界。
+- ADR：新增 [ADR-M4-SELECTION-COMMIT-APPLICATION-001](../architecture/adr/ADR-M4-SELECTION-COMMIT-APPLICATION-001.md)，状态 Draft，等待项目负责人批准。
+- 影响范围：UI-013 真实入口保持关闭；TEST-004 已继续补充底层真实协调器证据，但 M4 生产开放门禁尚未关闭。
+- 下一步：等待 ADR 批准；批准后先实现 Diff/Patch 读取与 Preview 准备边界，再接 OperationCoordinator 执行器。
