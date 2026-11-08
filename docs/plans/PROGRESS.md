@@ -1094,3 +1094,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：Preview Session 尚未在桌面组合根实例化并连接 GPUI ActionDispatcher；生产 UI 入口仍关闭。
 - 下一步：在桌面应用组合根接入 Preview Session 的生命周期，先提供 Preview 再允许 Confirm。
+
+## M4 UI-013：动态 Temporary Index Writer 阻塞记录（2026-11-08）
+
+- 已验证事实：`GitCliTemporaryIndexCommitWriter` 在构造时固定 `GIT_INDEX_FILE`；Preview 的 Temporary Index 路径按 Operation 动态生成；当前 `CommitWriter::commit` 没有传递 Temporary Index 身份的参数。
+- 阻塞原因：直接装配现有 writer 可能误读固定路径或真实 `.git/index`，无法满足 Partial Commit 的 Index 隔离安全约束；修复涉及 `git-ports`、`git-commit` 和 `git-cli` 写边界。
+- ADR：新增 [ADR-M4-DYNAMIC-TEMP-INDEX-WRITER-001](../architecture/adr/ADR-M4-DYNAMIC-TEMP-INDEX-WRITER-001.md)，状态 Draft，推荐方案一（新增显式 Partial Commit 写端口/请求并携带 TemporaryIndexLease），待批准。
+- 影响范围：UI-013 桌面生产组合根暂不开放；不修改现有核心接口、不以 UI 环境变量绕过阻塞。
+- 测试：本次为边界审查和 ADR 草案，未执行代码门禁；此前 `31c2a0e` 的 workspace 门禁已通过。
+- 下一步：等待 ADR 批准；批准后实现动态 Temporary Index 写端口并增加真实 Git 并发/隔离测试。
