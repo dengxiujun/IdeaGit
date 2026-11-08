@@ -554,6 +554,7 @@ impl sealed::Sealed for ParentsCommand {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use async_trait::async_trait;
     #[cfg(unix)]
     use git_commit::{
@@ -579,16 +580,16 @@ mod tests {
     };
     #[cfg(unix)]
     use std::os::unix::ffi::OsStrExt;
+    #[cfg(unix)]
     use std::sync::{Arc, Mutex};
     use std::{fs, process::Command};
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 
     use super::*;
-    use crate::{
-        GitCliCandidateTreeBuilder, GitCliExecutor, GitCliIndexReconciliationPublisher,
-        TokioProcessRunner,
-    };
+    #[cfg(unix)]
+    use crate::GitCliIndexReconciliationPublisher;
+    use crate::{GitCliCandidateTreeBuilder, GitCliExecutor, TokioProcessRunner};
 
     #[cfg(unix)]
     #[derive(Clone, Default)]

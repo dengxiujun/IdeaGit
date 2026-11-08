@@ -1154,3 +1154,13 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - GitHub Runner：Rust CI #114（Run ID `42463768350`）已确认 Format 通过；Ubuntu 因非 UTF-8 路径测试缺少 Operation ID、Windows 因 Unix 专用测试辅助项未加条件编译而失败；macOS 状态待本次修复推送后的新 Run 重新确认。
 - 风险：TEST-004 仍未达到跨平台发布验收，必须等待新 CI 三平台全绿；UI-013 生产入口继续关闭。
 - 下一步：推送 `feat/m4`，等待新 Rust CI；CI 全绿后再继续 UI-013 生产 Preview Session/ActionDispatcher 装配。
+
+## M4 TEST-004：Windows CI 条件编译修复（2026-11-08）
+
+- 完成：根据 Rust CI #115 的 Windows 日志，将 Unix 专用测试依赖 `async_trait`、`Arc/Mutex` 和 `GitCliIndexReconciliationPublisher` 全部限制在 `cfg(unix)` 下，避免 Windows `-D warnings` 失败。
+- 修改文件：`crates/adapters/git-cli/src/commit.rs`。
+- Commit：`995e3c7 fix(M4 TEST-004): 修复 Windows 测试导入条件`。
+- 本地门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
+- GitHub Runner：Rust CI #115（Run ID `42465713873`）：macOS `128684625983` 通过、Format `128684626128` 通过、Ubuntu `128684626193` 通过、Windows `128684626224` 失败，失败原因已修复并推送。
+- 风险：新提交尚未产生最终 CI 结论；TEST-004 仍未完成跨平台发布验收。
+- 下一步：等待新 Rust CI 三平台结果；通过后继续 UI-013 生产 Preview Session/ActionDispatcher 装配。
