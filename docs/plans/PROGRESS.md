@@ -618,3 +618,4 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 新增真实 Git 组合测试 `m3_gate_clone_edit_commit_push_fetch_pull_merge_conflict_resolve_continue`。
 - 测试通过生产 CLI 适配器完成 Clone、Commit、Push、Fetch、Pull、Merge、Conflict Stage Read、Resolution Write/Stage 与 Merge Continue；fixture 仅提供隔离临时仓库及本地 bare remote。
 - 已验证解决后的内容落盘且 Merge Continue 成功；认证失败、外部竞争、崩溃恢复与网络异常专项证据仍需补齐，M3 §6.7 尚未关闭。
+- 追加 Clone 网络失败与冲突期间工作区外部修改拒绝测试，确认失败时不覆盖外部内容；认证失败、崩溃恢复的端到端证据仍需补齐。

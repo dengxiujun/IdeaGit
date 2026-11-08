@@ -202,3 +202,62 @@ async fn m3_gate_clone_edit_commit_push_fetch_pull_merge_conflict_resolve_contin
         b"resolved\n"
     );
 }
+
+#[tokio::test]
+async fn m3_gate_rejects_clone_network_failure_and_external_conflict_edit() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let destination = temp.path().join("failed-clone");
+    let clone_error = GitCliCloneWriter::new(TokioProcessRunner)
+        .clone_repository(
+            CloneRequest {
+                source: "https://127.0.0.1:9/ideagit-unreachable.git".to_owned(),
+                destination: git_domain::LocalPath::new(destination),
+            },
+            context(),
+        )
+        .await
+        .expect_err("unreachable clone must fail");
+    assert_eq!(clone_error.kind, git_domain::GitErrorKind::NetworkFailure);
+
+    let fixture = TestRepository::init().expect("fixture");
+    fixture
+        .configure_local_identity()
+        .expect("fixture identity");
+    fixture
+        .create_conflict("conflict.txt", b"base\n", b"ours\n", b"theirs\n")
+        .expect("conflict");
+    let location = location(&fixture.worktree);
+    let path = RepoPath::try_from("conflict.txt").expect("path");
+    let stages = GitCliConflictStageReader::new(TokioProcessRunner)
+        .read(&location, context())
+        .await
+        .expect("stages");
+    let conflict = stages.iter().find(|item| item.path == path).expect("path");
+    let observed = fs::read(fixture.worktree.join("conflict.txt")).expect("worktree");
+    fs::write(fixture.worktree.join("conflict.txt"), b"external edit\n").expect("external edit");
+
+    let error = GitCliConflictResolutionWriter::new(TokioProcessRunner, location)
+        .apply(
+            ApplyResolutionRequest {
+                target: target(),
+                path,
+                expected_conflict_revision: SnapshotRevision::INITIAL,
+                expected_stage_oids: git_ports::ConflictStages {
+                    stage1: conflict.stage1_oid,
+                    stage2: conflict.stage2_oid,
+                    stage3: conflict.stage3_oid,
+                },
+                expected_worktree_digest: git_ports::worktree_digest(&observed),
+                mode: 0o100644,
+                result: b"must not overwrite\n".to_vec(),
+            },
+            context(),
+        )
+        .await
+        .expect_err("external edit must invalidate resolution");
+    assert_eq!(error.kind, git_domain::GitErrorKind::StaleSelection);
+    assert_eq!(
+        fs::read(fixture.worktree.join("conflict.txt")).expect("preserved edit"),
+        b"external edit\n"
+    );
+}
