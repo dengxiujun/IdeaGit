@@ -12,6 +12,13 @@
 - 未覆盖风险：Hook 修改 Worktree、崩溃重启诊断仍缺少可执行的协调器/真实提交测试入口；非 UTF-8 路径测试仅在 Linux 编译/执行，当前 macOS 文件系统拒绝创建该类文件名；M4 生产开放门禁保持关闭。
 - 下一任务：补齐 TEST-004 所需的真实 Partial Commit 执行测试入口；UI-013 在 TEST-004 与 CCD-007 生产发布协议完成前不得开放。
 
+### TEST-004 阻断记录（2026-11-08）
+
+- 已验证事实：现有真实测试覆盖 Hook 拒绝、签名失败、部分文件/行、重命名、CRLF、二进制和 Linux 非 UTF-8 路径；尚无 Hook 修改 Worktree 后的协调器级观察。
+- 阻断原因：`CommitWriter` 不提供提交前后 Worktree/Refs 观察，直接在适配器补丁中实现会越过 OperationCoordinator/Journal 边界。
+- ADR：已创建 [ADR-M4-PARTIAL-COMMIT-RECOVERY-001](../architecture/adr/ADR-M4-PARTIAL-COMMIT-RECOVERY-001.md)，状态 Draft，待项目负责人批准。
+- 影响：暂不实施端口/模块边界变更；TEST-004 未完成，UI-013 保持关闭。
+
 ## M4 CCD-008：EditableIndexSession / Apply（2026-11-08）
 
 - 分支：`feat/CCD-008`；从 `main` 创建并带入 CCD-001～007、CCD-009 前置实现。
