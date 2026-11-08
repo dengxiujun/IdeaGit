@@ -1,11 +1,13 @@
 name: Rust CI
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
   workflow_dispatch:
+    inputs:
+      reason:
+        description: "触发原因"
+        required: false
+        type: string
 
 permissions:
   contents: read
