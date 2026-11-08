@@ -1282,6 +1282,10 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 修改文件：`crates/adapters/git-cli/src/sequencer.rs`、`crates/adapters/git-cli/tests/m3_e2e.rs`、`docs/plans/PROGRESS.md`。
 - 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
 - 风险：PR、GitHub CI、代码审查和合并门禁尚未完成。
+- PR：[#9](https://github.com/dengxiujun/IdeaGit/pull/9) 已合并，合并提交为 `4996e368bfd6583d6191d8d8260573f3bc1b1135`。
+- CI：Rust CI #132（Run ID `42488505758`，提交 `5111bcc9d3c573f91f8f386f25e8bc4c38f9badf`）已成功；Format、Ubuntu 24.04、macOS 15、Windows 2022 全部通过。
+- 分支：已确认合并提交进入 `main`；本地和远程 `feat/SHELF-002` 均已清理。
+- 结论：SHELF-002 完成；下一任务为 `HISTORY-001`，必须从已验证的 `main` 按串行规则创建新分支。
 - PR：[#8](https://github.com/dengxiujun/IdeaGit/pull/8) 已合并，合并提交为 `355702562cd1511a35c24aeb695ed02291c38581`。
 - CI：Rust CI #131（Run ID `42487374190`，提交 `9886259948d42fddad3deb11f88340d841b1c4da`）已成功；Format、Ubuntu 24.04、macOS 15、Windows 2022 全部通过。
 - 分支：已确认合并提交进入 `main`；本地和远程 `feat/SHELF-001` 均已清理。
