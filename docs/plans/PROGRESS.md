@@ -2,6 +2,14 @@
 
 更新日期：2026-11-08。
 
+## M4 CCD-007：Real Index Reconciliation（2026-11-08）
+
+- 分支：`feat/CCD-007`；从 `main` 创建并带入 CCD-001～006、CCD-009。
+- 完成：新增保守 `RealIndexReconciler` 规划器；比较原始 Index SHA-256 摘要和当前 Index，要求 HEAD 已前进且存在已验证候选 Index，才生成 Publish 计划；外部 Index 竞争、HEAD 未前进或缺少候选均进入 RecoveryRequired。
+- 测试：专项覆盖安全发布与外部 Index 变化拒绝；workspace 依赖边已离线锁定，未升级版本。
+- 风险：平台无关的锁内原子发布尚未接入；当前规划器不直接写真实 Index，避免绕过 OperationCoordinator。
+- 下一任务：完成批准的 Index 发布端口后继续 CCD-008（EditableIndexSession / Apply）。
+
 ## M4 CCD-006：Partial Commit Transaction（2026-11-08）
 
 - 分支：`feat/CCD-006`；从 `main` 创建并带入 CCD-001～005、CCD-009 前置实现。
