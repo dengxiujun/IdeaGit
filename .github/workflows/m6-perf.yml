@@ -1,6 +1,9 @@
 name: M6 Performance Baseline
 
 on:
+  push:
+    branches:
+      - "feat/PERF-001"
   workflow_dispatch:
     inputs:
       reason:
