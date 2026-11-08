@@ -812,6 +812,12 @@ fn commit_action_request(
     model: &CommitPanelViewModel,
     staged_files: Vec<git_domain::RepoPath>,
 ) -> Option<ActionRequest> {
+    // Changelist commits require the Partial Commit preview/confirmation path.  Until the
+    // application coordinator is wired for that command, never downgrade the mode to a normal
+    // Index commit.
+    if model.mode == git_ui_model::CommitMode::Changelist {
+        return None;
+    }
     if model.message.trim().is_empty() || model.expected_index.is_none() {
         return None;
     }
@@ -1188,5 +1194,32 @@ mod tests {
             }
             _ => panic!("commit action should carry typed commit payload"),
         }
+    }
+
+    #[test]
+    fn changelist_mode_never_downgrades_to_a_standard_index_commit() {
+        let target = git_domain::SessionTarget::worktree(
+            git_domain::RepositoryId::new(),
+            git_domain::WorktreeId::new(),
+            1,
+        );
+        let model = CommitPanelViewModel {
+            target,
+            revision: git_domain::SnapshotRevision::new(1),
+            changes: Vec::new(),
+            selected: Vec::new(),
+            message: "changelist commit".to_owned(),
+            amend: false,
+            mode: git_ui_model::CommitMode::Changelist,
+            changelist: Some(git_changelist::ChangelistId::new()),
+            draft_revision: 1,
+            expected_head: None,
+            expected_index: Some(
+                git_domain::ObjectId::from_bytes(git_domain::ObjectFormat::Sha1, &[2; 20])
+                    .expect("valid index"),
+            ),
+            submission: git_ui_model::CommitSubmissionState::Idle,
+        };
+        assert!(commit_action_request(&model, Vec::new()).is_none());
     }
 }

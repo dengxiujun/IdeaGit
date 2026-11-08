@@ -98,7 +98,9 @@
 - 测试：新增模式身份与选区保持测试；workspace 全量 fmt、check、clippy、test、diff check 全部通过。
 - Runner/PR：GitHub Runner 未创建（当前环境无 GitHub 连接器）；未创建/合并 PR。
 - 风险：真实提交入口仍关闭，尚未将 UI 操作接入 Partial Commit OperationCoordinator。
-- 下一步：审查 UI-013 真实入口开放条件，补齐应用层安全门禁后再决定是否开放。
+- 完成补充：`idea-shell` 的 Commit Action 在 Changelist 模式下显式不生成 `CommitIndex` 请求，避免把逻辑选区误提交为真实 Index；待 Partial Commit Coordinator 入口完整装配后再开放。
+- 测试：新增入口隔离测试；workspace 全量 fmt、check、clippy、test、diff check 全部通过。
+- 下一步：继续审查 M4 全部任务的完成证据和 UI-013 应用层装配缺口。
 
 ## M4 TEST-004 / CCD-006：提交副作用观察与恢复边界（2026-11-08）
 
