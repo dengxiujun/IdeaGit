@@ -535,6 +535,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 该节点不写 Index、不执行 Resolve/Continue；真实三方内容构建与受控 Stage 留给 MERGE-002。
 - 本机 Workspace `fmt/check/clippy/test` 通过；Rust CI #84（Runner `42430531903`）三平台通过。
 
+## M3 REMOTE-004 Pull MVP（2026-11-08）
+
+- `RemoteCommand` 新增 typed `Pull { remote, branch }`；`GitCliRemoteAdapter` 以 `git pull --no-rebase` 执行 fetch+merge MVP，未开放 rebase 参数。
+- Pull 复用既有 RemoteWriter、无 Shell 参数构造与结构化 NetworkFailure；真实 local bare remote fixture 覆盖 peer push 后 Pull 成功。
+- 本机专项 fmt/check/clippy/test 通过；MERGE/Conflict/Reconcile 仍需后续节点接入完整恢复链。
+
 ## GIT-001 Stage / Unstage（2026-11-07）
 
 - `git-ports` 新增强类型 `IndexMutation` 与 `IndexWriter`，明确 Stage/Unstage 的 SessionTarget 和 RepoPath 边界；路径保留 Git 原始语义，适配器不得接收任意命令字符串。

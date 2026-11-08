@@ -61,13 +61,14 @@ impl<R: ProcessRunner> RemoteWriter for GitCliRemoteAdapter<R> {
         command: RemoteCommand,
         context: ExecutionContext,
     ) -> GitResult<()> {
-        let (remote, branch, force_with_lease, push) = match command {
-            RemoteCommand::Fetch { remote } => (remote, None, false, false),
+        let (remote, branch, force_with_lease, push, pull) = match command {
+            RemoteCommand::Fetch { remote } => (remote, None, false, false, false),
             RemoteCommand::Push {
                 remote,
                 branch,
                 force_with_lease,
-            } => (remote, branch, force_with_lease, true),
+            } => (remote, branch, force_with_lease, true, false),
+            RemoteCommand::Pull { remote, branch } => (remote, branch, false, false, true),
         };
         let cwd = self
             .location
@@ -83,6 +84,7 @@ impl<R: ProcessRunner> RemoteWriter for GitCliRemoteAdapter<R> {
                     branch,
                     force_with_lease,
                     push,
+                    pull,
                 },
                 context,
             )
@@ -221,12 +223,15 @@ struct RemoteMutation {
     branch: Option<RefName>,
     force_with_lease: bool,
     push: bool,
+    pull: bool,
 }
 impl GitCliCommand for RemoteMutation {}
 impl sealed::Sealed for RemoteMutation {
     fn into_invocation(self) -> GitCliInvocation {
         let is_push = self.push;
-        let mut args = if is_push {
+        let mut args = if self.pull {
+            vec![OsString::from("pull"), OsString::from("--no-rebase")]
+        } else if is_push {
             vec![OsString::from("push")]
         } else {
             vec![OsString::from("fetch"), OsString::from("--no-prune")]
@@ -236,7 +241,7 @@ impl sealed::Sealed for RemoteMutation {
         }
         match self.remote {
             Some(remote) => args.push(OsString::from(remote.display_lossy().into_owned())),
-            None if is_push => {}
+            None if is_push || self.pull => {}
             None => args.push(OsString::from("--all")),
         }
         if let Some(branch) = self.branch {
@@ -414,6 +419,37 @@ mod tests {
             .await
             .expect("push should succeed");
         assert!(remote.path().is_dir());
+    }
+
+    #[tokio::test]
+    async fn pulls_a_real_local_remote_change() {
+        let fixture = TestRepository::init().expect("fixture should initialize");
+        fixture.commit_file("base.txt", b"base\n").expect("commit");
+        let remote = fixture
+            .create_local_remote()
+            .expect("local remote should initialize");
+        fixture
+            .push_change_from_peer(&remote, "from-peer.txt", b"peer\n")
+            .expect("peer push should succeed");
+        let (progress, _) = mpsc::channel(4);
+        let context = ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress);
+        let location = GitCliRepositoryReader::new(TokioProcessRunner)
+            .discover(fixture.worktree.clone(), context.clone())
+            .await
+            .expect("repository should be discovered");
+        let adapter = GitCliRemoteAdapter::new(TokioProcessRunner, location);
+        adapter
+            .apply(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                RemoteCommand::Pull {
+                    remote: Some(RefName::new(b"origin".to_vec()).expect("remote name")),
+                    branch: None,
+                },
+                context,
+            )
+            .await
+            .expect("pull should succeed");
+        assert!(fixture.worktree.join("from-peer.txt").exists());
     }
 
     #[tokio::test]

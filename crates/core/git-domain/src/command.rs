@@ -154,6 +154,10 @@ pub enum RemoteCommand {
         branch: Option<RefName>,
         force_with_lease: bool,
     },
+    Pull {
+        remote: Option<RefName>,
+        branch: Option<RefName>,
+    },
 }
 
 /// A configured remote without exposing credentials or human-formatted diagnostics.
