@@ -13,7 +13,9 @@ use git_domain::{
     ObjectId, OperationId, RecoveryScope, SelectionCommitRequest,
 };
 use git_ports::{
-    CommitOutcome, CommitSideEffectObserver, CommitWriter, ExecutionContext, JournalStore,
+    CommitOutcome, CommitSideEffectObserver, CommitWriter, ExecutionContext,
+    IndexReconciliationOutcome, IndexReconciliationPublisher, IndexReconciliationRequest,
+    JournalStore,
 };
 
 /// Durable state of a partial-commit transaction. The states deliberately mirror the CCD
@@ -38,6 +40,8 @@ pub struct PartialCommitTransaction {
     pub expected_head: Option<ObjectId>,
     pub expected_index: Option<ObjectId>,
     pub candidate_tree: Option<ObjectId>,
+    pub original_index_digest: Option<[u8; 32]>,
+    pub candidate_index: Option<Vec<u8>>,
     pub observed_commit: Option<ObjectId>,
     pub phase: PartialCommitPhase,
 }
@@ -50,25 +54,27 @@ pub struct PartialCommitJournal<J> {
 }
 
 #[derive(Debug)]
-pub struct PartialCommitCoordinator<W, J, O> {
+pub struct PartialCommitCoordinator<W, J, O, P> {
     writer: W,
     journal: PartialCommitJournal<J>,
     observer: O,
+    publisher: P,
 }
 
-impl<W, J, O> PartialCommitCoordinator<W, J, O> {
+impl<W, J, O, P> PartialCommitCoordinator<W, J, O, P> {
     #[must_use]
-    pub fn new(writer: W, journal: PartialCommitJournal<J>, observer: O) -> Self {
+    pub fn new(writer: W, journal: PartialCommitJournal<J>, observer: O, publisher: P) -> Self {
         Self {
             writer,
             journal,
             observer,
+            publisher,
         }
     }
 }
 
-impl<W: CommitWriter, J: JournalStore, O: CommitSideEffectObserver>
-    PartialCommitCoordinator<W, J, O>
+impl<W: CommitWriter, J: JournalStore, O: CommitSideEffectObserver, P: IndexReconciliationPublisher>
+    PartialCommitCoordinator<W, J, O, P>
 {
     #[allow(clippy::result_large_err)]
     pub async fn commit(
@@ -106,12 +112,58 @@ impl<W: CommitWriter, J: JournalStore, O: CommitSideEffectObserver>
                 }
                 transaction.commit_observed(outcome.commit)?;
                 transaction.observe_head_after_commit(Some(outcome.commit))?;
-                record.phase = JournalPhase::CommitObserved;
+                record.phase = JournalPhase::ReconcilingIndex;
                 record.observed_commit = Some(outcome.commit);
                 record.observed_parents = outcome.parents.clone();
-                record.result = Some(JournalResult::Completed);
-                self.journal.store.replace(record).await?;
-                Ok(outcome)
+                self.journal.store.replace(record.clone()).await?;
+                let (Some(expected_index_digest), Some(candidate_index)) = (
+                    transaction.original_index_digest,
+                    transaction.candidate_index.clone(),
+                ) else {
+                    return self
+                        .recovery_required(
+                            transaction,
+                            record,
+                            "partial commit has no verified candidate Index",
+                        )
+                        .await;
+                };
+                match self
+                    .publisher
+                    .publish(
+                        IndexReconciliationRequest {
+                            target,
+                            expected_index_digest,
+                            candidate_index,
+                        },
+                        context.clone(),
+                    )
+                    .await?
+                {
+                    IndexReconciliationOutcome::Published => {
+                        transaction.phase = PartialCommitPhase::Completed;
+                        record.phase = JournalPhase::Completed;
+                        record.result = Some(JournalResult::Completed);
+                        self.journal.store.replace(record).await?;
+                        Ok(outcome)
+                    }
+                    IndexReconciliationOutcome::Conflict => {
+                        self.recovery_required(
+                            transaction,
+                            record,
+                            "real Index changed before reconciliation",
+                        )
+                        .await
+                    }
+                    IndexReconciliationOutcome::Unknown => {
+                        self.recovery_required(
+                            transaction,
+                            record,
+                            "real Index reconciliation result is unknown",
+                        )
+                        .await
+                    }
+                }
             }
             Err(error) => {
                 record.phase = JournalPhase::RecoveryRequired;
@@ -123,6 +175,22 @@ impl<W: CommitWriter, J: JournalStore, O: CommitSideEffectObserver>
                 Err(error)
             }
         }
+    }
+
+    #[allow(clippy::result_large_err)]
+    async fn recovery_required(
+        &self,
+        transaction: &mut PartialCommitTransaction,
+        mut record: JournalRecord,
+        reason: &'static str,
+    ) -> GitResult<CommitOutcome> {
+        transaction.phase = PartialCommitPhase::RecoveryRequired;
+        record.phase = JournalPhase::RecoveryRequired;
+        record.result = Some(JournalResult::RecoveryRequired {
+            reason: reason.to_owned(),
+        });
+        self.journal.store.replace(record).await?;
+        Err(GitError::new(GitErrorKind::IndexChangedExternally, reason))
     }
 }
 
@@ -235,6 +303,8 @@ impl PartialCommitTransaction {
             expected_head: None,
             expected_index: None,
             candidate_tree: None,
+            original_index_digest: None,
+            candidate_index: None,
             observed_commit: None,
             phase: PartialCommitPhase::IntentRecorded,
         })
@@ -280,6 +350,26 @@ impl PartialCommitTransaction {
         }
         self.candidate_tree = Some(tree);
         self.phase = PartialCommitPhase::PreviewReady;
+        Ok(())
+    }
+
+    #[allow(clippy::result_large_err)]
+    pub fn reconciliation_candidate(
+        &mut self,
+        original_index_digest: [u8; 32],
+        candidate_index: Vec<u8>,
+    ) -> GitResult<()> {
+        if !matches!(
+            self.phase,
+            PartialCommitPhase::TempIndexPrepared | PartialCommitPhase::PreviewReady
+        ) {
+            return Err(GitError::new(
+                GitErrorKind::Internal,
+                "Index reconciliation candidate is not valid in the current transaction phase",
+            ));
+        }
+        self.original_index_digest = Some(original_index_digest);
+        self.candidate_index = Some(candidate_index);
         Ok(())
     }
 
@@ -374,7 +464,10 @@ mod tests {
         ChangeSelection, FileIdentity, FileKind, RecoveryPath, RepoPath, RepositoryId,
         SelectionFingerprint, SessionTarget, SnapshotRevision, WorktreeId,
     };
-    use git_ports::{CommitSideEffectSnapshot, PendingJournalRecords, ProcessProgress};
+    use git_ports::{
+        CommitSideEffectSnapshot, IndexReconciliationOutcome, IndexReconciliationPublisher,
+        IndexReconciliationRequest, PendingJournalRecords, ProcessProgress,
+    };
     use std::sync::{Arc, Mutex};
     use tokio_util::sync::CancellationToken;
 
@@ -454,6 +547,46 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Copy, Debug)]
+    struct StableObserver;
+
+    #[async_trait]
+    impl CommitSideEffectObserver for StableObserver {
+        async fn capture(
+            &self,
+            _target: SessionTarget,
+            _context: ExecutionContext,
+        ) -> GitResult<CommitSideEffectSnapshot> {
+            Ok(CommitSideEffectSnapshot {
+                head: None,
+                worktree_digest: [1; 32],
+                refs_digest: [2; 32],
+            })
+        }
+
+        async fn observe(
+            &self,
+            _target: SessionTarget,
+            _context: ExecutionContext,
+        ) -> GitResult<CommitSideEffectSnapshot> {
+            self.capture(_target, _context).await
+        }
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    struct TestPublisher;
+
+    #[async_trait]
+    impl IndexReconciliationPublisher for TestPublisher {
+        async fn publish(
+            &self,
+            _request: IndexReconciliationRequest,
+            _context: ExecutionContext,
+        ) -> GitResult<IndexReconciliationOutcome> {
+            Ok(IndexReconciliationOutcome::Published)
+        }
+    }
+
     fn test_context() -> ExecutionContext {
         let (progress, _receiver) = tokio::sync::mpsc::channel::<ProcessProgress>(4);
         ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress)
@@ -467,7 +600,8 @@ mod tests {
             RecoveryPath::unix(b"/tmp/ideagit-git".to_vec()).expect("git path"),
         );
         let journal = PartialCommitJournal::new(store.clone(), scope);
-        let coordinator = PartialCommitCoordinator::new(TestWriter, journal, MutatingObserver);
+        let coordinator =
+            PartialCommitCoordinator::new(TestWriter, journal, MutatingObserver, TestPublisher);
         let mut transaction = PartialCommitTransaction::begin(request()).expect("transaction");
         transaction
             .temp_index_prepared(None, None)
@@ -502,6 +636,54 @@ mod tests {
             record.result,
             Some(JournalResult::RecoveryRequired { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn coordinator_completes_only_after_index_reconciliation_publishes() {
+        let store = TestJournalStore::default();
+        let scope = RecoveryScope::worktree(
+            RecoveryPath::unix(b"/tmp/ideagit-common".to_vec()).expect("common path"),
+            RecoveryPath::unix(b"/tmp/ideagit-git".to_vec()).expect("git path"),
+        );
+        let journal = PartialCommitJournal::new(store.clone(), scope);
+        let coordinator =
+            PartialCommitCoordinator::new(TestWriter, journal, StableObserver, TestPublisher);
+        let mut transaction = PartialCommitTransaction::begin(request()).expect("transaction");
+        transaction
+            .temp_index_prepared(None, None)
+            .expect("temporary Index");
+        transaction
+            .candidate_ready(
+                "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+                    .parse()
+                    .expect("tree"),
+            )
+            .expect("candidate");
+        transaction
+            .reconciliation_candidate([7; 32], b"verified-index".to_vec())
+            .expect("reconciliation candidate");
+        transaction
+            .revalidate_before_commit(None, None)
+            .expect("revalidation");
+        let target = transaction.request.selections[0].target();
+        let outcome = coordinator
+            .commit(target, OperationId::new(), &mut transaction, test_context())
+            .await
+            .expect("reconciled commit");
+
+        assert_eq!(
+            outcome.commit.to_string(),
+            "1111111111111111111111111111111111111111"
+        );
+        assert_eq!(transaction.phase, PartialCommitPhase::Completed);
+        let record = store
+            .record
+            .lock()
+            .expect("journal lock")
+            .clone()
+            .expect("journal record");
+        assert_eq!(record.phase, JournalPhase::Completed);
+        assert_eq!(record.result, Some(JournalResult::Completed));
     }
 
     fn request() -> SelectionCommitRequest {
