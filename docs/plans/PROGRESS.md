@@ -2,6 +2,16 @@
 
 更新日期：2026-11-08。
 
+## M4 DIFF-006：Safe Hunk Stage（2026-11-08）
+
+- 分支：`feat/DIFF-006`；从 `main` 创建并按依赖带入 DIFF-003/004/005。
+- 完成：新增强类型 `HunkSelection`、`StageHunksRequest` 与状态读取端口；Git CLI 适配器在真实 Index/Worktree 身份校验后执行 `git apply --cached --check`，校验通过才发布到 Index。
+- 安全测试：真实隔离 Git fixture 验证 Hunk Patch 应用、过期 Index 拒绝、过期 Worktree 指纹拒绝；3 个专项测试通过。
+- 门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；Workspace Git CLI 测试 57 个通过。
+- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
+- 风险：候选 Patch 的 Hunk/Line 构建仍留给 DIFF-007；协调器生产装配需在后续写操作链路接入。
+- 下一任务：DIFF-007（Line Patch Builder）。
+
 ## M4 DIFF-005：HEAD/Index/Worktree 三版本（2026-11-08）
 
 - 分支：`feat/DIFF-005`；从 `main` 创建并按依赖带入 DIFF-003/DIFF-004。
