@@ -1318,5 +1318,9 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 完成：新增文件历史与 Blame 领域 DTO、异步端口及 Git CLI 适配器；文件历史支持 `--follow`、分页和父提交，Blame 解析行级提交、作者、时间与内容。
 - 测试：新增真实 Git 仓库 E2E，验证两次文件提交的历史、父提交以及两行 Blame 归属和内容。
 - 修改文件：`crates/core/git-domain/src/file_history.rs`、`crates/core/git-domain/src/lib.rs`、`crates/core/git-ports/src/file_history.rs`、`crates/core/git-ports/src/lib.rs`、`crates/adapters/git-cli/src/file_history.rs`、`crates/adapters/git-cli/src/lib.rs`、`crates/adapters/git-cli/tests/m3_e2e.rs`、`docs/plans/PROGRESS.md`。
-- 本地验证：适配器 Clippy、Git CLI 单元测试和真实仓库 E2E 已通过；完整工作区门禁及 PR/CI/合并尚未完成。
+- 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
 - 风险：当前 Blame/历史查询仍以 Git CLI 输出格式为边界，后续需在跨平台 CI 上确认路径和编码行为。
+- PR：[#10](https://github.com/dengxiujun/IdeaGit/pull/10) 已合并，合并提交为 `21c885cba437ce97b9296976b76619ba9d041915`。
+- CI：Rust CI #133（Run ID `42490024486`，提交 `414456cd22ad9fcb46ea72fb48baddf8e9b20c0e`）已成功；Format、Ubuntu 24.04、macOS 15、Windows 2022 全部通过。
+- 分支：已确认合并提交进入 `main`；本地和远程 `feat/HISTORY-001` 均已清理。
+- 结论：HISTORY-001 完成；下一任务为 `GRAPH-002`，必须从已验证的 `main` 按串行规则创建新分支。
