@@ -1036,3 +1036,13 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：当前是纯 Rust 只读投影，尚未接入真实 GPUI 绘制、滚动/导航和 Diff Gutter；这些不应绕过 Core 对齐模型。
 - 下一步：按 IP-001 继续审查尚未完成的 M4 任务，并补 UI-013 的真实失败/恢复组合门禁。
+
+## M4 UI-013：RecoveryRequired 错误透传（2026-11-08）
+
+- 完成：新增应用层 Prepared Selection Commit Handler 失败路径测试，模拟底层提交副作用导致 `RecoveryRequired`，验证错误原样向上返回且不会被报告为成功。
+- 安全边界：Handler 仍只接受已确认 Preview；失败事务不被转换为普通 Commit，也不清除恢复诊断语义。
+- 修改文件：`crates/core/git-application/src/selection_commit.rs`、`docs/plans/PROGRESS.md`。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过；git-application 20 项测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：应用边界失败透传已覆盖；真实桌面组合的 Hook/外部并发/恢复失败路径及 UI 真实入口仍需继续完成。
+- 下一步：继续按 IP-001 审查 UI-013 生产装配和剩余 M4 开放门禁。

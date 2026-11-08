@@ -316,4 +316,60 @@ mod tests {
         assert_eq!(error.kind, git_domain::GitErrorKind::Internal);
         assert_eq!(*calls.lock().expect("calls lock"), 1);
     }
+
+    #[derive(Debug, Clone, Copy)]
+    struct RecoveryRunner;
+
+    #[async_trait]
+    impl ConfirmedPartialCommitRunner for RecoveryRunner {
+        async fn commit(
+            &self,
+            _target: SessionTarget,
+            _operation: OperationId,
+            transaction: &mut PartialCommitTransaction,
+            _context: ExecutionContext,
+        ) -> GitResult<CommitOutcome> {
+            transaction.phase = git_commit::PartialCommitPhase::RecoveryRequired;
+            Err(git_domain::GitError::new(
+                git_domain::GitErrorKind::HooksMutatedRepository,
+                "commit side effects require recovery",
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn handler_propagates_recovery_failure_without_reporting_success() {
+        let handler = PreparedSelectionCommitHandler::new(
+            SelectionCommitExecutionService::new(RecoveryRunner),
+            State,
+        );
+        let mut prepared = prepared();
+        let target = prepared.preview.target;
+        prepared
+            .transaction
+            .temp_index_prepared(None, None)
+            .expect("temporary Index");
+        prepared
+            .transaction
+            .candidate_ready(prepared.preview.candidate_tree)
+            .expect("candidate tree");
+        prepared
+            .transaction
+            .reconciliation_candidate([1; 32], b"candidate-index".to_vec())
+            .expect("candidate Index");
+        let request = prepared.transaction.request.clone();
+        handler.arm(prepared).await;
+
+        let (progress, _receiver) = mpsc::channel(1);
+        let error = handler
+            .commit_selection(
+                target,
+                request,
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect_err("recovery failure must not be reported as success");
+
+        assert_eq!(error.kind, git_domain::GitErrorKind::HooksMutatedRepository);
+    }
 }
