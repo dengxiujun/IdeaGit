@@ -1164,3 +1164,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - GitHub Runner：Rust CI #115（Run ID `42465713873`）：macOS `128684625983` 通过、Format `128684626128` 通过、Ubuntu `128684626193` 通过、Windows `128684626224` 失败，失败原因已修复并推送。
 - 风险：新提交尚未产生最终 CI 结论；TEST-004 仍未完成跨平台发布验收。
 - 下一步：等待新 Rust CI 三平台结果；通过后继续 UI-013 生产 Preview Session/ActionDispatcher 装配。
+
+## M4 UI-013：Changelist Action 路由（2026-11-08）
+
+- 完成：扩展 `git-ui-model` 的 typed action payload，Changelist 提交请求保留 `SelectionCommitRequest`、选择和 Fingerprint，并严格映射为 `GitCommand::CommitSelection`；普通提交仍映射为 `CommitIndex`，不存在静默降级。
+- 修改文件：`crates/ui/git-ui-model/src/lib.rs`、`docs/plans/PROGRESS.md`。
+- 本地验证：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo test -p git-ui-model --locked`、`git diff --check` 全部通过。
+- GitHub Runner：Rust CI #117（Run ID `42466409971`）已通过：Format `128686847869`、macOS `128686848123`、Ubuntu `128686848151`、Windows `128686848180`。
+- 风险：桌面组合根尚未把 Selection Preview Session 和确认入口接入实际 GPUI 生命周期；当前仍只开放 typed 命令路由，不允许 UI 绕过 Preview/Confirm。
+- 下一步：补齐桌面 Preview Session 的持有与确认装配，并用真实 Git Coordinator 测试验证生产入口。

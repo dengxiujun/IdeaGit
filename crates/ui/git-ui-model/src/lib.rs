@@ -6,7 +6,8 @@ use git_application::{RefreshHealth, RefreshState, RepositorySessionView};
 use git_changelist::ChangelistId;
 use git_domain::{
     BranchCommand, ChangeKind, ChangeSelection, GitCommand, HeadState, ObjectId, OperationId,
-    RefName, RepoPath, RepositorySnapshot, SessionTarget, SnapshotRevision, StandardCommitRequest,
+    RefName, RepoPath, RepositorySnapshot, SelectionCommitRequest, SessionTarget, SnapshotRevision,
+    StandardCommitRequest,
 };
 
 /// Immutable source selected by a read-only change-tree entry.
@@ -521,6 +522,9 @@ pub struct ActionRequest {
 pub enum ActionPayload {
     None,
     Commit(StandardCommitRequest),
+    /// A confirmed Changelist request; it must retain selection fingerprints and cannot
+    /// downgrade to a normal Index commit.
+    SelectionCommit(SelectionCommitRequest),
     Branch(BranchCommand),
 }
 
@@ -570,6 +574,10 @@ pub fn to_git_command(request: &ActionRequest) -> Result<GitCommand, String> {
         }),
         ActionId::Commit => match &request.payload {
             ActionPayload::Commit(commit) => Ok(GitCommand::CommitIndex {
+                target,
+                request: commit.clone(),
+            }),
+            ActionPayload::SelectionCommit(commit) => Ok(GitCommand::CommitSelection {
                 target,
                 request: commit.clone(),
             }),
@@ -1171,6 +1179,35 @@ mod tests {
         assert!(matches!(
             to_git_command(&commit),
             Ok(GitCommand::CommitIndex { target: actual, .. }) if actual == target
+        ));
+
+        let selection = whole_file(target, "a.txt");
+        let selection_commit = ActionRequest {
+            action: ActionId::Commit,
+            context: commit.context.clone(),
+            payload: ActionPayload::SelectionCommit(SelectionCommitRequest {
+                options: git_domain::CommitOptions {
+                    message: b"selection commit".to_vec(),
+                    amend: false,
+                    allow_empty: false,
+                    signoff: false,
+                    author: None,
+                    committer: None,
+                    signing: git_domain::SigningMode::Disable,
+                },
+                selections: vec![selection],
+                fingerprints: vec![git_domain::SelectionFingerprint {
+                    expected_head: None,
+                    expected_index: None,
+                    diff_generation: SnapshotRevision::new(1),
+                    content_digest: vec![7; 32],
+                }],
+                expected_revision: SnapshotRevision::new(1),
+            }),
+        };
+        assert!(matches!(
+            to_git_command(&selection_commit),
+            Ok(GitCommand::CommitSelection { target: actual, .. }) if actual == target
         ));
 
         let branch = ActionRequest {
