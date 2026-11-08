@@ -1,12 +1,15 @@
 //! Application boundary for executing a confirmed Partial Commit transaction.
 
 use async_trait::async_trait;
-use git_commit::PartialCommitTransaction;
+use git_commit::{PartialCommitCoordinator, PartialCommitTransaction};
 use git_domain::{
     GitError, GitErrorKind, GitResult, ObjectId, OperationId, SelectionCommitRequest, SessionTarget,
 };
 use git_operations::SelectionCommitHandler;
-use git_ports::{CommitOutcome, ExecutionContext};
+use git_ports::{
+    CommitOutcome, CommitSideEffectObserver, CommitWriter, ExecutionContext,
+    IndexReconciliationPublisher, JournalStore,
+};
 use tokio::sync::Mutex;
 
 use crate::PreparedPartialCommit;
@@ -25,6 +28,25 @@ pub trait ConfirmedPartialCommitRunner: Send + Sync {
         transaction: &mut PartialCommitTransaction,
         context: ExecutionContext,
     ) -> GitResult<CommitOutcome>;
+}
+
+#[async_trait]
+impl<W, J, O, P> ConfirmedPartialCommitRunner for PartialCommitCoordinator<W, J, O, P>
+where
+    W: CommitWriter + Send + Sync,
+    J: JournalStore + Send + Sync,
+    O: CommitSideEffectObserver + Send + Sync,
+    P: IndexReconciliationPublisher + Send + Sync,
+{
+    async fn commit(
+        &self,
+        target: SessionTarget,
+        operation: OperationId,
+        transaction: &mut PartialCommitTransaction,
+        context: ExecutionContext,
+    ) -> GitResult<CommitOutcome> {
+        PartialCommitCoordinator::commit(self, target, operation, transaction, context).await
+    }
 }
 
 /// Read-only identity probe used immediately before a confirmed Selection Commit.
