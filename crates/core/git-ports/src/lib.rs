@@ -27,7 +27,10 @@ pub use credential::{
 };
 pub use head::{BranchReader, HeadReader};
 pub use history::HistoryReader;
-pub use index::{IndexMutation, IndexMutationError, IndexWriter};
+pub use index::{
+    HunkStageStateReader, HunkStageWriter, IndexMutation, IndexMutationError, IndexWriter,
+    StageHunksRequest, StageHunksState,
+};
 pub use journal::{JournalError, JournalStore, PendingJournalRecords};
 pub use merge::{MergeWriter, SequencerReader, SequencerWriter};
 pub use process::{
