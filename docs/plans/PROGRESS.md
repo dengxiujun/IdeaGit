@@ -1,6 +1,16 @@
 # IdeaGit 开发进度
 
-更新日期：2026-11-07。
+更新日期：2026-11-08。
+
+## M4 CCD-001：Changelist Domain（2026-11-08）
+
+- 分支：`feat/CCD-001`；从 `main` 创建，未提前引入后续 M4 实现。
+- 完成：新增 Changelist/Binding 强类型模型、稳定 UUID 身份、仓库/Worktree 目标隔离、默认列表/Schema 版本、绑定 Valid/Stale/Ambiguous 状态及跨 Session 拒绝。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 均通过；专项测试 2/2 通过。
+- 依赖：`git-changelist` 首次直接使用 workspace 已锁定的 `serde`/`thiserror`/`uuid`，先离线更新 Cargo.lock 依赖边，再完成 locked 门禁；未引入新版本或外部依赖。
+- Commit/Runner：本地提交待本次记录后生成；GitHub Runner 尚未创建/执行 PR。
+- 风险：指纹重定位、持久化事务和 Selection 语义校验留给 CCD-002/003；当前不修改 Git Index。
+- 下一任务：CCD-002（Selection Fingerprints）。
 
 ## 当前状态
 
