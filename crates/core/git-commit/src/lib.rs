@@ -2,7 +2,11 @@
 //!
 //! INFRA-001 skeleton only; behavior is implemented by subsequent tracked tasks.
 
-use git_domain::{GitError, GitErrorKind, GitResult, ObjectId, SelectionCommitRequest};
+use git_domain::{
+    GitCommand, GitError, GitErrorKind, GitResult, JournalPhase, JournalRecord, JournalResult,
+    ObjectId, OperationId, RecoveryScope, SelectionCommitRequest,
+};
+use git_ports::JournalStore;
 
 /// Durable state of a partial-commit transaction. The states deliberately mirror the CCD
 /// journal phases and never imply that a real commit is atomic with Index reconciliation.
@@ -28,6 +32,72 @@ pub struct PartialCommitTransaction {
     pub candidate_tree: Option<ObjectId>,
     pub observed_commit: Option<ObjectId>,
     pub phase: PartialCommitPhase,
+}
+
+/// Journal coordinator for the irreversible boundary of a partial commit.
+#[derive(Debug)]
+pub struct PartialCommitJournal<J> {
+    store: J,
+    scope: RecoveryScope,
+}
+
+impl<J> PartialCommitJournal<J> {
+    #[must_use]
+    pub fn new(store: J, scope: RecoveryScope) -> Self {
+        Self { store, scope }
+    }
+}
+
+impl<J: JournalStore> PartialCommitJournal<J> {
+    #[allow(clippy::result_large_err)]
+    pub async fn record_intent(
+        &self,
+        operation: OperationId,
+        transaction: &PartialCommitTransaction,
+    ) -> GitResult<JournalRecord> {
+        let target = transaction.request.selections[0].target();
+        let mut record = JournalRecord::intent(
+            operation,
+            GitCommand::CommitSelection {
+                target,
+                request: transaction.request.clone(),
+            },
+            self.scope.clone(),
+        );
+        record.expected_head = transaction.expected_head;
+        record.expected_index = transaction.expected_index;
+        record.candidate_tree = transaction.candidate_tree;
+        record.phase = phase_to_journal(transaction.phase);
+        self.store.append(record.clone()).await?;
+        Ok(record)
+    }
+
+    #[allow(clippy::result_large_err)]
+    pub async fn replace_phase(
+        &self,
+        mut record: JournalRecord,
+        phase: PartialCommitPhase,
+        result: Option<JournalResult>,
+    ) -> GitResult<()> {
+        record.phase = phase_to_journal(phase);
+        record.result = result;
+        self.store.replace(record).await
+    }
+}
+
+fn phase_to_journal(phase: PartialCommitPhase) -> JournalPhase {
+    match phase {
+        PartialCommitPhase::IntentRecorded => JournalPhase::IntentRecorded,
+        PartialCommitPhase::SnapshotCaptured => JournalPhase::SnapshotCaptured,
+        PartialCommitPhase::TempIndexPrepared => JournalPhase::TempIndexPrepared,
+        PartialCommitPhase::PreviewReady => JournalPhase::PreviewReady,
+        PartialCommitPhase::PreflightRevalidated => JournalPhase::PreflightRevalidated,
+        PartialCommitPhase::CommitInProgress => JournalPhase::CommitInProgress,
+        PartialCommitPhase::CommitObserved => JournalPhase::CommitObserved,
+        PartialCommitPhase::ReconcilingIndex => JournalPhase::ReconcilingIndex,
+        PartialCommitPhase::Completed => JournalPhase::Completed,
+        PartialCommitPhase::RecoveryRequired => JournalPhase::RecoveryRequired,
+    }
 }
 
 impl PartialCommitTransaction {
