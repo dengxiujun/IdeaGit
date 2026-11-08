@@ -1066,3 +1066,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：真实准备链路已验证，但桌面 UI 仍未把用户选区触发到该服务并 arm Handler；生产入口继续关闭。
 - 下一步：继续接入 Changelist UI 选区到 Preview/Prepared Handler 的应用边界，不绕过身份确认。
+
+## M4 UI-013：Selection Commit Preview 请求协议（2026-11-08）
+
+- 完成：新增 `SelectionCommitPreviewRequest` 与 `prepare_preview` 应用接口；UI 只需提供 target、Diff 请求、选区、提交选项和已捕获的只读 Index 身份，应用层负责读取 Diff、计算 Selection Fingerprint、构造 Candidate Tree 和 Prepared Transaction。
+- 安全边界：Preview 请求拒绝跨 Session target；Fingerprint 不再由 UI 直接填写；该接口只准备事务，不执行 Commit 或真实 Index 发布。
+- 修改文件：`crates/core/git-application/src/selection_preparation.rs`、`crates/core/git-application/src/lib.rs`、`docs/plans/PROGRESS.md`。
+- 测试：应用层准备测试改为覆盖新的 Preview 协议；workspace 门禁待本次提交前执行；GitHub Runner 未执行（当前环境无 GitHub connector）。
+- 风险：Preview 协议尚未接入 GPUI ActionDispatcher 和桌面长期持有的 Handler；仍需实现确认态保存与 OperationCoordinator 生产装配。
+- 下一步：审查并实现 Preview 会话在桌面应用层的持有/确认入口，禁止 UI 直接提交裸选区。

@@ -1,7 +1,8 @@
 //! Application boundary for preparing a confirmed Selection Commit.
 
 use git_domain::{
-    ChangeSelection, GitResult, ObjectId, OperationId, SelectionCommitRequest, SessionTarget,
+    ChangeSelection, CommitOptions, GitResult, ObjectId, OperationId, SelectionCommitRequest,
+    SessionTarget, SnapshotRevision,
 };
 use git_ports::{
     CandidateTreeBuilder, DiffReadRequest, DiffReader, ExecutionContext, RepositoryLocation,
@@ -16,6 +17,20 @@ use crate::{CandidateTreePreviewService, PreparedPartialCommit, SelectionPatchPr
 pub struct SelectionCommitPreparationService<D, T, B> {
     patch_preview: SelectionPatchPreviewService<D>,
     candidate_preview: CandidateTreePreviewService<T, B>,
+}
+
+/// UI/application input for creating a Selection Commit preview. Fingerprints are deliberately
+/// absent: the application computes them from the freshly read Diff instead of trusting UI data.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SelectionCommitPreviewRequest {
+    pub target: SessionTarget,
+    pub diff_request: DiffReadRequest,
+    pub selection: ChangeSelection,
+    pub options: CommitOptions,
+    pub expected_head: Option<ObjectId>,
+    pub expected_index: Option<ObjectId>,
+    pub original_index_digest: [u8; 32],
+    pub expected_revision: SnapshotRevision,
 }
 
 impl<D, T, B> SelectionCommitPreparationService<D, T, B> {
@@ -34,6 +49,60 @@ where
     T: TemporaryIndexManager,
     B: CandidateTreeBuilder,
 {
+    /// Reads the current Diff, computes the selection identity, and prepares a candidate
+    /// transaction. No Git commit or real Index publication occurs in this method.
+    #[allow(clippy::result_large_err)]
+    pub async fn prepare_preview(
+        &self,
+        location: &RepositoryLocation,
+        operation: OperationId,
+        request: SelectionCommitPreviewRequest,
+        context: ExecutionContext,
+    ) -> GitResult<PreparedPartialCommit> {
+        if request.diff_request.target != request.target
+            || request.selection.target() != request.target
+        {
+            return Err(git_domain::GitError::new(
+                git_domain::GitErrorKind::StaleSelection,
+                "selection preview target does not match the active session",
+            )
+            .with_target(request.target)
+            .with_operation(operation));
+        }
+        let patch = self
+            .patch_preview
+            .prepare(
+                location,
+                request.target,
+                request.diff_request.clone(),
+                request.selection.clone(),
+                context.clone(),
+            )
+            .await?;
+        let commit_request = SelectionCommitRequest {
+            options: request.options,
+            selections: vec![request.selection],
+            fingerprints: vec![git_domain::SelectionFingerprint {
+                expected_head: request.expected_head,
+                expected_index: request.expected_index,
+                diff_generation: patch.generation,
+                content_digest: patch.selection_digest.to_vec(),
+            }],
+            expected_revision: request.expected_revision,
+        };
+        let preview = self
+            .candidate_preview
+            .prepare(location, request.target, operation, patch, context)
+            .await?;
+        CandidateTreePreviewService::<T, B>::prepare_transaction(
+            preview,
+            commit_request,
+            request.expected_head,
+            request.expected_index,
+            request.original_index_digest,
+        )
+    }
+
     /// Prepares a transaction from the current diff and candidate Index without performing a
     /// Git commit. The caller supplies the captured real Index digest so reconciliation remains
     /// bound to the same snapshot that was shown to the user.
@@ -159,7 +228,7 @@ mod tests {
             kind: FileKind::Regular,
         };
         let selection = ChangeSelection::WholeFile { file };
-        let request = SelectionCommitRequest {
+        let request = SelectionCommitPreviewRequest {
             options: CommitOptions {
                 message: b"prepared\n".to_vec(),
                 amend: false,
@@ -169,34 +238,26 @@ mod tests {
                 committer: None,
                 signing: SigningMode::Disable,
             },
-            selections: vec![selection.clone()],
-            fingerprints: vec![git_domain::SelectionFingerprint {
-                expected_head: None,
-                expected_index: None,
-                diff_generation: SnapshotRevision::new(7),
-                content_digest: vec![1; 32],
-            }],
+            target,
+            diff_request: DiffReadRequest {
+                target,
+                before: git_diff::ContentSource::Head,
+                after: git_diff::ContentSource::Worktree,
+                paths: vec![RepoPath::try_from("file.txt").expect("path")],
+                context_lines: 3,
+            },
+            selection: selection.clone(),
+            expected_head: None,
+            expected_index: None,
+            original_index_digest: [9; 32],
             expected_revision: SnapshotRevision::new(7),
         };
         let service = SelectionCommitPreparationService::new(Reader, Indexes, Tree);
-        let diff_request = DiffReadRequest {
-            target,
-            before: git_diff::ContentSource::Head,
-            after: git_diff::ContentSource::Worktree,
-            paths: vec![RepoPath::try_from("file.txt").expect("path")],
-            context_lines: 3,
-        };
         let prepared = service
-            .prepare(
+            .prepare_preview(
                 &RepositoryLocation::worktree("/repo", "/repo/.git", "/repo/.git"),
-                target,
                 OperationId::new(),
-                diff_request,
-                selection,
                 request,
-                None,
-                None,
-                [9; 32],
                 context(),
             )
             .await
