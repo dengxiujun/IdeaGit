@@ -1248,3 +1248,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - CI：Rust CI #127（Run ID `42482071200`）已通过；Format、macOS 15、Ubuntu 24.04、Windows 2022 全部成功。
 - 分支：已确认合并提交进入 `main`，本地和远程 `feat/REBASE-001` 均已清理。
 - 结论：REBASE-001 完成；下一任务为 `REBASE-002`，但必须从已验证的 `main` 按串行规则创建新分支。
+
+## M5 REBASE-002：Interactive Rebase Plan（2026-11-08）
+
+- 完成：新增 `InteractiveRebasePlan`、`RebaseTodoEntry` 与 `RebaseAction`，第一版明确支持 `pick`、`reword`、`edit`、`squash`、`fixup`、`drop` 六种线性 Todo 指令；不建模 Merge-preserving Rebase，避免静默降级。
+- 适配：新增 `InteractiveRebasePlanReader` 端口及 Git CLI 实现，从真实仓库读取 `upstream..HEAD`，按 Git 顺序生成计划，并将提交 subject 保留为消息覆盖值。
+- 安全校验：拒绝空计划、把 upstream 纳入计划以及未支持的 Todo action；bare repository 不伪造 worktree。
+- 修改文件：`crates/core/git-domain/src/command.rs`、`crates/core/git-domain/src/lib.rs`、`crates/core/git-ports/src/rebase.rs`、`crates/core/git-ports/src/lib.rs`、`crates/adapters/git-cli/src/rebase.rs`、`crates/adapters/git-cli/src/lib.rs`、`crates/adapters/git-cli/tests/m3_e2e.rs`、`docs/plans/PROGRESS.md`。
+- 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过；Git CLI 真实仓库测试 4 项通过。
+- 风险：尚未创建 PR，需等待 GitHub CI 和代码评审后再合并。
