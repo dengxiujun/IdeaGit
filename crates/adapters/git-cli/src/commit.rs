@@ -760,6 +760,100 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn temporary_partial_commit_preserves_non_utf8_path_bytes() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let fixture = TestRepository::init().expect("fixture");
+        let name = OsString::from_vec(b"non-utf8-\xff.txt".to_vec());
+        let path = fixture.worktree.join(&name);
+        fs::write(&path, b"base\n").expect("non-UTF-8 path");
+        let mut add = Command::new("git");
+        add.arg("add")
+            .arg("--")
+            .arg(&name)
+            .current_dir(&fixture.worktree);
+        for (key, value) in fixture.isolated_environment() {
+            add.env(key, value);
+        }
+        assert!(add.status().expect("git starts").success());
+        let mut commit = Command::new("git");
+        commit
+            .args(["commit", "--no-gpg-sign", "-m", "initial non-utf8"])
+            .current_dir(&fixture.worktree);
+        for (key, value) in fixture.isolated_environment() {
+            commit.env(key, value);
+        }
+        assert!(commit.status().expect("git starts").success());
+        fs::write(&path, b"changed\n").expect("edit non-UTF-8 path");
+        let real_index = fixture.worktree.join(".git/index");
+        let index_before = fs::read(&real_index).expect("real Index");
+        let temporary_index = fixture.temp_dir.path().join("non-utf8-candidate-index");
+        let mut read_tree = Command::new("git");
+        read_tree
+            .args(["read-tree", "HEAD"])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (key, value) in fixture.isolated_environment() {
+            read_tree.env(key, value);
+        }
+        assert!(read_tree.status().expect("git starts").success());
+        let mut add_changed = Command::new("git");
+        add_changed
+            .arg("add")
+            .arg("--")
+            .arg(&name)
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (key, value) in fixture.isolated_environment() {
+            add_changed.env(key, value);
+        }
+        assert!(add_changed.status().expect("git starts").success());
+        let location = RepositoryLocation::worktree(
+            &fixture.worktree,
+            fixture.worktree.join(".git"),
+            fixture.worktree.join(".git"),
+        );
+        let writer =
+            GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location, &temporary_index)
+                .with_environment(fixture.isolated_environment());
+        let (progress, _receiver) = mpsc::channel(4);
+        writer
+            .commit(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                StandardCommitRequest {
+                    options: CommitOptions {
+                        message: b"partial non-utf8 path\n".to_vec(),
+                        amend: false,
+                        allow_empty: false,
+                        signoff: false,
+                        author: None,
+                        committer: None,
+                        signing: SigningMode::Disable,
+                    },
+                    expected_revision: SnapshotRevision::new(1),
+                    expected_head: None,
+                    expected_index: None,
+                },
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect("non-UTF-8 path commit");
+        assert_eq!(fs::read(&real_index).expect("real Index"), index_before);
+        let mut show = Command::new("git");
+        let mut object_path = OsString::from("HEAD:");
+        object_path.push(&name);
+        show.args(["show"])
+            .arg(&object_path)
+            .current_dir(&fixture.worktree);
+        for (key, value) in fixture.isolated_environment() {
+            show.env(key, value);
+        }
+        let output = show.output().expect("git show");
+        assert_eq!(output.stdout, b"changed\n");
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn temporary_partial_commit_hook_rejection_keeps_head_and_real_index() {
