@@ -246,6 +246,30 @@ impl PartialCommitTransaction {
         self.phase = PartialCommitPhase::CommitObserved;
         Ok(())
     }
+
+    #[allow(clippy::result_large_err)]
+    pub fn observe_head_after_commit(&mut self, head: Option<ObjectId>) -> GitResult<()> {
+        if self.phase != PartialCommitPhase::CommitObserved {
+            return Err(GitError::new(
+                GitErrorKind::Internal,
+                "HEAD observation is not valid before a commit result is observed",
+            ));
+        }
+        let observed = self.observed_commit.ok_or_else(|| {
+            GitError::new(
+                GitErrorKind::Internal,
+                "commit observation has no commit identity",
+            )
+        })?;
+        if head != Some(observed) {
+            self.phase = PartialCommitPhase::RecoveryRequired;
+            return Err(GitError::new(
+                GitErrorKind::HeadChangedExternally,
+                "observed HEAD does not match the commit result",
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -328,5 +352,26 @@ mod tests {
             GitErrorKind::HeadChangedExternally
         );
         assert_eq!(transaction.phase, PartialCommitPhase::RecoveryRequired);
+    }
+
+    #[test]
+    fn commit_result_requires_matching_observed_head() {
+        let mut transaction = PartialCommitTransaction::begin(request()).expect("valid request");
+        transaction
+            .temp_index_prepared(None, None)
+            .expect("prepare");
+        let tree: ObjectId = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+            .parse()
+            .expect("tree");
+        transaction.candidate_ready(tree).expect("candidate");
+        transaction
+            .revalidate_before_commit(None, None)
+            .expect("revalidate");
+        transaction.begin_commit().expect("begin commit");
+        let commit: ObjectId = "1111111111111111111111111111111111111111"
+            .parse()
+            .expect("commit");
+        transaction.commit_observed(commit).expect("observe");
+        assert!(transaction.observe_head_after_commit(Some(commit)).is_ok());
     }
 }
