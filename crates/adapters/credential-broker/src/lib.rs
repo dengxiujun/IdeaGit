@@ -102,7 +102,43 @@ fn response_from_output(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use git_domain::OperationId;
+    use async_trait::async_trait;
+    use git_domain::{GitError, GitErrorKind, OperationId};
+    use git_ports::{ProcessOutput, ProcessSpec};
+
+    struct FailingAskPass;
+
+    #[async_trait]
+    impl ProcessRunner for FailingAskPass {
+        async fn run(
+            &self,
+            _spec: ProcessSpec,
+            _context: ExecutionContext,
+        ) -> git_domain::GitResult<ProcessOutput> {
+            Ok(ProcessOutput {
+                stdout: Vec::new(),
+                stderr: b"authentication rejected".to_vec(),
+                exit_code: Some(1),
+                success: false,
+            })
+        }
+    }
+
+    struct UnavailableAskPass;
+
+    #[async_trait]
+    impl ProcessRunner for UnavailableAskPass {
+        async fn run(
+            &self,
+            _spec: ProcessSpec,
+            _context: ExecutionContext,
+        ) -> git_domain::GitResult<ProcessOutput> {
+            Err(GitError::new(
+                GitErrorKind::GitUnavailable,
+                "provider unavailable",
+            ))
+        }
+    }
 
     #[test]
     fn parses_secret_without_leaking_it_in_debug() {
@@ -134,5 +170,31 @@ mod tests {
             kind: CredentialKind::Password,
         };
         assert_eq!(request.prompt, "Password:");
+    }
+
+    #[tokio::test]
+    async fn askpass_failure_is_classified_as_rejected_without_diagnostics() {
+        let error = AskPassCredentialBroker::new(FailingAskPass, "askpass")
+            .request(CredentialRequest {
+                operation_id: OperationId::new(),
+                prompt: "Password:".to_owned(),
+                kind: CredentialKind::Password,
+            })
+            .await
+            .expect_err("failed AskPass must reject credentials");
+        assert_eq!(error, CredentialError::Rejected);
+    }
+
+    #[tokio::test]
+    async fn unavailable_askpass_is_not_reported_as_authentication_rejection() {
+        let error = AskPassCredentialBroker::new(UnavailableAskPass, "askpass")
+            .request(CredentialRequest {
+                operation_id: OperationId::new(),
+                prompt: "Password:".to_owned(),
+                kind: CredentialKind::Password,
+            })
+            .await
+            .expect_err("unavailable AskPass must fail the provider");
+        assert_eq!(error, CredentialError::ProviderFailed);
     }
 }
