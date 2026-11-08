@@ -186,6 +186,108 @@ pub type DesktopM2Executor = git_operations::M2OperationExecutor<
     DesktopBranchWriter,
 >;
 
+/// Complete M4 Preview/Confirm session assembled for one repository.
+pub type DesktopSelectionCommitSession = git_application::SelectionCommitPreviewSession<
+    git_cli::GitCliDiffReader<git_cli::TokioProcessRunner>,
+    git_cli::GitCliTemporaryIndexManager<git_cli::TokioProcessRunner>,
+    git_cli::GitCliCandidateTreeBuilder<git_cli::TokioProcessRunner>,
+    git_commit::PartialCommitCoordinator<
+        git_cli::GitCliTemporaryIndexCommitWriter<git_cli::TokioProcessRunner>,
+        persistence::JsonJournalStore,
+        git_cli::GitCliCommitSideEffectObserver<git_cli::TokioProcessRunner>,
+        git_cli::GitCliIndexReconciliationPublisher,
+    >,
+    DesktopCommitStateReader<git_cli::TokioProcessRunner>,
+>;
+
+/// Coordinator used exclusively for confirmed Selection Commit commands.
+pub type DesktopSelectionCommitCoordinator = git_operations::OperationCoordinator<
+    git_operations::SelectionCommitOperationExecutor<
+        Arc<
+            git_application::PreparedSelectionCommitHandler<
+                git_commit::PartialCommitCoordinator<
+                    git_cli::GitCliTemporaryIndexCommitWriter<git_cli::TokioProcessRunner>,
+                    persistence::JsonJournalStore,
+                    git_cli::GitCliCommitSideEffectObserver<git_cli::TokioProcessRunner>,
+                    git_cli::GitCliIndexReconciliationPublisher,
+                >,
+                DesktopCommitStateReader<git_cli::TokioProcessRunner>,
+            >,
+        >,
+    >,
+>;
+
+/// Builds the M4 Preview session without opening a write operation.
+///
+/// The returned session only prepares and arms a one-shot handler. The caller must compose
+/// `session.handler()` into `SelectionCommitOperationExecutor` and submit confirmation through an
+/// `OperationCoordinator`; no direct confirmation method exists on the session.
+#[allow(clippy::result_large_err)]
+pub fn build_selection_commit_session(
+    target: git_domain::SessionTarget,
+    location: git_ports::RepositoryLocation,
+    journal_path: PathBuf,
+) -> git_domain::GitResult<DesktopSelectionCommitSession> {
+    let scope = location.recovery_scope().map_err(|error| {
+        git_domain::GitError::new(
+            git_domain::GitErrorKind::InvalidRepository,
+            "repository has no usable persistent recovery scope",
+        )
+        .with_diagnostic(error.to_string())
+        .with_target(target)
+    })?;
+    let journal = persistence::JsonJournalStore::new(journal_path);
+    let preparation = git_application::SelectionCommitPreparationService::new(
+        git_cli::GitCliDiffReader::new(git_cli::TokioProcessRunner),
+        git_cli::GitCliTemporaryIndexManager::system(git_cli::GitCliExecutor::new(
+            git_cli::TokioProcessRunner,
+        )),
+        git_cli::GitCliCandidateTreeBuilder::new(git_cli::GitCliExecutor::new(
+            git_cli::TokioProcessRunner,
+        )),
+    );
+    let runner = git_commit::PartialCommitCoordinator::new(
+        git_cli::GitCliTemporaryIndexCommitWriter::new(
+            git_cli::TokioProcessRunner,
+            location.clone(),
+        ),
+        git_commit::PartialCommitJournal::new(journal.clone(), scope),
+        git_cli::GitCliCommitSideEffectObserver::new(git_cli::TokioProcessRunner, location.clone()),
+        git_cli::GitCliIndexReconciliationPublisher::new(location.clone()),
+    );
+    let state = DesktopCommitStateReader::new(
+        target,
+        git_cli::GitCliCommitStateProbe::new(git_cli::TokioProcessRunner, location),
+    );
+    let handler = git_application::PreparedSelectionCommitHandler::new(
+        git_application::SelectionCommitExecutionService::new(runner),
+        state,
+    );
+    Ok(git_application::SelectionCommitPreviewSession::new(
+        preparation,
+        handler,
+    ))
+}
+
+/// Composes a Preview Session's armed Handler into the only coordinator accepted for
+/// `CommitSelection`. Standard Index commands cannot enter this coordinator.
+#[allow(clippy::result_large_err)]
+pub fn build_selection_commit_coordinator(
+    target: git_domain::SessionTarget,
+    session: &DesktopSelectionCommitSession,
+    capacity: usize,
+) -> git_domain::GitResult<DesktopSelectionCommitCoordinator> {
+    let executor = git_operations::SelectionCommitOperationExecutor::new(target, session.handler());
+    git_operations::OperationCoordinator::new(executor, capacity).map_err(|error| {
+        git_domain::GitError::new(
+            git_domain::GitErrorKind::Internal,
+            "failed to construct Selection Commit coordinator",
+        )
+        .with_diagnostic(error.to_string())
+        .with_target(target)
+    })
+}
+
 /// Builds the production M2 writer stack without opening any GUI write capability by itself.
 #[allow(clippy::result_large_err)]
 pub fn build_m2_executor(

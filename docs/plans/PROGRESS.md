@@ -1182,3 +1182,13 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - GitHub Runner：路由提交对应 Rust CI #118（Run ID `42467537507`）当时仍在运行；本次确认边界修复尚未推送 CI。
 - 风险：桌面组合根仍需持有 Preview Session，并以其 Handler 构造 Selection Commit Coordinator；在该装配完成前不开放生产 Changelist 提交。
 - 下一步：实现桌面 Selection Commit Session/Coordinator 的真实 Git 组合与生命周期持有。
+
+## M4 UI-013：桌面 Preview/Coordinator 组合根（2026-11-08）
+
+- 完成：桌面组合根新增 `DesktopSelectionCommitSession` 与 `DesktopSelectionCommitCoordinator` 类型，并提供真实 Git CLI 的 Preview Session 构造函数及仅接受 `CommitSelection` 的 Coordinator 构造函数。Temporary Index、Candidate Tree、Partial Commit Journal、Side-effect Observer 和 Real Index Publisher 均使用生产适配器。
+- 安全边界：Session 只负责准备/arm；确认必须通过共享 Handler 构造 `SelectionCommitOperationExecutor`，再进入 `OperationCoordinator`。
+- 修改文件：`apps/desktop/src/main.rs`、`crates/core/git-application/src/selection_commit.rs`、`crates/core/git-operations/src/selection_commit.rs`、`docs/plans/PROGRESS.md`。
+- 本地验证：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo test -p git-application -p git-operations --locked`、`git diff --check` 全部通过。
+- GitHub Runner：Rust CI #118（Run ID `42467537507`）尚未完成；本次组合根修复已推送，后续 CI 为新 Run。
+- 风险：GPUI Controller 尚未接收 Preview Session/Selection Coordinator 句柄，UI 仍不能在没有应用层 Preview 的情况下触发确认；需要继续完成生命周期持有与安全入口。
+- 下一步：将 Preview Session/Selection Coordinator 句柄纳入桌面写就绪状态，补真实 Git Preview→Coordinator Confirm 集成测试。
