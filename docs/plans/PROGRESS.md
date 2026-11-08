@@ -1016,3 +1016,13 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
 - 风险：仍缺 `apps/desktop` + 真实 Git fixture + OperationCoordinator + Git CLI PartialCommitCoordinator 的成功/恢复端到端组合测试；UI-013 入口继续关闭。
 - 下一步：实现真实 Git fixture 的完整应用/Coordinator 组合测试。
+
+## M4 UI-013：真实 Git 应用/Coordinator 组合测试（2026-11-08）
+
+- 完成：在 `apps/desktop` 组合根增加 `SelectionCommitStateReader` 实现，并用真实 Git fixture 装配 Prepared Handler、PartialCommitCoordinator、OperationCoordinator 与 Git CLI writer/journal/hook/index reconciliation；验证已确认选择通过 `CommitSelection` 完成真实提交。
+- 安全边界：测试保留真实 Index 快照，使用临时 Index 构建 candidate tree；提交仅经 OperationCoordinator 调度，未引入裸 `CommitIndex` 降级路径。
+- 修改文件：`apps/desktop/Cargo.toml`、`Cargo.lock`、`apps/desktop/src/main.rs`、`docs/plans/PROGRESS.md`。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过；desktop 真实组合测试通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：当前覆盖真实成功组合路径；Hook 失败、外部并发、崩溃恢复等 UI-013 组合失败路径仍待补齐，UI-013 生产 UI 入口继续关闭。
+- 下一步：补充真实 Git fixture 的失败/恢复组合测试，并继续按 IP-001 依赖顺序推进。
