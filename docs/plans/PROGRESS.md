@@ -1084,3 +1084,13 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 测试：新增重复确认断言；git-application 21 项测试通过。workspace 全量门禁待本次提交前执行；GitHub Runner 未执行（当前环境无 GitHub connector）。
 - 风险：桌面 UI 尚未持有 Preview 会话并触发确认；底层真实协调器已有 Journal 恢复路径，仍需最终生产装配。
 - 下一步：继续实现桌面应用层 Preview 会话的持有与确认装配。
+
+## M4 UI-013：Preview Session 应用层持有与确认边界（2026-11-08）
+
+- 完成：新增 `SelectionCommitPreviewSession`，统一持有 Selection Preview 准备服务和一次性 Handler；`prepare_preview` 只 arm Prepared Transaction 并返回应用生成的完整提交请求，`confirm` 才进入 Handler/Coordinator 边界。
+- 安全边界：UI 不直接构造 Fingerprint 或调用 Commit Runner；Preview 与 Confirm 分离，重复确认继续由一次性 Handler 返回 `StaleSelection`。
+- 修改文件：`crates/core/git-application/src/selection_commit.rs`、`crates/core/git-application/src/lib.rs`、`docs/plans/PROGRESS.md`。
+- 测试：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过。
+- Commit/Runner：本地提交待生成；GitHub Runner 未执行（当前环境无 GitHub connector），PR 未创建。
+- 风险：Preview Session 尚未在桌面组合根实例化并连接 GPUI ActionDispatcher；生产 UI 入口仍关闭。
+- 下一步：在桌面应用组合根接入 Preview Session 的生命周期，先提供 Preview 再允许 Confirm。

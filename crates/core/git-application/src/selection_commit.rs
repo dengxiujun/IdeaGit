@@ -7,8 +7,9 @@ use git_domain::{
 };
 use git_operations::SelectionCommitHandler;
 use git_ports::{
-    CommitOutcome, CommitSideEffectObserver, CommitWriter, ExecutionContext,
-    IndexReconciliationPublisher, JournalStore,
+    CandidateTreeBuilder, CommitOutcome, CommitSideEffectObserver, CommitWriter, DiffReader,
+    ExecutionContext, IndexReconciliationPublisher, JournalStore, RepositoryLocation,
+    TemporaryIndexManager,
 };
 use tokio::sync::Mutex;
 
@@ -100,6 +101,67 @@ pub struct PreparedSelectionCommitHandler<R, P> {
     service: SelectionCommitExecutionService<R>,
     state: P,
     prepared: Mutex<Option<PreparedPartialCommit>>,
+}
+
+/// Application-owned Preview → Confirm session for Changelist commits.
+///
+/// The session keeps preparation and confirmation in one boundary: preparation only arms a
+/// one-shot Handler, while confirmation is the only operation that can reach the commit runner.
+#[derive(Debug)]
+pub struct SelectionCommitPreviewSession<D, T, B, R, P> {
+    preparation: crate::SelectionCommitPreparationService<D, T, B>,
+    handler: PreparedSelectionCommitHandler<R, P>,
+}
+
+impl<D, T, B, R, P> SelectionCommitPreviewSession<D, T, B, R, P> {
+    #[must_use]
+    pub fn new(
+        preparation: crate::SelectionCommitPreparationService<D, T, B>,
+        handler: PreparedSelectionCommitHandler<R, P>,
+    ) -> Self {
+        Self {
+            preparation,
+            handler,
+        }
+    }
+}
+
+impl<D, T, B, R, P> SelectionCommitPreviewSession<D, T, B, R, P>
+where
+    D: DiffReader,
+    T: TemporaryIndexManager,
+    B: CandidateTreeBuilder,
+    R: ConfirmedPartialCommitRunner + 'static,
+    P: SelectionCommitStateReader + 'static,
+{
+    #[allow(clippy::result_large_err)]
+    pub async fn prepare_preview(
+        &self,
+        location: &RepositoryLocation,
+        operation: OperationId,
+        request: crate::SelectionCommitPreviewRequest,
+        context: ExecutionContext,
+    ) -> GitResult<SelectionCommitRequest> {
+        let prepared = self
+            .preparation
+            .prepare_preview(location, operation, request, context)
+            .await?;
+        let commit_request = prepared.transaction.request.clone();
+        self.handler.arm(prepared).await;
+        Ok(commit_request)
+    }
+
+    #[allow(clippy::result_large_err)]
+    pub async fn confirm(
+        &self,
+        target: SessionTarget,
+        request: SelectionCommitRequest,
+        context: ExecutionContext,
+    ) -> GitResult<()> {
+        self.handler
+            .commit_selection(target, request, context)
+            .await
+    }
 }
 
 impl<R, P> PreparedSelectionCommitHandler<R, P> {

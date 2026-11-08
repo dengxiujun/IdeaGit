@@ -20,7 +20,7 @@ pub use refresh::{
 };
 pub use selection_commit::{
     ConfirmedPartialCommitRunner, PreparedSelectionCommitHandler, SelectionCommitExecutionService,
-    SelectionCommitStateReader,
+    SelectionCommitPreviewSession, SelectionCommitStateReader,
 };
 pub use selection_preparation::{SelectionCommitPreparationService, SelectionCommitPreviewRequest};
 pub use selection_preview::{SelectionPatchPreview, SelectionPatchPreviewService};
