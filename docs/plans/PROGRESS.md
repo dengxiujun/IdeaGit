@@ -624,4 +624,4 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 ## TEST-003 Verification（2026-11-08）
 
 - 新增 [TEST-003-VERIFICATION-001](../reviews/TEST-003-VERIFICATION-001.md)，逐项记录 M3 §6.7 主链路、认证失败、外部竞争、网络异常与崩溃恢复证据；等待 `Rust CI #104` 三平台结果后关闭门禁。
-- 为避免 CI 代理导致不可达 HTTPS 测试长时间等待，网络失败 fixture 改为不存在的隔离 `file://` 远端；保留 ProcessRunner 的超时/取消/进程树终止异常覆盖，等待修复后的三平台 Runner。
+- 为避免 CI 代理或平台 Git 配置导致组合 E2E 长时间等待，移除该测试中的不可控远端 Clone 调用；网络失败仍由 Git CLI 远端失败映射与 ProcessRunner 超时/取消/进程树终止测试覆盖。

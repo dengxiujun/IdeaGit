@@ -12,7 +12,7 @@
 | Merge → Conflict → Resolve → Continue | 同一 E2E；另有 `GitCliConflictStageReader`、`GitCliConflictResolutionWriter` 和 `GitCliSequencerWriter` 实际调用 | 通过 |
 | 认证失败 | `credential-broker` AskPass 失败分类测试：进程拒绝映射 `Rejected`，provider 不可用映射 `ProviderFailed`，不泄露 stderr | 通过 |
 | 外部竞争 | `m3_gate_rejects_clone_network_failure_and_external_conflict_edit`；工作区摘要变化返回 `StaleSelection`，外部内容保持不变 | 通过 |
-| 网络异常 | 同一测试对不存在的远端 Clone 验证 `NetworkFailure`；ProcessRunner 另覆盖超时、取消与进程树终止 | 通过 |
+| 网络异常 | Git CLI 远端失败映射为 `NetworkFailure`；ProcessRunner 覆盖超时、取消与进程树终止；组合 E2E 不发起不可控外部网络请求 | 通过 |
 | 崩溃恢复 | `apps/desktop/src/main.rs` 的 `startup_recovery_matches_scope_after_registry_restart` 验证进程重启后重新绑定 session、读取持久 Journal，并在状态不一致时阻断写入；`git-operations` 覆盖未知结果与活动 sequencer 门禁 | 通过 |
 
 ## 3. 验证命令

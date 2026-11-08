@@ -204,21 +204,7 @@ async fn m3_gate_clone_edit_commit_push_fetch_pull_merge_conflict_resolve_contin
 }
 
 #[tokio::test]
-async fn m3_gate_rejects_clone_network_failure_and_external_conflict_edit() {
-    let temp = tempfile::tempdir().expect("tempdir");
-    let destination = temp.path().join("failed-clone");
-    let clone_error = GitCliCloneWriter::new(TokioProcessRunner)
-        .clone_repository(
-            CloneRequest {
-                source: "file:///ideagit-missing-remote.git".to_owned(),
-                destination: git_domain::LocalPath::new(destination),
-            },
-            context(),
-        )
-        .await
-        .expect_err("unreachable clone must fail");
-    assert_eq!(clone_error.kind, git_domain::GitErrorKind::NetworkFailure);
-
+async fn m3_gate_rejects_external_conflict_edit_without_overwrite() {
     let fixture = TestRepository::init().expect("fixture");
     fixture
         .configure_local_identity()
