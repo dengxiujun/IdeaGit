@@ -1865,6 +1865,9 @@ mod tests {
 
         let repository = git_fixture::TestRepository::init().expect("fixture should initialize");
         repository
+            .configure_local_identity()
+            .expect("repository-local identity should be configured");
+        repository
             .commit_file("selected.txt", b"base\n")
             .expect("initial commit");
         repository

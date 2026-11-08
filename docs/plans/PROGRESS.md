@@ -1210,3 +1210,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - GitHub Runner：本次测试提交尚未推送 CI；前置 Rust CI #117（Run ID `42466409971`）已全绿。Rust CI #118/#119/#120 的旧提交状态仍需分别记录最终结果。
 - 风险：UI-013 代码路径已接入，但完整 M4 仍需本次提交跨平台 CI、PR 合并及最终全量审查。
 - 下一步：推送本次测试提交，按 3 分钟间隔确认四平台 Runner；随后更新 UI-013/M4 验收状态。
+
+## M4 UI-013：跨平台真实 Git Fixture 修复（2026-11-08）
+
+- 完成：Rust CI #122 的 Ubuntu Runner 暴露新增 Preview→Confirm 测试依赖用户级 Git identity，导致无全局配置的 Linux Runner 提交失败。测试现在显式写入仓库本地 identity，不依赖 Runner 用户环境；没有放宽提交结果断言。
+- 修改文件：`apps/desktop/src/main.rs`、`docs/plans/PROGRESS.md`。
+- 本地完整门禁：`cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace --locked`、`git diff --check` 全部通过；新增桌面测试通过。
+- GitHub Runner：Rust CI #122（Run ID `42468412330`）：Format `128693210292` 通过、macOS `128693210179` 通过、Ubuntu `128693210355` 失败（无本地 Git identity，已修复）、Windows `128693210354` 当时仍运行。
+- 风险：修复提交尚未完成跨平台 CI；需要确认 Windows 及新提交的四平台 Runner 全绿。
+- 下一步：提交并推送修复，等待新 Rust CI；通过后进入 M4 最终审查和 PR 合并门禁。
