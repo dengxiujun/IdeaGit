@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use git_domain::{ObjectId, RepoPath};
+use git_domain::{LineSpan, ObjectId, RepoPath};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Patch {
@@ -204,6 +204,135 @@ pub enum ParseError {
     MissingFileHeader,
     InvalidHunkHeader,
     HunkLineCountMismatch,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PatchBuildError {
+    BinaryFile,
+    EmptySelection,
+    SelectionOutOfBounds,
+    ContextOnlySelection,
+    InvalidLineRange,
+}
+
+/// Build a minimal, byte-preserving patch for selected changed lines in one hunk.
+///
+/// Ranges address `Hunk::lines` by zero-based, half-open indices.  Context is never treated as
+/// selected content; callers must explicitly select at least one added or removed line.
+pub fn build_line_patch(
+    file: &FilePatch,
+    hunk_index: usize,
+    ranges: &[LineSpan],
+) -> Result<Vec<u8>, PatchBuildError> {
+    if file.binary {
+        return Err(PatchBuildError::BinaryFile);
+    }
+    if ranges.is_empty() {
+        return Err(PatchBuildError::EmptySelection);
+    }
+    let hunk = file
+        .hunks
+        .get(hunk_index)
+        .ok_or(PatchBuildError::SelectionOutOfBounds)?;
+    let mut selected = vec![false; hunk.lines.len()];
+    for range in ranges {
+        if range.start >= range.end {
+            return Err(PatchBuildError::InvalidLineRange);
+        }
+        let start =
+            usize::try_from(range.start).map_err(|_| PatchBuildError::SelectionOutOfBounds)?;
+        let end = usize::try_from(range.end).map_err(|_| PatchBuildError::SelectionOutOfBounds)?;
+        if end > selected.len() {
+            return Err(PatchBuildError::SelectionOutOfBounds);
+        }
+        selected[start..end].fill(true);
+    }
+    if !selected
+        .iter()
+        .enumerate()
+        .any(|(index, selected)| *selected && hunk.lines[index].kind != LineKind::Context)
+    {
+        return Err(PatchBuildError::ContextOnlySelection);
+    }
+
+    let mut output = Vec::new();
+    write_file_headers(&mut output, file);
+    let mut index = 0;
+    while index < hunk.lines.len() {
+        while index < hunk.lines.len()
+            && (!selected[index] || hunk.lines[index].kind == LineKind::Context)
+        {
+            index += 1;
+        }
+        if index == hunk.lines.len() {
+            break;
+        }
+        let start = index;
+        while index < hunk.lines.len()
+            && selected[index]
+            && hunk.lines[index].kind != LineKind::Context
+        {
+            index += 1;
+        }
+        write_hunk(&mut output, &hunk.lines[start..index]);
+    }
+    Ok(output)
+}
+
+fn write_file_headers(output: &mut Vec<u8>, file: &FilePatch) {
+    output.extend_from_slice(b"diff --git ");
+    write_path(output, b"a/", file.old_path.as_deref());
+    output.push(b' ');
+    write_path(output, b"b/", file.new_path.as_deref());
+    output.extend_from_slice(b"\n");
+    output.extend_from_slice(b"--- ");
+    write_path(output, b"a/", file.old_path.as_deref());
+    output.extend_from_slice(b"\n+++ ");
+    write_path(output, b"b/", file.new_path.as_deref());
+    output.push(b'\n');
+}
+
+fn write_path(output: &mut Vec<u8>, prefix: &[u8], path: Option<&[u8]>) {
+    if let Some(path) = path {
+        output.extend_from_slice(prefix);
+        output.extend_from_slice(path);
+    } else {
+        output.extend_from_slice(b"/dev/null");
+    }
+}
+
+fn write_hunk(output: &mut Vec<u8>, lines: &[Line]) {
+    let old_start = lines
+        .iter()
+        .find_map(|line| line.old_line)
+        .unwrap_or_else(|| {
+            lines
+                .first()
+                .and_then(|line| line.new_line)
+                .unwrap_or(1)
+                .saturating_sub(1)
+        });
+    let new_start = lines
+        .iter()
+        .find_map(|line| line.new_line)
+        .unwrap_or_else(|| lines.first().and_then(|line| line.old_line).unwrap_or(1));
+    let old_count = lines.iter().filter(|line| line.old_line.is_some()).count();
+    let new_count = lines.iter().filter(|line| line.new_line.is_some()).count();
+    output.extend_from_slice(
+        format!("@@ -{old_start},{old_count} +{new_start},{new_count} @@\n").as_bytes(),
+    );
+    for line in lines {
+        output.push(match line.kind {
+            LineKind::Context => b' ',
+            LineKind::Added => b'+',
+            LineKind::Removed => b'-',
+        });
+        output.extend_from_slice(&line.content);
+        output.push(b'\n');
+        if !line.has_newline {
+            output.extend_from_slice(b"\\ No newline at end of file\n");
+        }
+    }
 }
 type PathPair = (Option<Vec<u8>>, Option<Vec<u8>>);
 impl fmt::Display for ParseError {
@@ -492,6 +621,53 @@ mod tests {
                     after: ContentSource::Head,
                 })
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn builds_a_minimal_patch_for_selected_lines() {
+        let patch = parse(
+            b"diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,3 +1,3 @@\n one\n-old\n+new\n tail\n",
+        )
+        .expect("valid");
+        let bytes = build_line_patch(&patch.files[0], 0, &[LineSpan { start: 2, end: 3 }])
+            .expect("line patch should build");
+        let text = String::from_utf8(bytes).expect("patch is ASCII");
+        assert!(text.contains("@@ -1,0 +2,1 @@\n+new\n"));
+        assert!(!text.contains("-old"));
+    }
+
+    #[test]
+    fn rejects_context_only_and_invalid_line_selections() {
+        let patch =
+            parse(b"diff --git a/x b/x\n@@ -1,2 +1,2 @@\n context\n-old\n+new\n").expect("valid");
+        assert_eq!(
+            build_line_patch(&patch.files[0], 0, &[LineSpan { start: 0, end: 1 }]),
+            Err(PatchBuildError::ContextOnlySelection)
+        );
+        assert_eq!(
+            build_line_patch(&patch.files[0], 0, &[LineSpan { start: 4, end: 5 }]),
+            Err(PatchBuildError::SelectionOutOfBounds)
+        );
+    }
+
+    #[test]
+    fn preserves_no_newline_marker_and_rejects_binary_files() {
+        let patch =
+            parse(b"diff --git a/x b/x\n@@ -1 +1 @@\n-old\n+new\n\\ No newline at end of file\n")
+                .expect("valid");
+        let bytes = build_line_patch(&patch.files[0], 0, &[LineSpan { start: 1, end: 2 }])
+            .expect("line patch should build");
+        assert!(
+            String::from_utf8(bytes)
+                .expect("patch is ASCII")
+                .contains("\\ No newline at end of file")
+        );
+        let binary =
+            parse(b"diff --git a/x b/x\nBinary files a/x and b/x differ\n").expect("valid");
+        assert_eq!(
+            build_line_patch(&binary.files[0], 0, &[LineSpan { start: 0, end: 1 }]),
+            Err(PatchBuildError::BinaryFile)
         );
     }
 }
