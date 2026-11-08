@@ -622,6 +622,127 @@ mod tests {
         assert_eq!(unselected_head.stdout, b"unselected-base\n");
     }
 
+    #[tokio::test]
+    async fn temporary_partial_commit_preserves_unselected_content_during_rename() {
+        let fixture = TestRepository::init().expect("fixture");
+        fixture
+            .commit_file("old-name.txt", b"old-base\n")
+            .expect("first file");
+        fixture
+            .write_file("other.txt", b"other-base\n")
+            .expect("second file");
+        fixture.stage_file("other.txt").expect("stage second file");
+        let location = RepositoryLocation::worktree(
+            &fixture.worktree,
+            fixture.worktree.join(".git"),
+            fixture.worktree.join(".git"),
+        );
+        let baseline_writer = GitCliCommitWriter::new(TokioProcessRunner, location.clone())
+            .with_environment(fixture.isolated_environment());
+        let (progress, _receiver) = mpsc::channel(4);
+        baseline_writer
+            .commit(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                StandardCommitRequest {
+                    options: CommitOptions {
+                        message: b"add other file\n".to_vec(),
+                        amend: false,
+                        allow_empty: false,
+                        signoff: false,
+                        author: None,
+                        committer: None,
+                        signing: SigningMode::Disable,
+                    },
+                    expected_revision: SnapshotRevision::new(1),
+                    expected_head: None,
+                    expected_index: None,
+                },
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect("baseline commit");
+
+        fixture
+            .rename_file("old-name.txt", "new-name.txt")
+            .expect("rename selected file");
+        fixture
+            .write_file("new-name.txt", b"new-content\n")
+            .expect("edit renamed file");
+        fixture
+            .write_file("other.txt", b"other-unselected\n")
+            .expect("edit unselected file");
+        let real_index = fixture.worktree.join(".git/index");
+        let index_before = fs::read(&real_index).expect("real Index");
+        let temporary_index = fixture.temp_dir.path().join("rename-candidate-index");
+        let mut read_tree = Command::new("git");
+        read_tree
+            .args(["read-tree", "HEAD"])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (name, value) in fixture.isolated_environment() {
+            read_tree.env(name, value);
+        }
+        assert!(read_tree.status().expect("git starts").success());
+        let mut add_rename = Command::new("git");
+        add_rename
+            .args(["add", "-A", "--", "old-name.txt", "new-name.txt"])
+            .current_dir(&fixture.worktree)
+            .env("GIT_INDEX_FILE", &temporary_index);
+        for (name, value) in fixture.isolated_environment() {
+            add_rename.env(name, value);
+        }
+        assert!(add_rename.status().expect("git starts").success());
+        let writer =
+            GitCliTemporaryIndexCommitWriter::new(TokioProcessRunner, location, &temporary_index)
+                .with_environment(fixture.isolated_environment());
+        let (progress, _receiver) = mpsc::channel(4);
+        writer
+            .commit(
+                SessionTarget::worktree(RepositoryId::new(), WorktreeId::new(), 1),
+                StandardCommitRequest {
+                    options: CommitOptions {
+                        message: b"partial rename\n".to_vec(),
+                        amend: false,
+                        allow_empty: false,
+                        signoff: false,
+                        author: None,
+                        committer: None,
+                        signing: SigningMode::Disable,
+                    },
+                    expected_revision: SnapshotRevision::new(2),
+                    expected_head: None,
+                    expected_index: None,
+                },
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect("partial rename commit");
+
+        assert_eq!(fs::read(&real_index).expect("real Index"), index_before);
+        let old_head = Command::new("git")
+            .args(["show", "HEAD:old-name.txt"])
+            .current_dir(&fixture.worktree)
+            .output()
+            .expect("git show old path");
+        assert!(!old_head.status.success());
+        let new_head = Command::new("git")
+            .args(["show", "HEAD:new-name.txt"])
+            .current_dir(&fixture.worktree)
+            .output()
+            .expect("git show new path");
+        assert_eq!(new_head.stdout, b"new-content\n");
+        let other_head = Command::new("git")
+            .args(["show", "HEAD:other.txt"])
+            .current_dir(&fixture.worktree)
+            .output()
+            .expect("git show unselected path");
+        assert_eq!(other_head.stdout, b"other-base\n");
+        assert_eq!(
+            fs::read(fixture.worktree.join("other.txt")).expect("worktree"),
+            b"other-unselected\n"
+        );
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn temporary_partial_commit_hook_rejection_keeps_head_and_real_index() {
