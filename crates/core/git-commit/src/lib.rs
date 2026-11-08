@@ -443,4 +443,93 @@ mod tests {
         transaction.commit_observed(commit).expect("observe");
         assert!(transaction.observe_head_after_commit(Some(commit)).is_ok());
     }
+
+    #[test]
+    fn mixed_staged_and_unstaged_content_cannot_bypass_index_identity() {
+        let mut transaction = PartialCommitTransaction::begin(request()).expect("valid request");
+        transaction
+            .temp_index_prepared(None, None)
+            .expect("prepare");
+        let tree: ObjectId = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+            .parse()
+            .expect("tree");
+        transaction.candidate_ready(tree).expect("candidate");
+        let changed_index: ObjectId = "2222222222222222222222222222222222222222"
+            .parse()
+            .expect("index");
+        let error = transaction
+            .revalidate_before_commit(None, Some(changed_index))
+            .expect_err("changed Index must reject the mixed-state commit");
+        assert_eq!(error.kind, GitErrorKind::IndexChangedExternally);
+        assert_eq!(transaction.phase, PartialCommitPhase::RecoveryRequired);
+    }
+
+    #[test]
+    fn commit_observation_mismatch_enters_recovery_without_claiming_success() {
+        let mut transaction = PartialCommitTransaction::begin(request()).expect("valid request");
+        transaction
+            .temp_index_prepared(None, None)
+            .expect("prepare");
+        let tree: ObjectId = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+            .parse()
+            .expect("tree");
+        transaction.candidate_ready(tree).expect("candidate");
+        transaction
+            .revalidate_before_commit(None, None)
+            .expect("revalidate");
+        transaction.begin_commit().expect("begin");
+        let committed: ObjectId = "1111111111111111111111111111111111111111"
+            .parse()
+            .expect("commit");
+        let external: ObjectId = "2222222222222222222222222222222222222222"
+            .parse()
+            .expect("external");
+        transaction.commit_observed(committed).expect("observe");
+        let error = transaction
+            .observe_head_after_commit(Some(external))
+            .expect_err("external HEAD must not be reported as success");
+        assert_eq!(error.kind, GitErrorKind::HeadChangedExternally);
+        assert_eq!(transaction.phase, PartialCommitPhase::RecoveryRequired);
+    }
+
+    #[test]
+    fn real_repository_external_commit_with_index_change_requires_recovery() {
+        use std::fs;
+
+        use git_fixture::TestRepository;
+
+        let fixture = TestRepository::init().expect("fixture");
+        fixture
+            .commit_file("tracked.txt", b"base\n")
+            .expect("initial commit");
+        let index_path = fixture.worktree.join(".git/index");
+        let original_index = fs::read(&index_path).expect("index");
+        let original_head: ObjectId = fixture
+            .head_oid()
+            .expect("head")
+            .expect("initial head")
+            .parse()
+            .expect("valid head");
+        fixture
+            .write_file("tracked.txt", b"external worktree\n")
+            .expect("worktree edit");
+        fixture
+            .commit_file("other.txt", b"external commit\n")
+            .expect("external commit");
+        let observed_head: ObjectId = fixture
+            .head_oid()
+            .expect("head")
+            .expect("updated head")
+            .parse()
+            .expect("valid head");
+        let plan = RealIndexReconciler::plan(
+            RealIndexReconciler::digest(&original_index),
+            &fs::read(&index_path).expect("unchanged index"),
+            Some(original_head),
+            Some(observed_head),
+            Some(original_index.clone()),
+        )
+        .expect("plan");
+        assert!(matches!(plan, ReconciliationPlan::RecoveryRequired { .. }));
+    }
 }

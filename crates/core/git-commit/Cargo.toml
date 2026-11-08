@@ -9,3 +9,6 @@ git-domain.workspace = true
 git-ports.workspace = true
 git-diff.workspace = true
 sha2.workspace = true
+
+[dev-dependencies]
+git-fixture = { path = "../../../tests/fixtures" }

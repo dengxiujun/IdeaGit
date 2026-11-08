@@ -2053,6 +2053,7 @@ version = "0.1.0"
 dependencies = [
  "git-diff",
  "git-domain",
+ "git-fixture",
  "git-ports",
  "sha2 0.10.9",
 ]
