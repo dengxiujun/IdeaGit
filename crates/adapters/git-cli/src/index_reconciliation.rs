@@ -149,12 +149,14 @@ mod tests {
         let location = location(&fixture);
         let index = fixture.worktree.join(".git/index");
         let original = fs::read(&index).expect("index");
-        let external = original
-            .iter()
-            .copied()
-            .chain([9, 8, 7])
-            .collect::<Vec<_>>();
-        fs::write(&index, &external).expect("external index mutation");
+        fixture
+            .write_file("external.txt", b"external staged content\n")
+            .expect("external worktree mutation");
+        fixture
+            .stage_file("external.txt")
+            .expect("external index mutation");
+        let external = fs::read(&index).expect("externally changed index");
+        assert_ne!(external, original);
         let publisher = GitCliIndexReconciliationPublisher::new(location);
         let result = publisher
             .publish(
