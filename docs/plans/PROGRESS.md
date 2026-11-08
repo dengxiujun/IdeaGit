@@ -1075,3 +1075,12 @@ M0、M1 已完成。M1 Git Read Core 与 Workbench 已在真实 Git 端到端链
 - 测试：应用层准备测试改为覆盖新的 Preview 协议；workspace 门禁待本次提交前执行；GitHub Runner 未执行（当前环境无 GitHub connector）。
 - 风险：Preview 协议尚未接入 GPUI ActionDispatcher 和桌面长期持有的 Handler；仍需实现确认态保存与 OperationCoordinator 生产装配。
 - 下一步：审查并实现 Preview 会话在桌面应用层的持有/确认入口，禁止 UI 直接提交裸选区。
+
+## M4 UI-013：Prepared Preview 一次性确认（2026-11-08）
+
+- 完成：`PreparedSelectionCommitHandler` 在确认执行前消费已 arm 的 Preview；成功、底层失败或状态读取失败后均不可复用同一 Prepared Transaction，恢复信息由 Journal/Recovery 负责。
+- 安全边界：重复确认返回 `StaleSelection`，不会再次调用 Commit Runner；避免同一 Candidate Tree/Temporary Index 身份被隐式重试。
+- 修改文件：`crates/core/git-application/src/selection_commit.rs`、`docs/plans/PROGRESS.md`。
+- 测试：新增重复确认断言；git-application 21 项测试通过。workspace 全量门禁待本次提交前执行；GitHub Runner 未执行（当前环境无 GitHub connector）。
+- 风险：桌面 UI 尚未持有 Preview 会话并触发确认；底层真实协调器已有 Journal 恢复路径，仍需最终生产装配。
+- 下一步：继续实现桌面应用层 Preview 会话的持有与确认装配。

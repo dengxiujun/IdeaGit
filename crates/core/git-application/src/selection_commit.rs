@@ -129,26 +129,42 @@ where
         request: SelectionCommitRequest,
         context: ExecutionContext,
     ) -> GitResult<()> {
-        let mut prepared = self.prepared.lock().await;
-        let Some(prepared) = prepared.as_mut() else {
-            return Err(GitError::new(
-                GitErrorKind::StaleSelection,
-                "selection commit preview is no longer armed",
-            )
-            .with_target(target)
-            .with_operation(context.operation_id));
+        // Consume the armed preview before any irreversible work. A confirmation is one-shot;
+        // recovery, if needed, is represented by the transaction Journal rather than a silent
+        // retry of the same prepared identity.
+        let mut prepared = {
+            let mut armed = self.prepared.lock().await;
+            let Some(prepared) = armed.as_ref() else {
+                return Err(GitError::new(
+                    GitErrorKind::StaleSelection,
+                    "selection commit preview is no longer armed",
+                )
+                .with_target(target)
+                .with_operation(context.operation_id));
+            };
+            if prepared.preview.target != target || prepared.transaction.request != request {
+                return Err(GitError::new(
+                    GitErrorKind::StaleSelection,
+                    "selection commit request does not match the armed preview",
+                )
+                .with_target(target)
+                .with_operation(context.operation_id));
+            }
+            match armed.take() {
+                Some(prepared) => prepared,
+                None => {
+                    return Err(GitError::new(
+                        GitErrorKind::StaleSelection,
+                        "selection commit preview is no longer armed",
+                    )
+                    .with_target(target)
+                    .with_operation(context.operation_id));
+                }
+            }
         };
-        if prepared.preview.target != target || prepared.transaction.request != request {
-            return Err(GitError::new(
-                GitErrorKind::StaleSelection,
-                "selection commit request does not match the armed preview",
-            )
-            .with_target(target)
-            .with_operation(context.operation_id));
-        }
         let (head, index) = self.state.read(target, context.clone()).await?;
         self.service
-            .execute(context.operation_id, prepared, head, index, context)
+            .execute(context.operation_id, &mut prepared, head, index, context)
             .await
             .map(|_| ())
     }
@@ -308,12 +324,24 @@ mod tests {
         let error = handler
             .commit_selection(
                 target,
-                request,
+                request.clone(),
                 ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
             )
             .await
             .expect_err("test runner returns a sentinel error");
         assert_eq!(error.kind, git_domain::GitErrorKind::Internal);
+        assert_eq!(*calls.lock().expect("calls lock"), 1);
+
+        let (progress, _receiver) = mpsc::channel(1);
+        let stale = handler
+            .commit_selection(
+                target,
+                request,
+                ExecutionContext::new(OperationId::new(), CancellationToken::new(), progress),
+            )
+            .await
+            .expect_err("a confirmed preview must not be reusable");
+        assert_eq!(stale.kind, GitErrorKind::StaleSelection);
         assert_eq!(*calls.lock().expect("calls lock"), 1);
     }
 
