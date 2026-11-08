@@ -1,7 +1,7 @@
 //! Safe conflict-resolution write boundary.
 
 use async_trait::async_trait;
-use git_domain::{GitResult, RepoPath, SessionTarget, SnapshotRevision};
+use git_domain::{GitResult, RepoPath, SessionTarget, SnapshotRevision, UnmergedChange};
 use sha2::{Digest, Sha256};
 
 use crate::ExecutionContext;
@@ -55,6 +55,24 @@ pub fn validate_worktree_digest(
     }
 }
 
+/// Compares every observed conflict-stage identity before a resolution write.
+pub fn validate_conflict_stages(
+    expected_path: &RepoPath,
+    expected: &ConflictStages,
+    observed: &UnmergedChange,
+) -> Result<(), ConflictStageError> {
+    if expected_path != &observed.path {
+        return Err(ConflictStageError::PathChanged);
+    }
+    if expected.stage1 != observed.stage1_oid
+        || expected.stage2 != observed.stage2_oid
+        || expected.stage3 != observed.stage3_oid
+    {
+        return Err(ConflictStageError::StagesChanged);
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ResolutionRequestError {
     #[error("conflict resolution requires a non-zero file mode")]
@@ -65,6 +83,14 @@ pub enum ResolutionRequestError {
 pub enum WorktreeConflictError {
     #[error("worktree file changed externally while resolving conflict")]
     ChangedExternally,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum ConflictStageError {
+    #[error("conflict path changed while resolving")]
+    PathChanged,
+    #[error("conflict stage identities changed while resolving")]
+    StagesChanged,
 }
 
 /// Applies a previously validated conflict result and stages it atomically with respect to the
@@ -123,6 +149,36 @@ mod tests {
         assert_eq!(
             validate_worktree_digest(expected, b"after"),
             Err(WorktreeConflictError::ChangedExternally)
+        );
+    }
+
+    #[test]
+    fn rejects_changed_conflict_stage_identity() {
+        let expected_path = RepoPath::try_from("conflict.txt").expect("fixture path");
+        let observed = UnmergedChange {
+            path: expected_path.clone(),
+            conflict: git_domain::ConflictKind::BothModified,
+            submodule: git_domain::SubmoduleState::NOT_SUBMODULE,
+            stage1_mode: None,
+            stage2_mode: None,
+            stage3_mode: None,
+            worktree_mode: None,
+            stage1_oid: None,
+            stage2_oid: None,
+            stage3_oid: None,
+        };
+        let expected = ConflictStages {
+            stage1: None,
+            stage2: Some(
+                "0000000000000000000000000000000000000001"
+                    .parse()
+                    .expect("oid"),
+            ),
+            stage3: None,
+        };
+        assert_eq!(
+            validate_conflict_stages(&expected_path, &expected, &observed),
+            Err(ConflictStageError::StagesChanged)
         );
     }
 }
